@@ -23,7 +23,7 @@ test("초대받지 않은 이메일은 가입이 거부되고 사용자 행이 �
   const adapter = await adapterOf(db);
   await expect(
     adapter.createUser({ email: "x@example.com", name: "X", emailVerified: true }, SOURCE),
-  ).rejects.toThrow();
+  ).rejects.toMatchObject({ body: { code: "not_invited" } }); // code가 있어야 /denied로 이동한다
   expect(await db.select().from(user)).toEqual([]);
 });
 

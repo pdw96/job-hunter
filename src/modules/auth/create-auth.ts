@@ -29,7 +29,8 @@ export function createAuth(db: Db) {
               emailVerified: newUser.emailVerified === true,
             });
             if (!decision.allowed) {
-              throw new APIError("FORBIDDEN", { message: decision.reason });
+              // code가 있어야 로그인 흐름이 원문 메시지 대신 안내 화면(/denied)으로 이동한다
+              throw new APIError("FORBIDDEN", { code: decision.reason, message: decision.reason });
             }
           },
         },
