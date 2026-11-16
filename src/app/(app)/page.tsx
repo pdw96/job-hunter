@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
+import { countExperiences } from "@/modules/experiences/repo";
 import { listMajors } from "@/modules/ncs/repo";
 import { listTracks } from "@/modules/tracks/repo";
 import { SurveyForm } from "./tracks/survey-form";
@@ -9,7 +10,7 @@ const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZ
 
 export default async function HomePage() {
   const user = await requireUser();
-  const tracks = await listTracks(db, user.id);
+  const [tracks, experienceCount] = await Promise.all([listTracks(db, user.id), countExperiences(db, user.id)]);
   // 처음 로그인하면 설문부터 한다. 다른 주소로 보내지 않고 여기서 바로 보여 준다
   // (보내는 방식은 브라우저가 "홈 → 설문" 이동을 기억해, 트랙을 만든 뒤에도 설문으로 되돌아갔다)
   if (tracks.length === 0) return <SurveyForm majors={await listMajors(db)} isFirst />;
@@ -37,7 +38,11 @@ export default async function HomePage() {
               </Link>
             </div>
             <p className="text-sm text-foreground/70">{track.jobNames.join(", ")}</p>
-            <p className="text-sm text-foreground/50">경험 기록은 다음 단계에서 열립니다</p>
+            <p className="text-sm">
+              <Link href="/experiences" className="underline">
+                경험 기록 {experienceCount}건
+              </Link>
+            </p>
           </li>
         ))}
       </ul>
