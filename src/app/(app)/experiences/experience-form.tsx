@@ -172,6 +172,8 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
         save();
       }}
     >
+      {/* 저장하는 동안에는 입력을 막는다. 그 사이 고친 내용이 저장 결과로 덮어써지지 않게 한다 */}
+      <fieldset disabled={pending} className="m-0 min-w-0 space-y-8 border-0 p-0 disabled:opacity-70">
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">기본</h2>
         <Field label="이름" hint="나중에 알아보기 쉬운 이름. 예: 결제 시스템 개편" error={errors.name}>
@@ -413,6 +415,8 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
           ))}
         </section>
       )}
+
+      </fieldset>
 
       {id && changed && (
         <p className="text-sm text-foreground/70">

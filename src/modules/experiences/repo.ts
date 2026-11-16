@@ -154,13 +154,23 @@ async function setClosed(
   item: RubricItem,
   closed: boolean,
 ): Promise<Ok | NotFound | { ok: false; reason: "not_allowed" }> {
-  const [current] = await db.select().from(experiences).where(mine(userId, id)).limit(1);
+  const [current] = await db.select({ kind: experiences.kind }).from(experiences).where(mine(userId, id)).limit(1);
   if (!current) return { ok: false, reason: "not_found" };
   if (!canClose(current.kind, item)) return { ok: false, reason: "not_allowed" };
-  if (!closed && current.rubric[item].status !== "closed") return { ok: true };
 
-  const rubric: StoredRubric = { ...current.rubric, [item]: { status: closed ? "closed" : "unjudged", note: null } };
-  await db.update(experiences).set({ rubric }).where(mine(userId, id));
+  // 그 항목 하나만 DB 안에서 바꾼다. 읽은 루브릭을 통째로 다시 쓰면, 그 사이 다른 탭에서
+  // 내용을 고쳐 다시 계산된 판정(예: 기간 미달)을 예전 값으로 덮어쓸 수 있다
+  const entry = JSON.stringify({ status: closed ? "closed" : "unjudged", note: null });
+  const path = `{${item}}`;
+  await db
+    .update(experiences)
+    .set({ rubric: sql`jsonb_set(${experiences.rubric}, ${path}::text[], ${entry}::jsonb)` })
+    .where(
+      closed
+        ? mine(userId, id)
+        : // 다시 열기는 닫혀 있을 때만. 이미 열려 있으면 판정을 건드리지 않는다
+          and(mine(userId, id), sql`${experiences.rubric} -> ${item} ->> 'status' = 'closed'`),
+    );
   return { ok: true };
 }
 

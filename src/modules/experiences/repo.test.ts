@@ -163,6 +163,28 @@ test("수치는 닫고 다시 열 수 있고, 닫은 것은 내용을 고쳐도 
   expect((await getExperience(db, "u1", id))?.rubric.metrics.status).toBe("unjudged");
 });
 
+test("항목을 닫거나 열어도 다른 항목의 판정과 보완 방안은 그대로다", async () => {
+  const id = await createExperience(db, "u1", job);
+  // AI가 판정해 둔 상태를 흉내 낸다
+  const judged = {
+    period: { status: "unmet" as const, note: null },
+    role: { status: "met" as const, note: null },
+    level: { status: "unmet" as const, note: "어느 수준까지 했는지 알려 주세요" },
+    metrics: { status: "met" as const, note: null },
+    evidence: { status: "unmet" as const, note: "증빙 자료가 필요합니다" },
+  };
+  await db.update(experiences).set({ rubric: judged }).where(eq(experiences.id, id));
+
+  await closeRubricItem(db, "u1", id, "metrics");
+  expect((await getExperience(db, "u1", id))?.rubric).toEqual({
+    ...judged,
+    metrics: { status: "closed", note: null },
+  });
+  // 닫혀 있지 않은 항목을 다시 열어도 판정이 지워지지 않는다
+  await reopenRubricItem(db, "u1", id, "evidence");
+  expect((await getExperience(db, "u1", id))?.rubric.evidence).toEqual(judged.evidence);
+});
+
 test("본인 역할과 기간은 닫을 수 없다", async () => {
   const id = await createExperience(db, "u1", job);
   expect(await closeRubricItem(db, "u1", id, "role")).toEqual({ ok: false, reason: "not_allowed" });
