@@ -43,6 +43,7 @@ export default async function ContactPage({
               name={field.name}
               type={field.type}
               autoComplete={field.autoComplete}
+              {...(field.type === "date" ? { min: "1900-01-01", max: "9999-12-31" } : {})}
               defaultValue={contact?.[field.name] ?? ""}
               className="w-full rounded-lg border border-foreground/20 bg-transparent px-3 py-2"
             />
