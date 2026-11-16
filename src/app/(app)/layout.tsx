@@ -16,6 +16,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Job Hunter
           </Link>
           <nav className="flex gap-4 text-sm">
+            <Link href="/">트랙</Link>
             <Link href="/settings/contact">내 정보</Link>
             {user.isAdmin && <Link href="/admin">관리</Link>}
           </nav>
