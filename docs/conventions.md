@@ -14,3 +14,5 @@
 | `auth` | 구글 로그인 | `auth_user`, `auth_session`, `auth_account`, `auth_verification` |
 | `access` | 허용 이메일, 가입·접근 판정 | `access_allowed_emails` |
 | `profile` | 연락처 | `profile_contacts` |
+| `ncs` | NCS 직무 분류와 별칭 (모든 사용자가 함께 쓰는 기준 데이터, `userId` 없음) | `ncs_categories`, `ncs_aliases` |
+| `tracks` | 트랙, 설문 규칙, 희망 조건과 채점 배점 | `tracks_tracks`, `tracks_jobs` |

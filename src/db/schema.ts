@@ -3,3 +3,5 @@
 export * from "../modules/access/schema";
 export * from "../modules/auth/schema";
 export * from "../modules/profile/schema";
+export * from "../modules/ncs/schema";
+export * from "../modules/tracks/schema";

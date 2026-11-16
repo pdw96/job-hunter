@@ -27,6 +27,8 @@
 | `npm run db:generate` | 스키마를 바꾼 뒤 마이그레이션 파일 생성 |
 | `npm run db:migrate` | 마이그레이션 적용 |
 | `npm run build` | 빌드만 |
+| `npm run preview:local` | 외부 DB와 구글 로그인 없이 화면 확인 (메모리 DB, 가짜 사용자, http://localhost:3210). 브라우저에 `better-auth.session_token` 쿠키가 아무 값으로나 있어야 한다 |
+| `npm run ncs:build` | `data/ncs/*.csv`로 NCS 데이터 마이그레이션 다시 생성 |
 
 ## 배포
 
