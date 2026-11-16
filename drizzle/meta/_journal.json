@@ -43,6 +43,13 @@
       "when": 1794835291275,
       "tag": "0005_curly_ultimo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794838831439,
+      "tag": "0006_slippery_medusa",
+      "breakpoints": true
     }
   ]
 }

@@ -16,3 +16,4 @@
 | `profile` | 연락처 | `profile_contacts` |
 | `ncs` | NCS 직무 분류와 별칭 (모든 사용자가 함께 쓰는 기준 데이터, `userId` 없음) | `ncs_categories`, `ncs_aliases` |
 | `tracks` | 트랙, 설문 규칙, 희망 조건과 채점 배점 | `tracks_tracks`, `tracks_jobs` |
+| `experiences` | 경험 기록, 검증 규칙(루브릭과 검증 상태), 트랙별 사용 범위 | `experiences_experiences`, `experiences_track_scopes` |

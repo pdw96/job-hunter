@@ -151,3 +151,22 @@ export async function countTracks(db: Db, userId: string): Promise<number> {
   const [row] = await db.select({ value: count() }).from(tracks).where(eq(tracks.userId, userId));
   return row.value;
 }
+
+export async function listTrackIds(db: Db, userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: tracks.id })
+    .from(tracks)
+    .where(eq(tracks.userId, userId))
+    .orderBy(asc(tracks.createdAt), asc(tracks.id));
+  return rows.map((row) => row.id);
+}
+
+// 그 트랙이 이 사용자의 것인지
+export async function ownsTrack(db: Db, userId: string, trackId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: tracks.id })
+    .from(tracks)
+    .where(and(eq(tracks.id, trackId), eq(tracks.userId, userId)))
+    .limit(1);
+  return rows.length > 0;
+}
