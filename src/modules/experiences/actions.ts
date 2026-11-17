@@ -234,7 +234,13 @@ export async function answerClaimAction(experienceId: string, claimId: string, a
   const user = await requireUser();
   if (typeof claimId !== "string" || !CLAIM_ANSWERS.includes(answer)) return { ok: false, message: NOT_FOUND };
   const result = await answerClaim(db, user.id, claimId, answer);
-  if (!result.ok) return { ok: false, message: "이 주장에는 그 답을 할 수 없습니다" };
+  if (!result.ok) {
+    const message =
+      result.reason === "banned_full"
+        ? "금지 표현이 가득 찼습니다. 아래 입력 칸에서 하나를 지우고 저장한 뒤 다시 눌러 주세요"
+        : "이 주장에는 그 답을 할 수 없습니다";
+    return { ok: false, message };
+  }
   if (typeof experienceId === "string") refresh(experienceId);
   return { ok: true };
 }

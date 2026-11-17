@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { type Claim, claimsAfterEdit, type ClaimStatus, type FoundClaim, proseContains, quotePieces } from "./claims";
 import type { ExperienceInput } from "./input";
+import { LIMITS } from "./options";
 import { contentResetFields } from "./rubric-store";
 import { claims, experiences } from "./schema";
 import { judgePeriod } from "./verification";
@@ -102,7 +103,7 @@ export async function answerClaim(
   userId: string,
   claimId: string,
   answer: ClaimAnswer,
-): Promise<{ ok: true; status: ClaimStatus } | { ok: false; reason: "not_found" | "not_allowed" }> {
+): Promise<{ ok: true; status: ClaimStatus } | { ok: false; reason: "not_found" | "not_allowed" | "banned_full" }> {
   return db.transaction(async (tx) => {
     const [row] = await tx
       .select({ claim: claims, experience: experiences })
@@ -116,6 +117,15 @@ export async function answerClaim(
     if (claim.status !== "pending" && claim.status !== "needs_fix") return { ok: false as const, reason: "not_allowed" as const };
     if (answer === "unknown" && claim.kind !== "metric") return { ok: false as const, reason: "not_allowed" as const };
     if (answer === "exaggerated" && claim.kind !== "role") return { ok: false as const, reason: "not_allowed" as const };
+    // 금지 표현이 가득 차 새 표현을 넣을 수 없으면, 넣은 척하지 않고 알린다
+    if (
+      answer === "exaggerated" &&
+      claim.phrase &&
+      !experience.bannedPhrases.includes(claim.phrase) &&
+      experience.bannedPhrases.length >= LIMITS.bannedPhrases
+    ) {
+      return { ok: false as const, reason: "banned_full" as const };
+    }
 
     let status: ClaimStatus = answer === "confirm" ? "confirmed" : "needs_fix";
     let removedMetric: typeof experience.metrics | null = null;
@@ -145,7 +155,7 @@ export async function answerClaim(
       // 사용자가 직접 과장이라고 했으므로 후보를 거치지 않고 바로 금지 표현에 넣는다
       await tx
         .update(experiences)
-        .set({ bannedPhrases: [...new Set([...experience.bannedPhrases, claim.phrase])].slice(0, 30) })
+        .set({ bannedPhrases: [...new Set([...experience.bannedPhrases, claim.phrase])] })
         .where(eq(experiences.id, experience.id));
     }
 

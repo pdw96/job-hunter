@@ -213,3 +213,12 @@ test("확인한 뒤 판정 대상이 아닌 칸을 고쳐 주장이 다시 열�
   expect((await getExperience(db, "u1", id))?.state).not.toBe("confirmed");
   expect(await confirmExperience(db, "u1", id)).toEqual({ ok: false, reason: "claims_pending" });
 });
+
+test("금지 표현이 가득 차 있으면 과장임을 받지 않고 알린다", async () => {
+  const full = Array.from({ length: 30 }, (_, index) => `표현${index}`);
+  const id = await importOne("u1", { ...imported, bannedPhrases: full });
+  const claim = await byQuote(id, "주도했다");
+  expect(await answerClaim(db, "u1", claim.id, "exaggerated")).toEqual({ ok: false, reason: "banned_full" });
+  expect((await getExperience(db, "u1", id))?.bannedPhrases).toEqual(full);
+  expect((await byQuote(id, "주도했다")).status).toBe("pending");
+});

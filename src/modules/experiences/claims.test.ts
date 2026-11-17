@@ -185,3 +185,12 @@ test("전각 숫자가 든 문장도 수치 주장으로 잡는다", () => {
   const input = { ...base, metrics: [], result: "매출이 ７３% 증가했다." };
   expect(quotes(input, "metric")).toEqual(["매출이 ７３% 증가했다."]);
 });
+
+test("기간을 나타내는 숫자(12년간, 3개월)는 날짜로 보지 않고 수치 주장으로 잡는다", () => {
+  const input = {
+    ...base,
+    metrics: [],
+    result: "서비스를 12년간 운영했다. 2023년 3월에 시작했다. 23년 3월 15일에 끝났다. 6월에 발표했다. 3년 동안 유지했다.",
+  };
+  expect(quotes(input, "metric")).toEqual(["서비스를 12년간 운영했다.", "3년 동안 유지했다."]);
+});
