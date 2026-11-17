@@ -6,13 +6,28 @@
 
 ## 일하는 방식
 
-- 답은 한국어로, 짧게, 핵심만 쓴다. 물을 때는 한 번에 하나만, 번호 붙인 선택지로 묻는다
+- 답은 한국어로, 짧게, 핵심만 쓴다. 물을 때는 한 번에 하나만, 번호 붙인 선택지로 묻는다. "짧게"는 사용자에게 하는 답에만 해당한다. 계획 문서와 스킬이 정한 절차는 줄이지 않는다
 - 순서: 계획 문서 작성 → 사용자 승인 → TDD로 구현 → PR → Codex 검토 → 사용자가 합칠지 결정 → 배포 → 사용자가 실제 주소에서 확인
 - 계획 문서는 `docs/superpowers/plans/`에 둔다. 구현하다 달라진 점과 검토에서 고친 것은 그 문서 끝에 적는다
 - `main`에 합치면 실제 서비스에 배포된다. **합치기 전에 반드시 사용자에게 묻는다**
 - 합치기 전: PR을 초안에서 풀고 Codex 검토 결과를 기다린다. 지적은 고치고, 해당 스레드에 답한 뒤 해결로 표시하고, 합칠지 묻는다. 사용자가 다시 검토받기를 고르면 PR에 `@codex review`를 남긴다
 - 화면을 바꾸면 로컬 미리보기로 확인하고 사진을 사용자에게 보낸다
 - 사용자는 타자를 많이 치는 것을 싫어한다. 입력을 줄이는 쪽으로 만든다
+
+## 단계마다 쓰는 스킬
+
+각 단계를 시작할 때 아래 스킬을 Skill 도구로 먼저 부르고 그 절차를 따른다. 위의 순서는 이 스킬들을 대신하지 않는다.
+
+| 단계 | 스킬 |
+|---|---|
+| 방향이 정해지지 않은 기능 | `superpowers:brainstorming` |
+| 계획 문서 쓰기 | `superpowers:writing-plans`. 첫 줄의 실행 방법 지정(`REQUIRED SUB-SKILL: superpowers:subagent-driven-development`), 작업(Task) 나누기, 체크박스를 지킨다 |
+| 구현 | `superpowers:subagent-driven-development`, 각 작업은 `superpowers:test-driven-development` |
+| 버그, 실패한 테스트 | `superpowers:systematic-debugging` |
+| 화면 만들기 | `frontend-design:frontend-design`, 확인은 `run`(로컬 미리보기) |
+| PR 올리기 | `/ship`(안에서 `code-review`로 먼저 자체 검토) |
+| 검토 지적 처리 | `superpowers:receiving-code-review` |
+| 끝났다고 말하기 전 | `superpowers:verification-before-completion` |
 
 ## 지켜야 할 것
 
