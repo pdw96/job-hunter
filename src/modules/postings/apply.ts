@@ -11,7 +11,7 @@ export async function applyWithCurrentScore(
   userId: string,
   id: string,
   now: Date = new Date(),
-): Promise<{ ok: true } | { ok: false; reason: "not_found" | "no_analysis" }> {
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "no_analysis" | "changed" }> {
   const posting = await getPosting(db, userId, id);
   if (!posting) return { ok: false, reason: "not_found" };
   // 이미 지원했으면 그때 남긴 점수를 덮어쓰지 않는다(예전 화면이 남은 다른 탭에서 다시 눌러도 그대로)
@@ -28,9 +28,13 @@ export async function applyWithCurrentScore(
     analysis: posting.analysis,
     usable: usableOf(candidates),
   });
-  return applyToPosting(db, userId, id, {
-    ...score,
-    analyzedAt: posting.analysis.analyzedAt,
-    appliedAt: now.toISOString(),
-  });
+  const { rawText, companyNote, regions, careerType, minYears, analysis } = posting;
+  // 점수를 계산한 공고 값이 그대로일 때만 남긴다(그사이 다른 탭에서 고쳤으면 changed)
+  return applyToPosting(
+    db,
+    userId,
+    id,
+    { ...score, analyzedAt: analysis.analyzedAt, appliedAt: now.toISOString() },
+    { rawText, companyNote, regions, careerType, minYears, analysis },
+  );
 }

@@ -194,20 +194,39 @@ export async function saveAnalysis(
   return { ok: false, reason: exists ? "changed" : "not_found" };
 }
 
+// 지원 점수를 계산할 때 읽은 공고 값. 점수에 쓰는 칸만 담는다
+export type ScoredAs = Pick<Posting, "rawText" | "companyNote" | "regions" | "careerType" | "minYears"> & {
+  analysis: PostingAnalysis;
+};
+
 // 지원으로 정한다. 그때의 점수를 함께 남긴다(이후 기준이 바뀌어도 이 점수는 그대로).
+// 점수를 계산하려고 읽은 공고 값이 지금도 그대로일 때만 쓴다(그사이 다른 탭에서 고쳤으면 "changed").
 // 이미 지원한 공고는 고치지 않고 ok를 돌려준다(남긴 점수를 덮어쓰지 않는다)
 export async function applyToPosting(
   db: Db,
   userId: string,
   id: string,
   score: AppliedScore,
-): Promise<{ ok: true } | NotFound> {
+  readAs: ScoredAs,
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "changed" }> {
   const updated = await db
     .update(postings)
     .set({ status: "apply", appliedScore: score, updatedAt: new Date() })
-    .where(and(mine(userId, id), ne(postings.status, "apply")))
+    .where(
+      and(
+        mine(userId, id),
+        ne(postings.status, "apply"),
+        eq(postings.rawText, readAs.rawText),
+        sql`${postings.companyNote} is not distinct from ${readAs.companyNote}`,
+        sql`${postings.regions} = ${JSON.stringify(readAs.regions)}::jsonb`,
+        eq(postings.careerType, readAs.careerType),
+        sql`${postings.minYears} is not distinct from ${readAs.minYears}`,
+        sql`${postings.analysis} = ${JSON.stringify(readAs.analysis)}::jsonb`,
+      ),
+    )
     .returning({ id: postings.id });
   if (updated.length > 0) return { ok: true };
-  const [exists] = await db.select({ id: postings.id }).from(postings).where(mine(userId, id)).limit(1);
-  return exists ? { ok: true } : { ok: false, reason: "not_found" };
+  const [current] = await db.select({ status: postings.status }).from(postings).where(mine(userId, id)).limit(1);
+  if (!current) return { ok: false, reason: "not_found" };
+  return current.status === "apply" ? { ok: true } : { ok: false, reason: "changed" };
 }

@@ -159,7 +159,11 @@ export async function applyToPostingAction(id: string): Promise<SimpleResult> {
   const user = await requireUser();
   if (typeof id !== "string") return { ok: false, message: NOT_FOUND };
   const result = await applyWithCurrentScore(db, user.id, id);
-  if (!result.ok) return { ok: false, message: result.reason === "no_analysis" ? "먼저 점수를 봐 주세요" : NOT_FOUND };
+  if (!result.ok) {
+    if (result.reason === "no_analysis") return { ok: false, message: "먼저 점수를 봐 주세요" };
+    if (result.reason === "changed") return { ok: false, message: "공고가 바뀌었습니다. 점수를 다시 확인한 뒤 지원해 주세요" };
+    return { ok: false, message: NOT_FOUND };
+  }
   refresh(id);
   return { ok: true };
 }

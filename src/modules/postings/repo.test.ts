@@ -250,9 +250,22 @@ test("원문이나 인재상 글을 고치면 analysis가 지워지고, 마감�
   expect((await getPosting(db, "u1", id))?.analysis).toBeNull();
 });
 
+// 지원 점수를 계산할 때 읽은 공고 값
+async function readAsOf(id: string) {
+  const posting = await getPosting(db, "u1", id);
+  if (!posting?.analysis) throw new Error("분석이 없다");
+  const { rawText, companyNote, regions, careerType, minYears, analysis: read } = posting;
+  return { rawText, companyNote, regions, careerType, minYears, analysis: read };
+}
+async function addAnalyzed(over: Record<string, unknown> = {}) {
+  const id = await add(over);
+  await saveAnalysis(db, "u1", id, analysis, readAs);
+  return id;
+}
+
 test("applyToPosting 뒤 updateTrack으로 배점을 바꿔도 appliedScore는 그대로", async () => {
-  const id = await add();
-  expect(await applyToPosting(db, "u1", id, applied)).toEqual({ ok: true });
+  const id = await addAnalyzed();
+  expect(await applyToPosting(db, "u1", id, applied, await readAsOf(id))).toEqual({ ok: true });
   await updateTrack(db, "u1", trackId, { ...survey, importanceOrder: ["preferred", "field", "experience", "location", "jobMatch"] });
   expect(await getPosting(db, "u1", id)).toMatchObject({ status: "apply", appliedScore: applied });
   await updatePosting(db, "u1", id, input({ rawText: "고친 원문" }));
@@ -260,23 +273,56 @@ test("applyToPosting 뒤 updateTrack으로 배점을 바꿔도 appliedScore는 �
 });
 
 test("지원에서 관심으로 되돌려도 appliedScore는 남는다", async () => {
-  const id = await add();
-  await applyToPosting(db, "u1", id, applied);
+  const id = await addAnalyzed();
+  await applyToPosting(db, "u1", id, applied, await readAsOf(id));
   await setStatus(db, "u1", id, "interest");
   expect(await getPosting(db, "u1", id)).toMatchObject({ status: "interest", appliedScore: applied });
 });
 
 test("이미 지원한 공고에 applyToPosting을 다시 불러도 appliedScore는 그대로", async () => {
-  const id = await add();
-  await applyToPosting(db, "u1", id, applied);
+  const id = await addAnalyzed();
+  const read = await readAsOf(id);
+  await applyToPosting(db, "u1", id, applied, read);
   const later: AppliedScore = { ...applied, fit: 1, appliedAt: "2026-12-31T00:00:00.000Z" };
-  expect(await applyToPosting(db, "u1", id, later)).toEqual({ ok: true });
+  expect(await applyToPosting(db, "u1", id, later, read)).toEqual({ ok: true });
+  // 지원한 뒤 공고를 고쳤어도(읽은 값과 달라도) 이미 지원했으면 ok이고 그대로다
+  await updatePosting(db, "u1", id, input({ regions: ["busan"] }));
+  expect(await applyToPosting(db, "u1", id, later, read)).toEqual({ ok: true });
   expect(await getPosting(db, "u1", id)).toMatchObject({ status: "apply", appliedScore: applied });
+});
+
+test("점수를 계산하려고 읽은 뒤 공고가 바뀌면 changed이고 아무것도 쓰지 않는다", async () => {
+  const changes: [string, (id: string) => Promise<unknown>][] = [
+    ["근무지", (id) => updatePosting(db, "u1", id, input({ regions: ["busan"] }))],
+    ["경력 구분", (id) => updatePosting(db, "u1", id, input({ careerType: "both" }))],
+    ["요구 연차", (id) => updatePosting(db, "u1", id, input({ minYears: 5 }))],
+    ["요구 연차 없앰", (id) => updatePosting(db, "u1", id, input({ minYears: null }))],
+    // 원문이나 인재상 글이 바뀌면 분석이 지워진다
+    ["원문", (id) => updatePosting(db, "u1", id, input({ rawText: "고친 원문" }))],
+    ["인재상", (id) => updatePosting(db, "u1", id, input({ companyNote: "도전" }))],
+    // 다른 탭에서 다시 보기로 분석을 새로 저장했다
+    ["분석", (id) => saveAnalysis(db, "u1", id, { ...analysis, field: { level: "other", reason: "다른 직무" } }, readAs)],
+  ];
+  for (const [label, change] of changes) {
+    const id = await addAnalyzed({ company: label });
+    const read = await readAsOf(id);
+    await change(id);
+    expect(await applyToPosting(db, "u1", id, applied, read), label).toEqual({ ok: false, reason: "changed" });
+    expect(await getPosting(db, "u1", id), label).toMatchObject({ status: "interest", appliedScore: null });
+  }
+
+  // 점수와 관계없는 칸(마감일)만 고쳤으면 지원한다
+  const id = await addAnalyzed({ company: "마감일만" });
+  const read = await readAsOf(id);
+  await updatePosting(db, "u1", id, input({ company: "마감일만", deadline: "2026-12-31" }));
+  expect(await applyToPosting(db, "u1", id, applied, read)).toEqual({ ok: true });
+  expect((await getPosting(db, "u1", id))?.status).toBe("apply");
 });
 
 test("남의 공고에 saveAnalysis·applyToPosting은 not_found", async () => {
   const id = await add();
   expect(await saveAnalysis(db, "u2", id, analysis, readAs)).toEqual({ ok: false, reason: "not_found" });
-  expect(await applyToPosting(db, "u2", id, applied)).toEqual({ ok: false, reason: "not_found" });
+  const read = { rawText: raw.rawText, companyNote: null, regions: ["seoul"], careerType: "experienced" as const, minYears: 3, analysis };
+  expect(await applyToPosting(db, "u2", id, applied, read)).toEqual({ ok: false, reason: "not_found" });
   expect(await getPosting(db, "u1", id)).toMatchObject({ analysis: null, appliedScore: null, status: "interest" });
 });
