@@ -105,7 +105,9 @@ function imageUrls(html: string, baseUrl: string): string[] {
   const found: string[] = [];
   for (const tag of html.match(/<img\b[^>]*>/gi) ?? []) {
     // 늦게 불러오는 그림은 주소가 data-src 같은 곳에 있다
-    const source = tag.match(/\b(?:data-src|data-original|data-lazy-src|src)=["']([^"']+)["']/i)?.[1];
+    // (속성의 순서와 상관없이 그쪽을 먼저 본다. src에는 빈 그림이 들어 있기 쉽다)
+    const attribute = (name: string) => tag.match(new RegExp(`\\s${name}=["']([^"']+)["']`, "i"))?.[1];
+    const source = attribute("data-src") ?? attribute("data-original") ?? attribute("data-lazy-src") ?? attribute("src");
     if (!source || source.startsWith("data:") || NOT_CONTENT.test(source)) continue;
     try {
       const url = new URL(decodeEntities(source), baseUrl);

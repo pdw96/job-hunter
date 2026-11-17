@@ -53,7 +53,7 @@ test("깨진 JSON-LD나 공고가 아닌 JSON-LD는 무시한다", () => {
 test("본문 그림의 주소를 절대 주소로 모은다. 로고·아이콘과 페이지 틀의 그림은 뺀다", () => {
   const html = page(`
     <header><img src="/img/top.jpg"></header>
-    <div><img src="/upload/posting_1.jpg"><img data-src="//cdn.example.com/p2.png" src="/img/blank.gif">
+    <div><img src="/upload/posting_1.jpg"><img src="/img/blank.gif" data-src="//cdn.example.com/p2.png">
     <img src="/img/logo.png"><img src="data:image/png;base64,AAAA"><img src="/upload/posting_1.jpg"></div>`);
   expect(contentFromHtml(html, "https://example.com/jobs/1").images).toEqual([
     "https://example.com/upload/posting_1.jpg",

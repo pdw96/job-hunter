@@ -7,6 +7,7 @@ const MAX_WIDTH = 1100;
 const TILE_HEIGHT = 1500;
 const OVERLAP = 80; // 잘린 경계의 글자를 놓치지 않게 조금 겹친다
 export const MAX_TILES = 10;
+const MAX_TILE_BASE64 = 1_400_000; // read-image.ts의 한도와 같다
 const MAX_TOTAL_BASE64 = 3_800_000;
 
 async function load(source: Blob): Promise<ImageBitmap> {
@@ -49,7 +50,11 @@ export async function sliceImages(sources: Blob[]): Promise<SliceResult> {
     for (const quality of [0.85, 0.7, 0.55]) {
       const tiles = bitmaps.flatMap((bitmap) => tilesOf(bitmap, quality));
       if (tiles.length > MAX_TILES) return { ok: false, message: "그림이 너무 깁니다. 공고를 둘로 나눠 올려 주세요" };
-      if (tiles.reduce((sum, tile) => sum + tile.data.length, 0) <= MAX_TOTAL_BASE64) return { ok: true, tiles };
+      // 조각 하나의 한도와 전체 한도를 모두 지켜야 서버가 받는다
+      const fits =
+        tiles.every((tile) => tile.data.length <= MAX_TILE_BASE64) &&
+        tiles.reduce((sum, tile) => sum + tile.data.length, 0) <= MAX_TOTAL_BASE64;
+      if (fits) return { ok: true, tiles };
     }
     return { ok: false, message: "그림이 너무 큽니다. 공고를 둘로 나눠 올려 주세요" };
   } catch {

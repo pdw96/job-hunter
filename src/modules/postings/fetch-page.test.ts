@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
-import { fetchPosting, isPrivateAddress, type PageDeps, parsePublicUrl } from "./fetch-page";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { fetchPosting, isPrivateAddress, type PageDeps, parsePublicUrl, pinnedFetch } from "./fetch-page";
 
 test("내부망과 자기 자신을 가리키는 주소를 알아본다", () => {
   for (const address of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.0.10", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1", "이상한값"]) {
@@ -35,13 +37,19 @@ const long = `<p>${"주문과 결제 서비스를 개발할 백엔드 개발자�
 const response = (body: string | Uint8Array, init: { status?: number; headers?: Record<string, string> } = {}) =>
   new Response(body as BodyInit, { status: init.status ?? 200, headers: { "content-type": "text/html; charset=utf-8", ...init.headers } });
 
-function deps(routes: Record<string, () => Response>, addresses: Record<string, string[]> = {}): PageDeps & { opened: string[] } {
+function deps(
+  routes: Record<string, () => Response | Promise<Response>>,
+  addresses: Record<string, string[]> = {},
+): PageDeps & { opened: string[]; connected: string[] } {
   const opened: string[] = [];
+  const connected: string[] = [];
   return {
     opened,
+    connected,
     resolve: async (host) => addresses[host] ?? ["203.0.113.10"],
-    fetch: async (url) => {
+    fetch: async (url, init) => {
       opened.push(url);
+      connected.push(init.address);
       const route = routes[url];
       if (!route) throw new Error(`준비되지 않은 주소: ${url}`);
       return route();
@@ -112,4 +120,71 @@ test("EUC-KR로 된 페이지도 읽는다", async () => {
     deps({ "https://a.example.com/": () => response(new Uint8Array(body), { headers: { "content-type": "text/html; charset=euc-kr" } }) }),
   );
   expect(result.ok && result.text.startsWith("채용")).toBe(true);
+});
+
+test("연결은 검사한 주소로 한다", async () => {
+  const pinned = deps({ "https://jobs.example.com/1": () => response(html(long)) }, { "jobs.example.com": ["203.0.113.77", "203.0.113.78"] });
+  await fetchPosting("https://jobs.example.com/1", pinned);
+  expect(pinned.connected).toEqual(["203.0.113.77"]);
+});
+
+test("따옴표가 붙은 charset도 읽는다", async () => {
+  const body = Buffer.concat([Buffer.from("<html><body><p>"), Buffer.from([0xc3, 0xa4, 0xbf, 0xeb]), Buffer.from(` ${"a".repeat(220)}</p></body></html>`)]);
+  const result = await fetchPosting(
+    "https://a.example.com/",
+    deps({ "https://a.example.com/": () => response(new Uint8Array(body), { headers: { "content-type": 'text/html; charset="euc-kr"' } }) }),
+  );
+  expect(result.ok && result.text.startsWith("채용")).toBe(true);
+});
+
+test("그림은 큰 것을 고르되 페이지에 나온 순서로 돌려준다", async () => {
+  const small = new Uint8Array(50 * 1024).fill(1);
+  const large = new Uint8Array(90 * 1024).fill(2);
+  const tiny = new Uint8Array(45 * 1024).fill(3);
+  const image = (bytes: Uint8Array) => () => response(bytes, { headers: { "content-type": "image/png" } });
+  const result = await fetchPosting(
+    "https://a.example.com/job",
+    deps({
+      "https://a.example.com/job": () => response(html(`<img src="/up/1.png"><img src="/up/2.png"><img src="/up/3.png">`)),
+      "https://a.example.com/up/1.png": image(small),
+      "https://a.example.com/up/2.png": image(large),
+      "https://a.example.com/up/3.png": image(tiny),
+    }),
+  );
+  const size = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64").length;
+  expect(result.ok && result.images.map((item) => item.data.length)).toEqual([size(small), size(large)]);
+});
+
+test("전체 시간 한도를 넘기면 그만둔다", async () => {
+  const never = new Promise<Response>(() => undefined);
+  const started = Date.now();
+  expect(await fetchPosting("https://slow.example.com/", deps({ "https://slow.example.com/": () => never }), 150)).toEqual({ ok: false, reason: "blocked" });
+  expect(Date.now() - started).toBeLessThan(2000);
+});
+
+test("실제 연결은 이름을 다시 풀지 않고 넘겨받은 주소로 붙으며, Host에는 원래 이름을 쓴다", async () => {
+  const seen: string[] = [];
+  const server = createServer((request, reply) => {
+    seen.push(request.headers.host ?? "");
+    if (request.url === "/moved") {
+      reply.writeHead(302, { location: "/next" });
+      reply.end();
+      return;
+    }
+    reply.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+    reply.end("붙었다");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    // 이 이름은 실제로는 풀리지 않는다. 넘겨받은 주소로 붙어야만 응답을 받는다
+    const init = { address: "127.0.0.1", signal: AbortSignal.timeout(3000), headers: { accept: "text/plain" } };
+    const ok = await pinnedFetch(`http://no-such-host.invalid:${port}/page`, init);
+    expect([ok.status, await ok.text()]).toEqual([200, "붙었다"]);
+    const moved = await pinnedFetch(`http://no-such-host.invalid:${port}/moved`, init);
+    expect([moved.status, moved.headers.get("location")]).toEqual([302, "/next"]);
+    expect(seen).toEqual([`no-such-host.invalid:${port}`, `no-such-host.invalid:${port}`]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
