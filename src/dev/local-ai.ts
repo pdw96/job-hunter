@@ -134,8 +134,10 @@ export const ai: AiClient = {
           ? interview(request as AiRequest<unknown>)
           : request.purpose === "import"
             ? importRecords(text)
-            : request.purpose === "posting"
-              ? posting(text)
+            : request.purpose === "posting_image"
+              ? { text: "그림상사 품질관리 담당자 채용\n경력 2년 이상, 정규직\n근무지: 대전 유성구\n접수 마감: 2026-12-10" }
+              : request.purpose === "posting"
+                ? posting(text)
               : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };

@@ -26,6 +26,7 @@ const nextConfig: NextConfig = {
             "@/db": "./src/dev/local-db.ts",
             "@/lib/session": "./src/dev/local-session.ts",
             "@/modules/ai/provider": "./src/dev/local-ai.ts",
+            "@/modules/postings/fetch-page": "./src/dev/local-fetch-page.ts",
           },
         }
       : {}),

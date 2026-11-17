@@ -4,10 +4,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
+import type { AiImage } from "@/modules/ai/client";
 import { ai } from "@/modules/ai/provider";
 import { type ExtractedPosting, extractPosting } from "./extract";
+// 로컬 미리보기에서는 next.config.ts가 이 파일을 src/dev/local-fetch-page.ts로 바꿔 끼운다
+import { fetchPosting } from "@/modules/postings/fetch-page";
 import { type PostingErrors, validatePosting } from "./input";
 import { POSTING_LIMITS } from "./options";
+import { transcribePosting, validateTiles } from "./read-image";
 import { createPosting, deletePosting, findSimilar, setExcludeOverride, setStatus, updatePosting } from "./repo";
 import { todayInKorea } from "./today";
 
@@ -41,6 +45,44 @@ export async function readPostingAction(
   }
   const result = await extractPosting(db, ai, user.id, text, todayInKorea());
   if (!result.ok) return { ok: false, message: AI_MESSAGES[result.reason] ?? AI_MESSAGES.unavailable };
+  return result;
+}
+
+const FETCH_MESSAGES: Record<string, string> = {
+  bad_url: "주소를 확인해 주세요. http:// 또는 https://로 시작하는 공고 주소여야 합니다",
+  blocked: "이 사이트는 자동으로 읽을 수 없습니다. 공고 글을 복사해 붙여 넣거나, 공고 화면을 그림으로 올려 주세요",
+  empty:
+    "공고 글을 찾지 못했습니다. 로그인이 필요하거나 내용을 나중에 불러오는 페이지일 수 있습니다. 공고 글을 복사해 붙여 넣거나, 공고 화면을 그림으로 올려 주세요",
+};
+
+// 공고 주소를 열어 글을 뽑는다. 본문이 그림이면 그림을 돌려준다(브라우저가 잘라서 다시 보낸다)
+export async function fetchPostingAction(
+  url: string,
+): Promise<{ ok: true; text: string; images: AiImage[] } | { ok: false; message: string }> {
+  await requireUser();
+  if (typeof url !== "string" || url.length > POSTING_LIMITS.url) return { ok: false, message: FETCH_MESSAGES.bad_url };
+  const result = await fetchPosting(url);
+  if (!result.ok) return { ok: false, message: FETCH_MESSAGES[result.reason] };
+  return { ok: true, text: result.text.slice(0, POSTING_LIMITS.rawText), images: result.images };
+}
+
+const IMAGE_MESSAGES: Record<string, string> = {
+  ...AI_MESSAGES,
+  over_limit: "이번 달 AI 사용 한도에 닿았습니다. 공고 글을 복사해 붙여 넣어 주세요",
+  refused: "AI가 이 그림을 읽지 못했습니다. 공고 글을 복사해 붙여 넣어 주세요",
+  invalid_tiles: "그림을 읽을 수 없습니다. JPG, PNG, WEBP 그림을 올려 주세요",
+  too_many: "그림이 너무 깁니다. 나눠서 올려 주세요",
+  too_large: "그림이 너무 큽니다. 나눠서 올려 주세요",
+  no_text: "그림에서 공고 글을 찾지 못했습니다. 공고 글이 보이는 그림인지 확인해 주세요",
+};
+
+// 그림으로 된 공고(브라우저가 읽기 좋은 크기로 자른 조각)를 글로 옮긴다
+export async function readPostingImagesAction(tiles: unknown): Promise<{ ok: true; text: string } | { ok: false; message: string }> {
+  const user = await requireUser();
+  const checked = validateTiles(tiles);
+  if (!checked.ok) return { ok: false, message: IMAGE_MESSAGES[checked.reason === "invalid" ? "invalid_tiles" : checked.reason] };
+  const result = await transcribePosting(db, ai, user.id, checked.value);
+  if (!result.ok) return { ok: false, message: IMAGE_MESSAGES[result.reason] ?? IMAGE_MESSAGES.unavailable };
   return result;
 }
 
