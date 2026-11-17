@@ -136,7 +136,7 @@ export function PostingForm({
           </p>
         </div>
 
-        <fieldset disabled={pending} className="m-0 min-w-0 space-y-6 border-0 p-0 disabled:opacity-70">
+        <fieldset disabled={pending} className="mx-0 min-w-0 space-y-6 border-0 p-0 disabled:opacity-70">
           {tracks.length > 1 && (
             <label className="block space-y-1">
               <span className="text-sm font-medium">트랙</span>
@@ -238,7 +238,7 @@ export function PostingForm({
         )}
       </div>
 
-      <fieldset disabled={pending} className="m-0 min-w-0 space-y-6 border-0 p-0 disabled:opacity-70">
+      <fieldset disabled={pending} className="mx-0 min-w-0 space-y-6 border-0 p-0 disabled:opacity-70">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block space-y-1">
             <span className="text-sm font-medium">회사명</span>
@@ -262,7 +262,7 @@ export function PostingForm({
               max="2099-12-31"
               disabled={draft.isRolling}
               onChange={(e) => set("deadline", e.target.value)}
-              className={`${field} disabled:opacity-40 sm:w-60`}
+              className={`${field} block disabled:opacity-40 sm:w-60`}
             />
             {error("deadline")}
           </label>

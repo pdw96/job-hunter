@@ -44,7 +44,7 @@ test("요구 연차나 내 경력을 모르면 경력으로 걸리지 않는다"
 
 test("신입·인턴 트랙은 경력만 뽑는 공고가 걸린다", () => {
   const entry = { ...track, applicantType: "new" as const, experienceMonths: null };
-  expect(exclusionReasons({ ...posting, careerType: "experienced", minYears: 1 }, entry, today)).toEqual(["experience_too_high"]);
+  expect(exclusionReasons({ ...posting, careerType: "experienced", minYears: 1 }, entry, today)).toEqual(["experienced_only"]);
   expect(exclusionReasons({ ...posting, careerType: "both", minYears: 3 }, entry, today)).toEqual([]);
   expect(exclusionReasons({ ...posting, careerType: "any" }, { ...entry, applicantType: "intern" }, today)).toEqual([]);
 });
