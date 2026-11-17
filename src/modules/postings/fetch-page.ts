@@ -298,10 +298,11 @@ export async function fetchPosting(
     imageUrls = merged(frameImages, content.images);
     // 끼워 넣은 페이지에 그림과 함께 적힌 짧은 글(회사, 마감일 같은 것)도 함께 남긴다
     text = [text, ...frameTexts].filter(Boolean).join("\n\n");
+    // 글이 충분하면 그림을 내려받지 않고 글부터 돌려준다(그림은 화면이 다시 부를 때 가져온다)
+    if (text.length >= MIN_TEXT && !options.forceImages) return { ok: true, text, images: [] };
     const images = await fetchImages(imageUrls, deps, signal);
-    if (images.length > 0 && (text.length < MIN_TEXT || options.forceImages)) return { ok: true, text, images };
-    if (text.length >= MIN_TEXT) return { ok: true, text, images: [] };
-    return images.length > 0 ? { ok: true, text, images } : { ok: false, reason: "empty" };
+    if (images.length > 0) return { ok: true, text, images };
+    return text.length >= MIN_TEXT ? { ok: true, text, images: [] } : { ok: false, reason: "empty" };
   }
 
   if (text.length >= MIN_TEXT && !options.forceImages) return { ok: true, text, images: [] };

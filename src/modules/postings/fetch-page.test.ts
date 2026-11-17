@@ -286,8 +286,11 @@ test("바깥 페이지에 글이 충분하면, 끼워 넣은 페이지에 그림
     "https://jobs.example.com/frame": () => response(html(`<img src="/up/photo.jpg">`)),
     "https://jobs.example.com/up/photo.jpg": () => response(big, { headers: { "content-type": "image/jpeg" } }),
   };
-  const plain = await fetchPosting("https://jobs.example.com/view?id=4", deps(routes));
+  const first = deps(routes);
+  const plain = await fetchPosting("https://jobs.example.com/view?id=4", first);
   expect(plain.ok && [plain.text.includes("백엔드 개발자를 찾습니다"), plain.images.length]).toEqual([true, 0]);
+  // 글이 충분하면 그림은 내려받지 않는다
+  expect(first.opened).not.toContain("https://jobs.example.com/up/photo.jpg");
   const forced = await fetchPosting("https://jobs.example.com/view?id=4", deps(routes), { forceImages: true });
   expect(forced.ok && [forced.text.includes("백엔드 개발자를 찾습니다"), forced.images.length]).toEqual([true, 1]);
 });

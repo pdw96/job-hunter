@@ -83,7 +83,8 @@ export function PostingForm({
 
   // 원문에서 값을 뽑아 확인 단계로 넘어간다
   // needDetails: 공고 내용이 없는 글(사이트 안내만 읽힌 경우)이면 넘어가지 않고 false를 돌려준다
-  async function extract(rawText: string, needDetails = false): Promise<boolean> {
+  // (false일 때는 그 글에서 뽑은 값을 found에 담아 준다. 사이트 안내 속에 섞여 있던 회사명과 마감일을 살리는 데 쓴다)
+  async function extract(rawText: string, needDetails = false, found?: { lines: string[] }): Promise<boolean> {
     setBusy("값을 뽑는 중…");
     const result = await readPostingAction(rawText);
     if (!result.ok) {
@@ -93,7 +94,17 @@ export function PostingForm({
       return true;
     }
     const { unverified: doubts, hasDetails, ...value } = result.value;
-    if (needDetails && !hasDetails) return false;
+    if (needDetails && !hasDetails) {
+      found?.lines.push(
+        ...[
+          value.company && `회사: ${value.company}`,
+          value.title && `직무: ${value.title}`,
+          value.deadline && `마감: ${value.deadline}`,
+          value.locationText && `근무지: ${value.locationText}`,
+        ].filter((line): line is string => Boolean(line)),
+      );
+      return false;
+    }
     setDraft((previous) => ({
       ...previous,
       ...value,
@@ -152,13 +163,14 @@ export function PostingForm({
       let head = page.text;
       if (images.length === 0) {
         // 글로 읽혔다. 공고 내용이 들어 있으면 끝이다
-        if (await extract(page.text, true)) return;
+        const found = { lines: [] as string[] };
+        if (await extract(page.text, true, found)) return;
         // 사이트의 안내 글만 읽혔다. 본문이 그림일 수 있으니 그림을 가져와 본다
         setBusy("공고 그림을 찾는 중…");
         const again = await fetchPostingAction(draft.url, true);
         images = again.ok ? again.images : [];
-        // 이 경우의 글은 사이트의 메뉴와 안내다. 제목 한 줄만 남긴다
-        head = page.text.split("\n")[0];
+        // 이 경우의 글은 대부분 사이트의 메뉴와 안내다. 제목 한 줄과, 그 글에서 뽑힌 값(회사, 직무, 마감, 근무지)만 남긴다
+        head = [page.text.split("\n")[0], ...found.lines].join("\n");
         if (images.length === 0) {
           return setMessage(
             "이 주소에서는 공고 내용을 읽지 못했습니다(사이트의 메뉴와 안내 글만 읽혔습니다). 공고 화면을 그림으로 올리거나 공고 글을 붙여 넣어 주세요",
