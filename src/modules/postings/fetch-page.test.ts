@@ -159,7 +159,7 @@ test("그림은 큰 것을 고르되 페이지에 나온 순서로 돌려준다"
 test("전체 시간 한도를 넘기면 그만둔다", async () => {
   const never = new Promise<Response>(() => undefined);
   const started = Date.now();
-  expect(await fetchPosting("https://slow.example.com/", deps({ "https://slow.example.com/": () => never }), 150)).toEqual({ ok: false, reason: "blocked" });
+  expect(await fetchPosting("https://slow.example.com/", deps({ "https://slow.example.com/": () => never }), { totalMs: 150 })).toEqual({ ok: false, reason: "blocked" });
   expect(Date.now() - started).toBeLessThan(2000);
 });
 
@@ -218,4 +218,45 @@ test("압축된 응답을 풀어 읽고, 본문을 둘 수 없는 상태 코드�
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+const chrome = `<p>${"로그인 회원가입 채용정보 기업 연봉 커뮤니티 고객센터 이용약관 ".repeat(12)}</p>`;
+
+test("공고 본문을 끼워 넣은 페이지에 둔 사이트는 그 페이지의 글을 읽는다. 바깥 페이지는 제목만 남긴다", async () => {
+  const pages = deps({
+    "https://jobs.example.com/view?id=1": () =>
+      response(`<html><head><title>[가나다(주)] 조립 신입 채용 - 채용사이트</title></head><body>${chrome}
+        <iframe src="/view-detail?id=1"></iframe><iframe src="https://ads.other.com/x"></iframe><iframe src="/login-frame"></iframe></body></html>`),
+    "https://jobs.example.com/view-detail?id=1": () => response(html(long)),
+  });
+  const result = await fetchPosting("https://jobs.example.com/view?id=1", pages);
+  expect(result.ok && result.text.split("\n")[0]).toBe("[가나다(주)] 조립 신입 채용 - 채용사이트");
+  expect(result.ok && result.text).toContain("백엔드 개발자를 찾습니다");
+  expect(result.ok && result.text).not.toContain("고객센터");
+  expect(pages.opened).toEqual(["https://jobs.example.com/view?id=1", "https://jobs.example.com/view-detail?id=1"]);
+});
+
+test("끼워 넣은 페이지의 본문이 그림이면 그 그림을 가져온다", async () => {
+  const big = new Uint8Array(60 * 1024).fill(7);
+  const result = await fetchPosting(
+    "https://jobs.example.com/view?id=2",
+    deps({
+      "https://jobs.example.com/view?id=2": () => response(html(`${chrome}<iframe src="/view-detail?id=2"></iframe>`)),
+      "https://jobs.example.com/view-detail?id=2": () => response(html(`<img src="/up/posting.jpg">`)),
+      "https://jobs.example.com/up/posting.jpg": () => response(big, { headers: { "content-type": "image/jpeg" } }),
+    }),
+  );
+  expect(result.ok && result.images).toHaveLength(1);
+});
+
+test("글이 충분해 보여도 요청하면 본문의 그림을 가져온다", async () => {
+  const big = new Uint8Array(60 * 1024).fill(7);
+  const routes = {
+    "https://a.example.com/job": () => response(html(`${chrome}<img src="/up/posting.jpg">`)),
+    "https://a.example.com/up/posting.jpg": () => response(big, { headers: { "content-type": "image/jpeg" } }),
+  };
+  const plain = await fetchPosting("https://a.example.com/job", deps(routes));
+  expect(plain.ok && plain.images).toEqual([]);
+  const forced = await fetchPosting("https://a.example.com/job", deps(routes), { forceImages: true });
+  expect(forced.ok && forced.images).toHaveLength(1);
 });

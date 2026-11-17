@@ -56,12 +56,14 @@ const FETCH_MESSAGES: Record<string, string> = {
 };
 
 // 공고 주소를 열어 글을 뽑는다. 본문이 그림이면 그림을 돌려준다(브라우저가 잘라서 다시 보낸다)
+// forceImages: 읽힌 글이 사이트 안내뿐이었을 때, 본문의 그림을 가져오려고 다시 부른다
 export async function fetchPostingAction(
   url: string,
+  forceImages = false,
 ): Promise<{ ok: true; text: string; images: AiImage[] } | { ok: false; message: string }> {
   await requireUser();
   if (typeof url !== "string" || url.length > POSTING_LIMITS.url) return { ok: false, message: FETCH_MESSAGES.bad_url };
-  const result = await fetchPosting(url);
+  const result = await fetchPosting(url, undefined, { forceImages: forceImages === true });
   if (!result.ok) return { ok: false, message: FETCH_MESSAGES[result.reason] };
   return { ok: true, text: result.text.slice(0, POSTING_LIMITS.rawText), images: result.images };
 }

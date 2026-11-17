@@ -17,6 +17,7 @@ const full = {
   careerType: "experienced",
   minYears: 3,
   employmentType: "regular",
+  hasDetails: true,
 };
 const sparse = {
   company: "다라마 스튜디오",
@@ -28,13 +29,16 @@ const sparse = {
   careerType: "any",
   minYears: -1,
   employmentType: "unknown",
+  hasDetails: true,
 };
+const chrome = { ...sparse, company: "가나다(주)", title: "조립 신입 채용", isRolling: false, hasDetails: false };
 // 어느 예시의 요청인지 보고 답한다(요청 순서가 정해져 있지 않다)
-const answering = (fullAnswer: unknown, sparseAnswer: unknown) =>
+const answering = (fullAnswer: unknown, sparseAnswer: unknown, chromeAnswer: unknown = chrome) =>
   createFakeAi(
-    Array.from({ length: 2 }, () => (request: { messages: { text: string }[] }) =>
-      request.messages[0].text.includes("가나다테크") ? fullAnswer : sparseAnswer,
-    ),
+    Array.from({ length: 3 }, () => (request: { messages: { text: string }[] }) => {
+      const text = request.messages[0].text;
+      return text.includes("가나다테크") ? fullAnswer : text.includes("다라마 스튜디오") ? sparseAnswer : chromeAnswer;
+    }),
   );
 
 beforeEach(async () => {
@@ -45,7 +49,7 @@ beforeEach(async () => {
 
 test("값을 맞게 뽑고 없는 값을 비워 두면 모두 통과한다", async () => {
   const rows = await runPostingCheck(db, answering(full, sparse), "admin");
-  expect(rows).toHaveLength(16);
+  expect(rows).toHaveLength(19);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
 });
 
@@ -75,4 +79,9 @@ test("본사를 근무지로 잡거나 없는 값을 지어내면 잡아낸다",
 test("AI 호출이 실패하면 실패 줄로 나온다", async () => {
   const rows = await runPostingCheck(db, answering({ fail: "refused" }, sparse), "admin");
   expect(rows.filter((row) => row.check === "AI 호출")).toHaveLength(1);
+});
+
+test("사이트 안내 글만 있는 글을 공고 내용이 있다고 하면 잡아낸다", async () => {
+  const rows = await runPostingCheck(db, answering(full, sparse, { ...chrome, hasDetails: true }), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["공고 내용이 없는 글을 가려낸다"]);
 });

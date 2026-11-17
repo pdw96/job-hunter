@@ -77,3 +77,9 @@ test("닫히지 않는 태그가 아주 많은 페이지도 금방 끝난다", (
 test("태그가 아닌 부등호는 글로 남긴다", () => {
   expect(htmlToText("<p>경력 3 < 5년, 연봉 > 4천</p>")).toBe("경력 3 < 5년, 연봉 > 4천");
 });
+
+test("같은 사이트의 끼워 넣은 페이지 주소만 모은다", () => {
+  const html = page(`<iframe src="/view-detail?id=1&amp;seq=0"></iframe><iframe src="https://other.example.org/x"></iframe>
+    <iframe src="/member/login-frame"></iframe><iframe src="about:blank"></iframe><iframe></iframe>`);
+  expect(contentFromHtml(html, "https://jobs.example.com/view?id=1").frames).toEqual(["https://jobs.example.com/view-detail?id=1&seq=0"]);
+});

@@ -82,11 +82,16 @@ export function PostingForm({
   };
 
   // 원문에서 값을 뽑아 확인 단계로 넘어간다
-  async function extract(rawText: string) {
+  // needDetails: 공고 내용이 없는 글(사이트 안내만 읽힌 경우)이면 넘어가지 않고 false를 돌려준다
+  async function extract(rawText: string, needDetails = false): Promise<boolean> {
     setBusy("값을 뽑는 중…");
     const result = await readPostingAction(rawText);
-    if (!result.ok) return setMessage(result.message);
-    const { unverified: doubts, ...value } = result.value;
+    if (!result.ok) {
+      setMessage(result.message);
+      return true;
+    }
+    const { unverified: doubts, hasDetails, ...value } = result.value;
+    if (needDetails && !hasDetails) return false;
     setDraft((previous) => ({
       ...previous,
       ...value,
@@ -97,6 +102,7 @@ export function PostingForm({
     }));
     setUnverified(doubts);
     setStep("fields");
+    return true;
   }
 
   // 그림을 읽기 좋은 크기로 잘라 글로 옮긴다
@@ -128,7 +134,10 @@ export function PostingForm({
     });
   };
 
-  const read = () => run(() => extract(draft.rawText));
+  const read = () =>
+    run(async () => {
+      await extract(draft.rawText);
+    });
 
   // 주소를 열어 글을 뽑는다. 본문이 그림이면 그림을 읽는다
   const readUrl = () =>
@@ -136,13 +145,24 @@ export function PostingForm({
       setBusy("주소를 여는 중…");
       const page = await fetchPostingAction(draft.url);
       if (!page.ok) return setMessage(page.message);
-      let text = page.text;
-      if (page.images.length > 0) {
-        const fromImages = await transcribe(page.images.map((image) => base64ToBlob(image.data, image.mediaType)));
-        if (fromImages === null) return;
-        text = [page.text, fromImages].filter(Boolean).join("\n\n");
+      let images = page.images;
+      if (images.length === 0) {
+        // 글로 읽혔다. 공고 내용이 들어 있으면 끝이다
+        if (await extract(page.text, true)) return;
+        // 사이트의 안내 글만 읽혔다. 본문이 그림일 수 있으니 그림을 가져와 본다
+        setBusy("공고 그림을 찾는 중…");
+        const again = await fetchPostingAction(draft.url, true);
+        images = again.ok ? again.images : [];
+        if (images.length === 0) {
+          return setMessage(
+            "이 주소에서는 공고 내용을 읽지 못했습니다(사이트의 메뉴와 안내 글만 읽혔습니다). 공고 화면을 그림으로 올리거나 공고 글을 붙여 넣어 주세요",
+          );
+        }
       }
-      set("rawText", text);
+      const fromImages = await transcribe(images.map((image) => base64ToBlob(image.data, image.mediaType)));
+      if (fromImages === null) return;
+      // 페이지의 글은 제목 한 줄만 남기고, 그림에서 옮긴 글을 본문으로 쓴다
+      const text = [page.text.split("\n")[0], fromImages].filter(Boolean).join("\n\n");
       await extract(text);
     });
 
@@ -151,7 +171,6 @@ export function PostingForm({
       if (files.length === 0) return;
       const text = await transcribe(files);
       if (text === null) return;
-      set("rawText", text);
       await extract(text);
     });
 

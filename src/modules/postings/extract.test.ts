@@ -26,6 +26,7 @@ const answer = (over: Record<string, unknown> = {}) => ({
   careerType: "experienced",
   minYears: 3,
   employmentType: "regular",
+  hasDetails: true,
   ...over,
 });
 
@@ -49,6 +50,7 @@ test("AI가 뽑은 값을 그대로 돌려주고, 사용량을 posting으로 기
       careerType: "experienced",
       minYears: 3,
       employmentType: "regular",
+      hasDetails: true,
       unverified: [],
     },
   });
@@ -92,4 +94,9 @@ test("AI가 거절하거나 한도를 넘으면 실패를 돌려준다", async (
   expect(await extractPosting(db, createFakeAi([{ fail: "refused" }]), "u1", rawText, today, now)).toEqual({ ok: false, reason: "refused" });
   process.env.AI_MONTHLY_LIMIT_USD = "0";
   expect(await extractPosting(db, createFakeAi([]), "u1", rawText, today, now)).toEqual({ ok: false, reason: "over_limit" });
+});
+
+test("공고 내용이 없는 글이면 hasDetails가 false로 온다", async () => {
+  const result = await extractPosting(db, createFakeAi([answer({ hasDetails: false })]), "u1", "채용사이트 로그인 회원가입", today, now);
+  expect(result.ok && result.value.hasDetails).toBe(false);
 });
