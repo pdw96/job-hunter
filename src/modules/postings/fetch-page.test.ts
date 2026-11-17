@@ -332,3 +332,29 @@ test("끼워 넣은 페이지의 그림과 함께 적힌 짧은 글도 남기고
   expect(result.ok && result.text).toContain("가나다(주) · 마감 12월 5일");
   expect(result.ok && result.images.map((item) => item.data.length)).toEqual([size(first), size(second)]);
 });
+
+test("사람인 공고는 상세요강 페이지를 따로 열어 본문으로 쓰고, 페이지 설명을 머리에 남긴다", async () => {
+  const outer = "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=55530921&view_type=list";
+  const detail = "https://www.saramin.co.kr/zf_user/jobs/relay/view-detail?rec_idx=55530921&rec_seq=0";
+  const pages = deps({
+    [outer]: () =>
+      response(`<html><head><title>[가나다(주)] 조립 신입 채용 - 사람인</title>
+        <meta name="description" content="가나다(주), 조립 신입 채용, 경력:신입, 마감일:2026-11-19"></head><body>${chrome}</body></html>`),
+    [detail]: () => response(html(long)),
+  });
+  const result = await fetchPosting(outer, pages);
+  expect(result.ok && result.text.split("\n").slice(0, 2)).toEqual(["[가나다(주)] 조립 신입 채용 - 사람인", "가나다(주), 조립 신입 채용, 경력:신입, 마감일:2026-11-19"]);
+  expect(result.ok && result.text).toContain("백엔드 개발자를 찾습니다");
+  expect(result.ok && result.text).not.toContain("고객센터");
+  expect(pages.opened).toEqual([outer, detail]);
+});
+
+test("사람인의 상세요강 페이지를 열지 못하면 바깥 페이지의 글을 그대로 쓴다", async () => {
+  const outer = "https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=7";
+  const pages = deps({
+    [outer]: () => response(html(long)),
+    "https://www.saramin.co.kr/zf_user/jobs/relay/view-detail?rec_idx=7&rec_seq=0": () => response("없음", { status: 404 }),
+  });
+  const result = await fetchPosting(outer, pages);
+  expect(result.ok && result.text).toContain("백엔드 개발자를 찾습니다");
+});
