@@ -40,3 +40,8 @@ export const POSTING_LIMITS = {
 
 // 요구 경력이 내 경력보다 이만큼(년) 넘게 높으면 제외 사유로 본다
 export const YEARS_GAP = 2;
+
+// 점수: 희망 지역 순위(1~5위)별 근무지 점수, 분야·요구 사항 일치 정도별 점수
+export const LOCATION_BY_RANK = [1, 0.85, 0.7, 0.55, 0.4];
+export const FIELD_SCORES = { same_job: 1, same_field: 0.5, other: 0 } as const;
+export const MATCH_SCORES = { full: 1, partial: 0.5, none: 0 } as const;
