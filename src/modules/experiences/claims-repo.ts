@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
-import { type Claim, claimsAfterEdit, type ClaimStatus, type FoundClaim, proseContains } from "./claims";
+import { type Claim, claimsAfterEdit, type ClaimStatus, type FoundClaim, proseContains, quotePieces } from "./claims";
 import type { ExperienceInput } from "./input";
+import { contentResetFields } from "./rubric-store";
 import { claims, experiences } from "./schema";
+import { judgePeriod } from "./verification";
 
 // 주장의 저장과 답 처리. 모든 함수가 기록의 소유자를 확인한다.
 
@@ -119,11 +121,20 @@ export async function answerClaim(
 
     if (answer === "unknown") {
       // 수치 칸의 줄이면 그 줄을 지운다. 같은 구절이 본문에도 남아 있으면 닫지 않고 고쳐야 할 것으로 둔다
-      const remaining = experience.metrics.filter((metric) => metric.text.slice(0, 200) !== claim.quote);
+      const remaining = experience.metrics.filter((metric) => !quotePieces(metric.text).includes(claim.quote));
       if (remaining.length !== experience.metrics.length) {
         await tx
           .update(experiences)
-          .set({ metrics: remaining, contentVersion: sql`${experiences.contentVersion} + 1`, updatedAt: new Date() })
+          .set({
+            metrics: remaining,
+            updatedAt: new Date(),
+            // 내용이 바뀌었으므로 예전 판정과 후보도 지운다(기록을 고쳤을 때와 같다)
+            ...contentResetFields(
+              experience.kind,
+              experience.rubric,
+              judgePeriod(experience.kind, experience.startMonth, experience.endMonth, experience.isOngoing),
+            ),
+          })
           .where(eq(experiences.id, experience.id));
         if (!proseContains({ ...experience, metrics: remaining }, claim.quote)) status = "removed";
       }

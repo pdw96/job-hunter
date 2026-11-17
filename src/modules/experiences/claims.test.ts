@@ -162,3 +162,16 @@ test("닫힌 옛 주장이 30개여도 새 숫자는 새 주장이 되고, 옛 �
   expect(deletes).toEqual(["old0"]);
   expect(updates).toEqual([]);
 });
+
+test("긴 수치 줄은 조각으로 나눠 뒤쪽 숫자도 묻고, 그 숫자를 고치면 주장이 닫힌다", () => {
+  const text = `${"가나다라 ".repeat(50)}그래서 매출이 37% 늘었다`;
+  const input = { ...base, startMonth: null, endMonth: null, situation: null, actions: null, result: null, metrics: [{ text, basis: null }] };
+  const found = findClaims(input);
+  expect(found).toHaveLength(2);
+  expect(found[1].quote).toContain("37%");
+  const existing: Claim[] = found.map((claim, index) => ({ ...claim, id: `c${index}`, status: "needs_fix" }));
+  const edited = { ...input, metrics: [{ text: text.replace("37%", "12%"), basis: null }] };
+  const { updates, adds } = claimsAfterEdit(existing, edited);
+  expect(updates).toEqual([{ id: "c1", status: "fixed" }]);
+  expect(adds.map((claim) => claim.quote).join()).toContain("12%");
+});

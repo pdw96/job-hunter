@@ -7,7 +7,7 @@ import { findClaims } from "./claims";
 import { answerClaim, countOpenClaims, insertClaims, listClaims } from "./claims-repo";
 import type { ExperienceInput } from "./input";
 import { confirmExperience, createExperience, deleteExperience, getExperience, updateExperience } from "./repo";
-import { claims } from "./schema";
+import { claims, experiences } from "./schema";
 
 let db: Db;
 
@@ -171,4 +171,18 @@ test("수치 칸과 본문에 같은 구절이 있으면, 숫자 모름을 눌�
   expect(await answerClaim(db, "u1", claim.id, "unknown")).toEqual({ ok: true, status: "needs_fix" });
   expect((await getExperience(db, "u1", id))?.metrics).toEqual([]);
   expect(await confirmExperience(db, "u1", id)).toEqual({ ok: false, reason: "claims_pending" });
+});
+
+test("숫자 모름으로 수치 줄을 지우면 예전 판정과 후보도 지워진다", async () => {
+  const id = await importOne();
+  await db
+    .update(experiences)
+    .set({ judgedAt: new Date(), phraseCandidates: ["주도"] })
+    .where(eq(experiences.id, id));
+  const claim = await byQuote(id, "5건에서 1건");
+  await answerClaim(db, "u1", claim.id, "unknown");
+  const [row] = await db.select().from(experiences).where(eq(experiences.id, id));
+  expect(row.judgedAt).toBeNull();
+  expect(row.phraseCandidates).toEqual([]);
+  expect(row.contentVersion).toBe(1);
 });

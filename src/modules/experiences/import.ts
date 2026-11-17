@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
-import { findClaims, type FoundClaim, mergeClaims } from "./claims";
+import { findClaims, type FoundClaim, MAX_CLAIMS, mergeClaims, OTHER_FIELDS, sentences } from "./claims";
 import { insertClaims } from "./claims-repo";
 import { numbersIn, ungroundedNumbers } from "./grounding";
 import { type ExperienceInput, validateExperience } from "./input";
@@ -65,16 +65,16 @@ export async function requestImport(
       ...checked.value,
       metrics: checked.value.metrics.map((metric) => (isInvented(metric.basis) ? { ...metric, basis: null } : metric)),
     };
-    // 원본에 없던 숫자가 든 구절은 처음부터 고쳐야 할 것으로 둔다. 수치 줄은 잘린 인용이 아니라 전체 글로 본다
-    const longMetric = (quote: string) =>
-      input.metrics.some((metric) => metric.text.slice(0, 200) === quote && isInvented(metric.text));
-    const claims = mergeClaims(findClaims(input), roleClaims, input).map((claim) => ({
+    // 원본에 없던 숫자가 든 구절은 처음부터 고쳐야 할 것으로 둔다
+    const scanned = mergeClaims(findClaims(input), roleClaims, input).map((claim) => ({
       ...claim,
-      status:
-        isInvented(claim.quote) || (claim.kind === "metric" && longMetric(claim.quote))
-          ? ("needs_fix" as const)
-          : ("pending" as const),
+      status: isInvented(claim.quote) ? ("needs_fix" as const) : ("pending" as const),
     }));
+    // 주장으로 훑지 않는 칸(이름, 소속, 역할, 하지 않은 일, 증빙 메모)에 지어낸 숫자가 있으면 그 구절도 묻는다
+    const extra = OTHER_FIELDS.flatMap((field) => sentences(input[field]))
+      .filter((quote) => isInvented(quote) && !scanned.some((claim) => claim.quote === quote))
+      .map((quote) => ({ kind: "metric" as const, quote, phrase: null, origin: "code" as const, status: "needs_fix" as const }));
+    const claims = [...extra, ...scanned].slice(0, MAX_CLAIMS);
     records.push({ input, claims });
   }
   return { ok: true, records, skipped, more: result.value.more || result.value.records.length > MAX_RECORDS };

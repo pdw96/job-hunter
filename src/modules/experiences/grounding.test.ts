@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { ungroundedNumbers } from "./grounding";
+import { numbersIn, ungroundedNumbers } from "./grounding";
 import type { ExperienceInput } from "./input";
 
 const draft: ExperienceInput = {
@@ -56,4 +56,10 @@ test("점이나 빗금으로 적은 날짜는 소수가 아니라 연도와 월�
   const sources = ["결제 시스템 개편 (2023.03 ~ 2023.11), 2024/1/15 발표"];
   expect(ungroundedNumbers({ ...draft, situation: null, result: null, metrics: [] }, sources)).toEqual({});
   expect(ungroundedNumbers({ ...draft, situation: "2024년 1월 15일에 발표했다", result: null, metrics: [] }, sources)).toEqual({});
+});
+
+test("소수로 적은 금액은 날짜로 보지 않는다", () => {
+  expect(numbersIn("매출 1200.50만원")).toEqual(["1200.5"]);
+  expect(numbersIn("매출 1200.5만원")).toEqual(["1200.5"]);
+  expect(numbersIn("2023.03 ~ 2023.11.")).toEqual(["2023", "3", "2023", "11"]);
 });

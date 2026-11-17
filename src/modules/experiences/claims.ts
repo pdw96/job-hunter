@@ -21,17 +21,17 @@ const INFLATING = ["주도", "총괄", "리드", "리딩", "단독", "전담", "
 const PROSE_FIELDS = ["situation", "actions", "result"] as const;
 
 // 문장이나 줄 단위로 나눈다. 글머리 기호는 뗀다
-function sentences(text: string | null): string[] {
+export function sentences(text: string | null): string[] {
   if (!text) return [];
   return text
     .split(/\n|(?<=[.!?])\s+/)
     .map((part) => part.replace(/^\s*(?:[-•·*▪◦]|\d+[.)])\s+/, "").trim())
     .filter((part) => part !== "")
-    .flatMap(pieces);
+    .flatMap(quotePieces);
 }
 
 // 긴 문장은 잘라 버리지 않고 여러 조각으로 나눠, 뒤쪽의 숫자와 낱말도 빠지지 않게 한다. 되도록 띄어쓰기에서 나눈다
-function pieces(sentence: string): string[] {
+export function quotePieces(sentence: string): string[] {
   const parts: string[] = [];
   let rest = sentence;
   while (rest.length > MAX_QUOTE) {
@@ -74,7 +74,10 @@ export function findClaims(input: ExperienceInput): FoundClaim[] {
   if (period) add({ kind: "period", quote: period, phrase: null, origin: "code" });
 
   for (const metric of input.metrics) {
-    add({ kind: "metric", quote: metric.text.slice(0, MAX_QUOTE), phrase: null, origin: "code" });
+    // 수치 줄은 숫자가 없어도 묻는다. 긴 줄은 조각으로 나눠, 첫 조각과 숫자가 든 조각을 묻는다
+    quotePieces(metric.text).forEach((piece, index) => {
+      if (index === 0 || hasNumber(piece)) add({ kind: "metric", quote: piece, phrase: null, origin: "code" });
+    });
   }
   for (const field of PROSE_FIELDS) {
     for (const sentence of sentences(input[field])) {
@@ -93,11 +96,20 @@ export function findClaims(input: ExperienceInput): FoundClaim[] {
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
 // 구절이 남아 있는지 볼 때 살피는 칸
-export type ClaimTexts = Pick<ExperienceInput, "situation" | "actions" | "result" | "role" | "metrics">;
+export type ClaimTexts = Pick<
+  ExperienceInput,
+  "name" | "organization" | "role" | "situation" | "actions" | "result" | "metrics" | "notDone" | "evidenceNote"
+>;
+// 주장으로 훑지는 않지만, 가져올 때 원본에 없던 숫자가 있으면 주장이 될 수 있는 칸
+export const OTHER_FIELDS = ["name", "organization", "role", "notDone", "evidenceNote"] as const;
 
 export function proseContains(input: ClaimTexts, quote: string): boolean {
   const needle = squash(quote);
-  const texts = [...PROSE_FIELDS.map((field) => input[field]), input.role, ...input.metrics.map((metric) => metric.text)];
+  const texts = [
+    ...PROSE_FIELDS.map((field) => input[field]),
+    ...OTHER_FIELDS.map((field) => input[field]),
+    ...input.metrics.map((metric) => metric.text),
+  ];
   return texts.some((text) => text !== null && squash(text).includes(needle));
 }
 

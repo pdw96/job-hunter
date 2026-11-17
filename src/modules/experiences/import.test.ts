@@ -6,7 +6,7 @@ import { aiUsage } from "@/modules/ai/schema";
 import { user } from "@/modules/auth/schema";
 import { listClaims } from "./claims-repo";
 import { importExperiences } from "./import";
-import { getExperience, listExperiences } from "./repo";
+import { getExperience, listExperiences, toInput, updateExperience } from "./repo";
 
 let db: Db;
 const now = new Date("2026-11-17T03:00:00Z");
@@ -158,4 +158,18 @@ test("긴 문장 뒤쪽에 지어낸 숫자가 있어도 고쳐야 할 주장으
   if (!result.ok) throw new Error("가져오기 실패");
   const claims = await listClaims(db, "u1", result.created[0].id);
   expect(claims.find((claim) => claim.quote.includes("47%"))?.status).toBe("needs_fix");
+});
+
+test("주장으로 훑지 않는 칸에 지어낸 숫자가 있으면 그 구절도 고쳐야 할 주장이 되고, 고치면 닫힌다", async () => {
+  const draft = record({ evidenceNote: "고객 73명 설문 결과" });
+  const result = await importExperiences(db, createFakeAi([{ records: [draft], more: false }]), "u1", source, now);
+  if (!result.ok) throw new Error("가져오기 실패");
+  const id = result.created[0].id;
+  const claim = (await listClaims(db, "u1", id)).find((item) => item.quote === "고객 73명 설문 결과");
+  expect(claim?.status).toBe("needs_fix");
+
+  const current = await getExperience(db, "u1", id);
+  if (!current) throw new Error("기록 없음");
+  await updateExperience(db, "u1", id, { ...toInput(current), evidenceNote: null });
+  expect((await listClaims(db, "u1", id)).find((item) => item.id === claim?.id)?.status).toBe("fixed");
 });

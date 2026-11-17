@@ -4,14 +4,13 @@ import type { Db } from "@/db/types";
 import { listTrackIds, ownsTrack } from "@/modules/tracks/repo";
 import { hasOpenClaims, syncClaimsAfterEdit } from "./claims-repo";
 import { CONTENT_FIELDS, type ExperienceInput } from "./input";
-import { DEFAULT_SCOPE, type Kind, RUBRIC_ITEMS, type RubricItem, type Scope } from "./options";
+import { DEFAULT_SCOPE, type Kind, type RubricItem, type Scope } from "./options";
+import { contentResetFields, statuses, withStatuses } from "./rubric-store";
 import { experiences, type StoredRubric, trackScopes } from "./schema";
 import {
   canClose,
   initialRubric,
   judgePeriod,
-  type Rubric,
-  rubricAfterContentEdit,
   type VerificationState,
   verificationState,
 } from "./verification";
@@ -58,19 +57,6 @@ export type ExperienceSummary = Pick<
 
 type NotFound = { ok: false; reason: "not_found" };
 type Ok = { ok: true };
-
-const statuses = (rubric: StoredRubric): Rubric =>
-  Object.fromEntries(RUBRIC_ITEMS.map((item) => [item, rubric[item].status])) as Rubric;
-
-// 상태만 바꾸고, 상태가 그대로인 항목의 보완 방안(note)은 유지한다
-function withStatuses(next: Rubric, previous?: StoredRubric): StoredRubric {
-  return Object.fromEntries(
-    RUBRIC_ITEMS.map((item) => [
-      item,
-      { status: next[item], note: previous && previous[item].status === next[item] ? previous[item].note : null },
-    ]),
-  ) as StoredRubric;
-}
 
 const periodOf = (input: ExperienceInput) =>
   judgePeriod(input.kind, input.startMonth, input.endMonth, input.isOngoing);
@@ -150,18 +136,7 @@ export async function updateExperience(
         ...input,
         updatedAt: new Date(),
         ...(contentChanged
-          ? {
-              confirmedAt: null,
-              // 판정과 후보는 예전 내용에 대한 것이므로 지운다
-              contentVersion: sql`${experiences.contentVersion} + 1`,
-              phraseCandidates: [],
-              judgedAt: null,
-              rubric: withStatuses(
-                rubricAfterContentEdit(input.kind, statuses(current.rubric), periodOf(input)),
-                current.rubric,
-              ),
-            }
-          : {}),
+          ? contentResetFields(input.kind, current.rubric, periodOf(input)) : {}),
       })
       .where(mine(userId, id));
     // 가져온 기록은 고친 내용에 맞춰 주장을 다시 맞춘다(고친 구절은 닫고, 새 숫자는 새로 묻는다)
