@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "@/modules/tracks/repo";
+import type { AppliedScore, PostingAnalysis } from "./analysis";
 import type { PostingInput } from "./input";
 import { POSTING_LIMITS, type PostingStatus } from "./options";
 import { postings } from "./schema";
@@ -13,6 +14,8 @@ export type Posting = PostingInput & {
   trackId: string;
   status: PostingStatus;
   excludeOverride: boolean;
+  analysis: PostingAnalysis | null;
+  appliedScore: AppliedScore | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -52,7 +55,13 @@ export async function updatePosting(
   const updated = await db
     .update(postings)
     // 내용을 고치면 "그래도 진행"은 다시 정하게 한다(사유가 달라졌을 수 있다)
-    .set({ ...input, excludeOverride: false, updatedAt: new Date() })
+    .set({
+      ...input,
+      excludeOverride: false,
+      // 분석은 원문과 인재상 글을 읽은 결과라서, 둘 중 하나가 바뀔 때만 지운다(appliedScore는 그대로)
+      analysis: sql`case when ${postings.rawText} = ${input.rawText} and ${postings.companyNote} is not distinct from ${input.companyNote} then ${postings.analysis} else null end`,
+      updatedAt: new Date(),
+    })
     .where(mine(userId, id))
     .returning({ id: postings.id });
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
@@ -139,6 +148,45 @@ export async function setExcludeOverride(
   const updated = await db
     .update(postings)
     .set({ excludeOverride: value, updatedAt: new Date() })
+    .where(mine(userId, id))
+    .returning({ id: postings.id });
+  return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+}
+
+// 분석을 저장한다. AI가 읽은 원문과 인재상 글이 지금 저장된 것과 같을 때만 쓴다(읽는 동안 고쳤다면 "changed")
+export async function saveAnalysis(
+  db: Db,
+  userId: string,
+  id: string,
+  analysis: PostingAnalysis,
+  readAs: { rawText: string; companyNote: string | null },
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "changed" }> {
+  const updated = await db
+    .update(postings)
+    .set({ analysis, updatedAt: new Date() })
+    .where(
+      and(
+        mine(userId, id),
+        eq(postings.rawText, readAs.rawText),
+        sql`${postings.companyNote} is not distinct from ${readAs.companyNote}`,
+      ),
+    )
+    .returning({ id: postings.id });
+  if (updated.length > 0) return { ok: true };
+  const [exists] = await db.select({ id: postings.id }).from(postings).where(mine(userId, id)).limit(1);
+  return { ok: false, reason: exists ? "changed" : "not_found" };
+}
+
+// 지원으로 정한다. 그때의 점수를 함께 남긴다(이후 기준이 바뀌어도 이 점수는 그대로)
+export async function applyToPosting(
+  db: Db,
+  userId: string,
+  id: string,
+  score: AppliedScore,
+): Promise<{ ok: true } | NotFound> {
+  const updated = await db
+    .update(postings)
+    .set({ status: "apply", appliedScore: score, updatedAt: new Date() })
     .where(mine(userId, id))
     .returning({ id: postings.id });
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
