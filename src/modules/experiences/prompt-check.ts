@@ -1,5 +1,6 @@
 import type { Db } from "@/db/types";
 import { type AiClient, runAi } from "@/modules/ai/client";
+import { requestImport } from "./import";
 import type { ExperienceInput } from "./input";
 import { requestDraft } from "./interview";
 import { type Judgement, judgementSchema } from "./judge";
@@ -49,6 +50,7 @@ const asExperience = (input: ExperienceInput): Experience => ({
   phraseCandidates: [],
   dismissedPhrases: [],
   judgedAt: null,
+  source: "manual",
   createdAt: new Date(0),
   updatedAt: new Date(0),
 });
@@ -172,6 +174,74 @@ export const EXTRACT_SAMPLES: ExtractSample[] = [
 
 const STATUS_LABELS = { met: "충족", unmet: "미달" } as const;
 
+// AI가 써 준 것 같은 부풀려진 이력서. 가져오기가 이것을 키우지 않고 있는 그대로 나누는지 본다
+export const IMPORT_SAMPLE = {
+  name: "부풀려진 이력서 가져오기",
+  source: `[경력]
+가나다커머스 | 마케팅팀 | 2022.03 ~ 2024.02
+- 신규 고객 유입 캠페인을 주도하여 매출 30% 향상에 기여
+- 데이터 기반 의사결정 문화를 정착시키며 핵심 역할을 수행
+- SNS 채널 운영을 총괄하고 팔로워를 2만 명까지 성장시킴
+
+[프로젝트]
+브랜드 리뉴얼 프로젝트 | 2023.06 ~ 2023.09
+- 리뉴얼 TF에 참여하여 고객 설문을 설계하고 결과를 정리
+- 성공적인 리뉴얼 론칭을 이끌며 브랜드 인지도 제고에 크게 기여
+
+[학력]
+한국대학교 경영학과 | 2016.03 ~ 2022.02`,
+};
+
+type Prepared = Extract<Awaited<ReturnType<typeof requestImport>>, { ok: true }>;
+
+function importRows(prepared: Prepared): CheckRow[] {
+  const sample = IMPORT_SAMPLE.name;
+  const records = prepared.records;
+  const text = records
+    .map(({ input }) => [input.situation, input.actions, input.result, ...input.metrics.map((m) => m.text)].join(" "))
+    .join(" ");
+  const claims = records.flatMap((record) => record.claims);
+  const invented = claims.filter((claim) => claim.status === "needs_fix").map((claim) => claim.quote);
+  const aiClaims = claims.filter((claim) => claim.origin === "ai").map((claim) => claim.quote);
+  const filled = records.filter(({ input }) => input.notDone || input.evidenceNote).map(({ input }) => input.name);
+  const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample, check, expected, actual, pass });
+
+  return [
+    row("경험 단위로 나눈다", "3건", `${records.length}건: ${records.map(({ input }) => input.name).join(", ")}`, records.length === 3),
+    row("원본에 없던 숫자를 넣지 않는다", "없음", invented.length === 0 ? "없음" : invented.join(" / "), invented.length === 0),
+    row(
+      "원본의 표현을 그대로 둔다",
+      "'매출 30% 향상에 기여'가 그대로 있음",
+      text.includes("매출 30% 향상에 기여") ? "그대로 있음" : "바뀌었거나 빠짐",
+      text.includes("매출 30% 향상에 기여"),
+    ),
+    row(
+      "더 키우지 않는다",
+      "'참여하여'가 '주도'로 바뀌지 않음",
+      /리뉴얼 TF에 참여/.test(text) ? "그대로 있음" : "바뀌었거나 빠짐",
+      /리뉴얼 TF에 참여/.test(text),
+    ),
+    row(
+      "원본에 없는 칸을 채우지 않는다",
+      "하지 않은 것·증빙이 비어 있음",
+      filled.length === 0 ? "비어 있음" : `채워진 기록: ${filled.join(", ")}`,
+      filled.length === 0,
+    ),
+    row(
+      "코드가 숫자와 과장 낱말을 주장으로 잡는다",
+      "30%, 2만, 주도, 총괄이 든 구절",
+      claims.filter((claim) => claim.origin === "code").map((claim) => claim.quote).join(" / ") || "없음",
+      ["30%", "2만", "주도", "총괄"].every((word) => claims.some((claim) => claim.origin === "code" && claim.quote.includes(word))),
+    ),
+    row(
+      "AI가 부풀린 표현을 더 짚는다",
+      "1개 이상 (예: 핵심 역할, 크게 기여)",
+      aiClaims.length === 0 ? "없음" : aiClaims.join(" / "),
+      aiClaims.length > 0,
+    ),
+  ];
+}
+
 function judgeRows(sample: JudgeSample, judgement: Judgement): CheckRow[] {
   const rows: CheckRow[] = (Object.keys(sample.expect) as Item[]).map((item) => ({
     sample: sample.name,
@@ -234,5 +304,10 @@ export async function runPromptCheck(db: Db, ai: AiClient, userId: string, now: 
     return rows;
   });
 
-  return (await Promise.all([...judged, ...extracted])).flat();
+  const imported = (async () => {
+    const result = await requestImport(db, ai, userId, IMPORT_SAMPLE.source, now);
+    return result.ok ? importRows(result) : failed(IMPORT_SAMPLE.name, result.reason);
+  })();
+
+  return (await Promise.all([...judged, ...extracted, imported])).flat();
 }

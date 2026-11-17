@@ -5,6 +5,9 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { requireAdmin, requireUser } from "@/lib/session";
 import { ai } from "@/modules/ai/provider";
+import { answerClaim, type ClaimAnswer } from "./claims-repo";
+import { importExperiences } from "./import";
+import { extractText, prepareSource } from "./import-text";
 import { type ExperienceErrors, type ExperienceInput, validateExperience } from "./input";
 import {
   answerInterview,
@@ -78,19 +81,26 @@ export async function saveExperienceAction(
   return { ok: true, id: savedId, value: parsed.value };
 }
 
-export async function deleteExperienceAction(id: string): Promise<SimpleResult> {
+// stay가 false가 아니면 지운 뒤 목록으로 이동한다(가져오기 결과 화면에서는 그 자리에 머문다)
+export async function deleteExperienceAction(id: string, goToList = true): Promise<SimpleResult> {
   const user = await requireUser();
   const result = typeof id === "string" ? await deleteExperience(db, user.id, id) : { ok: false as const };
   if (!result.ok) return { ok: false, message: NOT_FOUND };
   refresh(id);
-  redirect("/experiences");
+  if (goToList !== false) redirect("/experiences");
+  return { ok: true };
 }
 
 export async function setConfirmedAction(id: string, confirmed: boolean): Promise<SimpleResult> {
   const user = await requireUser();
   if (typeof id !== "string") return { ok: false, message: NOT_FOUND };
   const result = confirmed ? await confirmExperience(db, user.id, id) : await unconfirmExperience(db, user.id, id);
-  if (!result.ok) return { ok: false, message: NOT_FOUND };
+  if (!result.ok) {
+    return {
+      ok: false,
+      message: result.reason === "claims_pending" ? "확인할 주장이 남아 있습니다. 먼저 주장을 확인해 주세요" : NOT_FOUND,
+    };
+  }
   refresh(id);
   return { ok: true };
 }
@@ -122,6 +132,7 @@ const AI_MESSAGES: Record<string, string> = {
   invalid_text: "답을 입력해 주세요 (4,000자까지)",
   busy: "앞의 답을 처리하는 중입니다. 잠시 뒤 다시 보내 주세요",
   empty: "아직 답한 내용이 없습니다",
+  nothing_found: "경험으로 나눌 만한 내용을 찾지 못했습니다",
 };
 const aiMessage = (reason: string) => AI_MESSAGES[reason] ?? "문제가 생겼습니다. 다시 시도해 주세요";
 
@@ -182,4 +193,54 @@ export async function runPromptCheckAction(): Promise<
   const admin = await requireAdmin();
   const rows = await runPromptCheck(db, ai, admin.id);
   return { ok: true, rows };
+}
+
+const IMPORT_MESSAGES: Record<string, string> = {
+  unsupported: "지원하지 않는 파일입니다. PDF, 워드(.docx), 글 파일(.md, .txt, .csv)만 올릴 수 있습니다",
+  too_large: "파일이 너무 큽니다. 4MB까지 올릴 수 있습니다",
+  no_text: "글자를 읽을 수 없는 파일입니다. 스캔한 PDF는 지원하지 않습니다. 글을 복사해 붙여 넣어 주세요",
+  unreadable: "파일을 열 수 없습니다. 파일이 깨졌거나 확장자가 내용과 다릅니다",
+  empty: "가져올 글을 붙여 넣거나 파일을 골라 주세요",
+  too_long: "글이 너무 깁니다. 4만 자까지 한 번에 가져올 수 있습니다. 나눠서 올려 주세요",
+};
+
+export type ImportActionResult =
+  | { ok: true; created: { id: string; name: string; claimCount: number }[]; skipped: number; more: boolean }
+  | { ok: false; message: string };
+
+// 글(붙여 넣기 또는 파일)을 경험 기록으로 가져온다. 파일은 글자만 뽑고 저장하지 않는다
+export async function importAction(formData: FormData): Promise<ImportActionResult> {
+  const user = await requireUser();
+  const file = formData.get("file");
+  let raw = typeof formData.get("text") === "string" ? (formData.get("text") as string) : "";
+
+  if (file instanceof File && file.size > 0) {
+    const extracted = await extractText({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+    if (!extracted.ok) return { ok: false, message: IMPORT_MESSAGES[extracted.reason] };
+    raw = extracted.text;
+  }
+  const source = prepareSource(raw);
+  if (!source.ok) return { ok: false, message: IMPORT_MESSAGES[source.reason] };
+
+  const result = await importExperiences(db, ai, user.id, source.text);
+  if (!result.ok) return { ok: false, message: aiMessage(result.reason) };
+  refresh();
+  return result;
+}
+
+const CLAIM_ANSWERS: ClaimAnswer[] = ["confirm", "unknown", "exaggerated", "wrong"];
+
+export async function answerClaimAction(experienceId: string, claimId: string, answer: ClaimAnswer): Promise<SimpleResult> {
+  const user = await requireUser();
+  if (typeof claimId !== "string" || !CLAIM_ANSWERS.includes(answer)) return { ok: false, message: NOT_FOUND };
+  const result = await answerClaim(db, user.id, claimId, answer);
+  if (!result.ok) {
+    const message =
+      result.reason === "banned_full"
+        ? "금지 표현이 가득 찼습니다. 아래 입력 칸에서 하나를 지우고 저장한 뒤 다시 눌러 주세요"
+        : "이 주장에는 그 답을 할 수 없습니다";
+    return { ok: false, message };
+  }
+  if (typeof experienceId === "string") refresh(experienceId);
+  return { ok: true };
 }

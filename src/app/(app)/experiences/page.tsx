@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { monthlyCostMicroUsd, monthlyLimitMicroUsd } from "@/modules/ai/usage";
+import { countOpenClaims } from "@/modules/experiences/claims-repo";
 import { listEvidenceTodos } from "@/modules/experiences/judge";
 import { KIND_LABELS } from "@/modules/experiences/options";
 import { listExperiences } from "@/modules/experiences/repo";
@@ -12,11 +13,12 @@ import { StateBadge } from "./state-badge";
 
 export default async function ExperiencesPage() {
   const user = await requireUser();
-  const [list, todos, tracks, spent] = await Promise.all([
+  const [list, todos, tracks, spent, openClaims] = await Promise.all([
     listExperiences(db, user.id),
     listEvidenceTodos(db, user.id),
     listTracks(db, user.id),
     monthlyCostMicroUsd(db, user.id, new Date()),
+    countOpenClaims(db, user.id),
   ]);
   const usd = (microUsd: number) => `$${(microUsd / 1_000_000).toFixed(2)}`;
 
@@ -26,6 +28,9 @@ export default async function ExperiencesPage() {
         <h1 className="text-2xl font-bold">경험 기록</h1>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <StartInterview tracks={tracks.map((track) => ({ id: track.id, name: track.name }))} />
+          <Link href="/experiences/import" className="rounded-lg border border-foreground/20 px-4 py-2 text-sm font-medium">
+            가져오기
+          </Link>
           <Link href="/experiences/new" className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background">
             기록 추가
           </Link>
@@ -67,6 +72,11 @@ export default async function ExperiencesPage() {
                       .join(" · ")}
                   </p>
                 </div>
+                {openClaims[item.id] > 0 && (
+                  <span className="shrink-0 text-xs text-amber-700 dark:text-amber-400">
+                    확인할 주장 {openClaims[item.id]}개
+                  </span>
+                )}
                 <StateBadge state={item.state} />
               </Link>
             </li>

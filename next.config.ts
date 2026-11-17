@@ -10,6 +10,8 @@ if (localPreview && process.env.VERCEL) {
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
+  // 가져오기에서 파일(4MB까지)을 서버 액션으로 받는다
+  experimental: { serverActions: { bodySizeLimit: "5mb" } },
   ...(localPreview ? { distDir: ".next-local", serverExternalPackages: ["@electric-sql/pglite"] } : {}),
   turbopack: {
     rules: {

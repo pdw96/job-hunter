@@ -62,6 +62,36 @@ function extract(text: string) {
   };
 }
 
+// 빈 줄로 나뉜 덩어리를 기록 하나로 본다
+function importRecords(text: string) {
+  const blocks = text.replace("[가져올 글]\n", "").split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
+  return {
+    records: blocks.slice(0, 12).map((block) => {
+      const [title, ...rest] = block.split("\n");
+      const period = block.match(/(\d{4})[.-](\d{1,2})\s*~\s*(\d{4})[.-](\d{1,2})/);
+      const body = rest.join("\n").trim();
+      return {
+        name: title.replace(/\(.*\)/, "").trim().slice(0, 60),
+        kind: /대학교|고등학교/.test(title) ? "school" : "project",
+        organization: "",
+        role: "",
+        startMonth: period ? `${period[1]}-${period[2].padStart(2, "0")}` : "",
+        endMonth: period ? `${period[3]}-${period[4].padStart(2, "0")}` : "",
+        isOngoing: false,
+        situation: "",
+        actions: body,
+        result: "",
+        metrics: [],
+        notDone: "",
+        evidenceNote: "",
+        tags: [],
+        roleClaims: body.includes("핵심 역할") ? ["핵심 역할을 수행했다"] : [],
+      };
+    }),
+    more: blocks.length > 12,
+  };
+}
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
@@ -71,7 +101,9 @@ export const ai: AiClient = {
         ? judge(text)
         : request.purpose === "interview"
           ? interview(request as AiRequest<unknown>)
-          : extract(text);
+          : request.purpose === "import"
+            ? importRecords(text)
+            : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };
     return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };

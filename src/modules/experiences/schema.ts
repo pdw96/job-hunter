@@ -1,6 +1,7 @@
 import { boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 import { user } from "../auth/schema";
 import { tracks } from "../tracks/schema";
+import type { ClaimKind, ClaimOrigin, ClaimStatus } from "./claims";
 import type { Metric } from "./input";
 import type { Kind, RubricItem, Scope } from "./options";
 import type { ItemStatus } from "./verification";
@@ -34,6 +35,8 @@ export const experiences = pgTable(
     tags: jsonb("tags").$type<string[]>().notNull(),
     rubric: jsonb("rubric").$type<StoredRubric>().notNull(),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }), // 사용자가 "내용이 맞습니다"를 누른 때
+    // manual 직접 입력 / interview AI 인터뷰 / import 가져오기. 가져온 기록만 주장별 확인을 거친다
+    source: text("source").$type<"manual" | "interview" | "import">().notNull().default("manual"),
     // 내용 칸이 바뀔 때마다 1씩 오른다. AI 판정처럼 시간이 걸리는 작업이, 읽었을 때의 내용에만 결과를 반영하게 한다
     contentVersion: integer("content_version").notNull().default(0),
     phraseCandidates: jsonb("phrase_candidates").$type<string[]>().notNull().default([]), // AI가 제안한 금지 표현 후보
@@ -78,4 +81,24 @@ export const interviews = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("experiences_interviews_user_idx").on(t.userId)],
+);
+
+// 가져온 기록의 주장. 하나씩 확인해 닫아야 그 기록을 확인할 수 있다
+export const claims = pgTable(
+  "experiences_claims",
+  {
+    id: text("id").primaryKey(),
+    experienceId: text("experience_id")
+      .notNull()
+      .references(() => experiences.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<ClaimKind>().notNull(),
+    quote: text("quote").notNull(), // 기록에 적힌 그대로의 구절
+    phrase: text("phrase"), // "과장임"을 누르면 금지 표현에 넣을 글
+    status: text("status").$type<ClaimStatus>().notNull().default("pending"),
+    origin: text("origin").$type<ClaimOrigin>().notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("experiences_claims_experience_idx").on(t.experienceId)],
 );

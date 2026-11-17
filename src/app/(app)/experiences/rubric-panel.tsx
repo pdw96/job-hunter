@@ -55,9 +55,19 @@ type Props = {
   state: VerificationState;
   phraseCandidates: string[];
   isJudged: boolean;
+  claimsOpen?: boolean; // 가져온 기록에 아직 닫지 않은 주장이 있는가
 };
 
-export function RubricPanel({ id, kind, rubric, isConfirmed, state, phraseCandidates, isJudged }: Props) {
+export function RubricPanel({
+  id,
+  kind,
+  rubric,
+  isConfirmed,
+  state,
+  phraseCandidates,
+  isJudged,
+  claimsOpen = false,
+}: Props) {
   const dirty = useDirty();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -177,7 +187,7 @@ export function RubricPanel({ id, kind, rubric, isConfirmed, state, phraseCandid
         <p className="text-xs text-foreground/60">{STATE_HELP[state]}</p>
         <button
           type="button"
-          disabled={pending || (dirty && !isConfirmed)}
+          disabled={pending || ((dirty || claimsOpen) && !isConfirmed)}
           onClick={() => run(() => setConfirmedAction(id, !isConfirmed))}
           className={`w-full rounded-lg px-3 py-2 font-medium disabled:opacity-50 ${
             isConfirmed ? "border border-foreground/20" : "bg-foreground text-background"
@@ -185,6 +195,9 @@ export function RubricPanel({ id, kind, rubric, isConfirmed, state, phraseCandid
         >
           {isConfirmed ? "확인 취소" : "내용이 맞습니다"}
         </button>
+        {claimsOpen && !isConfirmed && (
+          <p className="text-xs text-foreground/60">가져온 내용을 먼저 하나씩 확인해 주세요</p>
+        )}
         {dirty && !isConfirmed && (
           <p className="text-xs text-foreground/60">저장하지 않은 변경이 있습니다. 먼저 저장해 주세요</p>
         )}
