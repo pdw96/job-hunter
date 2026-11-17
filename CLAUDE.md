@@ -27,7 +27,9 @@
 ## 개발 메모
 
 - Next.js 16은 학습 자료와 다르다. 코드를 쓰기 전에 `node_modules/next/dist/docs/`를 읽는다(`AGENTS.md`)
-- 확인: `npm test`(2분쯤 걸린다), `npx tsc --noEmit`, `npm run lint`
+- 확인: `npm test`(2분쯤 걸린다), `npx tsc --noEmit`, `npm run lint`. PR마다 GitHub Actions(`.github/workflows/check.yml`)가 같은 검사를 돌린다
+- 파일을 고치면 옆의 테스트(`x.ts` → `x.test.ts`)가 자동으로 돈다(`.claude/hooks/related-test.sh`). 전체 테스트는 올리기 전에 돌린다
+- 올릴 때의 순서는 `/ship`(`.claude/skills/ship/SKILL.md`)에 있다
 - 로컬 미리보기: `LOCAL_PREVIEW=1 npx next build` 뒤 `LOCAL_PREVIEW=1 npx next start -p 3210`을 백그라운드로 띄운다. DB, 로그인, AI, 페이지 읽기가 `src/dev/local-*.ts`의 가짜로 바뀐다
 - 테스트의 DB는 PGlite에 실제 마이그레이션을 적용한다(`createTestDb()`)
 - 배포: Vercel이 `main`에서 배포하고, 실제 서비스 빌드에서만 마이그레이션을 적용한다. 주소는 https://job-hunter-six-nu.vercel.app
