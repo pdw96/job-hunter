@@ -1,8 +1,11 @@
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
+import { blocksConfirmation } from "@/modules/experiences/claims";
+import { listClaims } from "@/modules/experiences/claims-repo";
 import { getExperience, getTrackScopes, toInput } from "@/modules/experiences/repo";
 import { listTracks } from "@/modules/tracks/repo";
+import { ClaimsPanel } from "../claims-panel";
 import { ExperienceForm } from "../experience-form";
 import { RubricPanel } from "../rubric-panel";
 import { StateBadge } from "../state-badge";
@@ -14,7 +17,11 @@ export default async function ExperiencePage({ params }: { params: Promise<{ id:
   const experience = await getExperience(db, user.id, id);
   if (!experience) notFound();
 
-  const [tracks, scopes] = await Promise.all([listTracks(db, user.id), getTrackScopes(db, user.id, id)]);
+  const [tracks, scopes, claims] = await Promise.all([
+    listTracks(db, user.id),
+    getTrackScopes(db, user.id, id),
+    listClaims(db, user.id, id),
+  ]);
   const { rubric, isConfirmed, state } = experience;
   const input = toInput(experience);
 
@@ -24,6 +31,7 @@ export default async function ExperiencePage({ params }: { params: Promise<{ id:
         <h1 className="min-w-0 truncate text-2xl font-bold">{experience.name}</h1>
         <StateBadge state={state} />
       </div>
+      <ClaimsPanel experienceId={id} claims={claims} />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <ExperienceForm
           id={id}
@@ -39,6 +47,7 @@ export default async function ExperiencePage({ params }: { params: Promise<{ id:
           state={state}
           phraseCandidates={experience.phraseCandidates}
           isJudged={experience.judgedAt !== null}
+          claimsOpen={blocksConfirmation(claims)}
         />
       </div>
     </div>

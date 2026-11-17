@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { listTrackIds, ownsTrack } from "@/modules/tracks/repo";
+import { hasOpenClaims, syncClaimsAfterEdit } from "./claims-repo";
 import { CONTENT_FIELDS, type ExperienceInput } from "./input";
 import { DEFAULT_SCOPE, type Kind, RUBRIC_ITEMS, type RubricItem, type Scope } from "./options";
 import { experiences, type StoredRubric, trackScopes } from "./schema";
@@ -24,6 +25,7 @@ export type Experience = ExperienceInput & {
   phraseCandidates: string[];
   dismissedPhrases: string[];
   judgedAt: Date | null;
+  source: "manual" | "interview" | "import";
   createdAt: Date;
   updatedAt: Date;
 };
@@ -78,12 +80,18 @@ const stateOf = (row: { kind: Kind; rubric: StoredRubric; confirmedAt: Date | nu
 
 const mine = (userId: string, id: string) => and(eq(experiences.id, id), eq(experiences.userId, userId));
 
-export async function createExperience(db: Db, userId: string, input: ExperienceInput): Promise<string> {
+export async function createExperience(
+  db: Pick<Db, "insert">,
+  userId: string,
+  input: ExperienceInput,
+  source: Experience["source"] = "manual",
+): Promise<string> {
   const id = randomUUID();
   await db.insert(experiences).values({
     id,
     userId,
     ...input,
+    source,
     rubric: withStatuses(initialRubric(input.kind, periodOf(input))),
   });
   return id;
@@ -135,26 +143,30 @@ export async function updateExperience(
   const contentChanged = CONTENT_FIELDS.some(
     (field) => JSON.stringify(current[field]) !== JSON.stringify(input[field]),
   );
-  await db
-    .update(experiences)
-    .set({
-      ...input,
-      updatedAt: new Date(),
-      ...(contentChanged
-        ? {
-            confirmedAt: null,
-            // 판정과 후보는 예전 내용에 대한 것이므로 지운다
-            contentVersion: sql`${experiences.contentVersion} + 1`,
-            phraseCandidates: [],
-            judgedAt: null,
-            rubric: withStatuses(
-              rubricAfterContentEdit(input.kind, statuses(current.rubric), periodOf(input)),
-              current.rubric,
-            ),
-          }
-        : {}),
-    })
-    .where(mine(userId, id));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(experiences)
+      .set({
+        ...input,
+        updatedAt: new Date(),
+        ...(contentChanged
+          ? {
+              confirmedAt: null,
+              // 판정과 후보는 예전 내용에 대한 것이므로 지운다
+              contentVersion: sql`${experiences.contentVersion} + 1`,
+              phraseCandidates: [],
+              judgedAt: null,
+              rubric: withStatuses(
+                rubricAfterContentEdit(input.kind, statuses(current.rubric), periodOf(input)),
+                current.rubric,
+              ),
+            }
+          : {}),
+      })
+      .where(mine(userId, id));
+    // 가져온 기록은 고친 내용에 맞춰 주장을 다시 맞춘다(고친 구절은 닫고, 새 숫자는 새로 묻는다)
+    if (current.source === "import") await syncClaimsAfterEdit(tx, id, input);
+  });
   return { ok: true };
 }
 
@@ -172,8 +184,18 @@ async function setConfirmed(db: Db, userId: string, id: string, confirmedAt: Dat
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
 }
 
-// 사용자의 "내용이 맞습니다". AI는 구체적인지만 판정하고, 사실인지는 사용자가 확인한다
-export const confirmExperience = (db: Db, userId: string, id: string) => setConfirmed(db, userId, id, new Date());
+// 사용자의 "내용이 맞습니다". AI는 구체적인지만 판정하고, 사실인지는 사용자가 확인한다.
+// 가져온 기록은 주장을 모두 닫아야 확인할 수 있다
+export async function confirmExperience(
+  db: Db,
+  userId: string,
+  id: string,
+): Promise<Ok | NotFound | { ok: false; reason: "claims_pending" }> {
+  const [owned] = await db.select({ id: experiences.id }).from(experiences).where(mine(userId, id)).limit(1);
+  if (!owned) return { ok: false, reason: "not_found" };
+  if (await hasOpenClaims(db, id)) return { ok: false, reason: "claims_pending" };
+  return setConfirmed(db, userId, id, new Date());
+}
 export const unconfirmExperience = (db: Db, userId: string, id: string) => setConfirmed(db, userId, id, null);
 
 async function setClosed(

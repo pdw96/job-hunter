@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listTracks } from "@/modules/tracks/repo";
+import { listClaims } from "./claims-repo";
 import { ungroundedNumbers } from "./grounding";
 import { type ExperienceInput, validateExperience } from "./input";
 import { KINDS, LIMITS, RUBRIC_ITEM_LABELS, RUBRIC_ITEMS } from "./options";
@@ -19,7 +20,7 @@ const MAX_USER_TURNS = 30;
 const turnSchema = z.object({ message: z.string(), enough: z.boolean() });
 
 // 빈 칸은 빈 문자열로 받는다
-const draftSchema = z.object({
+export const draftSchema = z.object({
   name: z.string(),
   kind: z.enum(KINDS),
   organization: z.string(),
@@ -76,6 +77,13 @@ async function buildContext(
     const unmet = RUBRIC_ITEMS.filter((item) => experience.rubric[item].status === "unmet").map(
       (item) => `- ${RUBRIC_ITEM_LABELS[item]}: ${experience.rubric[item].note ?? "보완이 필요합니다"}`,
     );
+    // 가져온 기록에서 지원자가 과장이거나 틀렸다고 표시한 구절. 실제가 어땠는지 물어야 한다
+    const toFix = (await listClaims(db, userId, experience.id)).filter((claim) => claim.status === "needs_fix");
+    if (toFix.length > 0) {
+      parts.push(
+        `[지원자가 사실과 다르다고 표시한 구절]\n${toFix.map((claim) => `- ${claim.quote}`).join("\n")}\n이 구절들은 실제보다 부풀려졌거나 틀린 내용입니다. 실제로는 어땠는지(직접 한 범위, 실제 수치나 기간) 하나씩 물어봅니다. 지원자가 모른다고 하면 그 내용은 빼는 것으로 정리합니다.`,
+      );
+    }
     parts.push(
       "이미 있는 기록을 보완하는 인터뷰입니다.",
       `[기존 기록]\n${describeExperience(experience)}`,

@@ -4,12 +4,17 @@ import type { ExperienceInput } from "./input";
 // 수치를 지어내는 것을 코드로 한 번 더 거르는 장치다. 뜻까지 보지는 못하므로 경고만 하고 판단은 사용자가 한다.
 
 // 전각 숫자를 반각으로, "1,200"을 "1200"으로
-const normalize = (text: string) => text.normalize("NFKC").replace(/(\d),(?=\d{3}(\D|$))/g, "$1");
+const normalize = (text: string) =>
+  text
+    .normalize("NFKC")
+    .replace(/(\d),(?=\d{3}(\D|$))/g, "$1")
+    // 날짜 표기(2023.03, 2023-03-15, 2023/3)는 소수가 아니라 연도와 월로 본다
+    .replace(/(\d{4})[./-](\d{1,2})(?:[./-](\d{1,2}))?(?!\d)/g, "$1 $2 $3");
 
 // "03" → "3", "4.50" → "4.5"
 const canonical = (token: string) => String(Number(token));
 
-function numbersIn(text: string | null): string[] {
+export function numbersIn(text: string | null): string[] {
   if (!text) return [];
   return (normalize(text).match(/\d+(?:\.\d+)?/g) ?? []).map(canonical);
 }

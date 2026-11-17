@@ -110,6 +110,19 @@ export function ExperienceForm({ id, initial, initialScopes, tracks, interviewId
   const draft: ExperienceInput = { ...form, tags };
   const changed = normalized(draft, scopes) !== normalized(start, startScopes);
 
+  // 서버에서 기록이 바뀌었으면(주장에 답해 금지 표현이 추가되거나 수치가 지워진 경우 등) 입력 칸도 따라간다.
+  // 사용자가 고치던 중이 아닐 때만 그렇게 한다
+  const serverKey = normalized(start, startScopes);
+  const [seenKey, setSeenKey] = useState(serverKey);
+  if (serverKey !== seenKey) {
+    setSeenKey(serverKey);
+    if (normalized(draft, scopes) === seenKey) {
+      setForm(start);
+      setTagText(start.tags.join(", "));
+      setScopes(startScopes);
+    }
+  }
+
   // 검증 패널이 "먼저 저장해 주세요"를 보여 줄 수 있게 알린다
   useEffect(() => {
     setDirty(changed);
