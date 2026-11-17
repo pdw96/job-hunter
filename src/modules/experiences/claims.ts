@@ -126,12 +126,16 @@ export function proseContains(input: ClaimTexts, quote: string): boolean {
 
 // AI가 짚은 구절을 더한다. 본문에 실제로 있는 구절만 받고, 이미 있는 것과 겹치면 넣지 않는다
 export function mergeClaims(code: FoundClaim[], aiQuotes: string[], input: ExperienceInput): FoundClaim[] {
-  const merged = [...code];
+  const merged = code.map((claim) => ({ ...claim }));
   for (const raw of aiQuotes) {
     const quote = raw.trim().slice(0, MAX_QUOTE);
     if (quote === "" || !proseContains(input, quote)) continue;
     // 코드가 이미 같은 낱말로 묻는 문장의 일부이면 다시 묻지 않는다
-    if (merged.some((claim) => claim.quote === quote || (claim.phrase !== null && claim.quote.includes(quote) && quote.includes(claim.phrase)))) {
+    if (merged.some((claim) => claim.phrase !== null && claim.quote.includes(quote) && quote.includes(claim.phrase))) continue;
+    // 같은 구절을 이미 수치로 묻고 있으면 따로 묻지 않고, 그 주장에서 과장임도 고를 수 있게 표현을 붙인다
+    const same = merged.find((claim) => claim.quote === quote);
+    if (same) {
+      if (same.kind === "metric" && same.phrase === null) same.phrase = quote.slice(0, 100);
       continue;
     }
     merged.push({ kind: "role", quote, phrase: quote.slice(0, 100), origin: "ai" });

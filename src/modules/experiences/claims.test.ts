@@ -219,3 +219,12 @@ test("AI가 짚은 구절이 코드가 같은 낱말로 묻는 문장의 일부�
   const merged = mergeClaims(findClaims(base), ["프로젝트를 주도했다", "테스트 코드를 작성"], base);
   expect(merged.filter((claim) => claim.origin === "ai").map((claim) => claim.quote)).toEqual(["테스트 코드를 작성"]);
 });
+
+test("AI가 짚은 구절이 이미 수치로 묻는 구절과 같으면 주장을 더하지 않고 과장임을 고를 수 있게 표현을 붙인다", () => {
+  const input = { ...base, actions: null, metrics: [], result: "핵심 역할로 매출 30% 향상" };
+  const merged = mergeClaims(findClaims(input), ["핵심 역할로 매출 30% 향상"], input);
+  expect(merged.map((claim) => [claim.kind, claim.quote, claim.phrase, claim.origin])).toEqual([
+    ["period", "2023-03 ~ 2023-11", null, "code"],
+    ["metric", "핵심 역할로 매출 30% 향상", "핵심 역할로 매출 30% 향상", "code"],
+  ]);
+});
