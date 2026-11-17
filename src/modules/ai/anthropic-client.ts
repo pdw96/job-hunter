@@ -34,7 +34,20 @@ export const anthropicAi: AiClient = {
         fallbacks: "default",
         cache_control: { type: "ephemeral" },
         system: request.system,
-        messages: request.messages.map((message) => ({ role: message.role, content: message.text })),
+        messages: request.messages.map((message) => ({
+          role: message.role,
+          // 그림이 있으면 그림을 먼저, 글을 뒤에 둔다
+          content:
+            message.images && message.images.length > 0
+              ? [
+                  ...message.images.map((image) => ({
+                    type: "image" as const,
+                    source: { type: "base64" as const, media_type: image.mediaType, data: image.data },
+                  })),
+                  { type: "text" as const, text: message.text },
+                ]
+              : message.text,
+        })),
         output_config: { effort: request.effort, format: zodOutputFormat(request.schema) },
       });
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { readPostingAction, savePostingAction } from "@/modules/postings/actions";
+import { fetchPostingAction, readPostingAction, readPostingImagesAction, savePostingAction } from "@/modules/postings/actions";
 import type { PostingErrors, PostingInput } from "@/modules/postings/input";
 import {
   CAREER_TYPE_LABELS,
@@ -14,6 +14,7 @@ import {
   type PostingEmploymentType,
 } from "@/modules/postings/options";
 import { REGIONS } from "@/modules/tracks/options";
+import { base64ToBlob, sliceImages } from "./slice-image";
 
 // 폼에서는 숫자와 날짜도 글로 들고 있다가 저장할 때 서버가 검사한다
 type Draft = Omit<PostingInput, "deadline" | "minYears" | "locationText" | "url" | "companyNote"> & {
@@ -73,29 +74,86 @@ export function PostingForm({
   const [message, setMessage] = useState<string | null>(null);
   const [similar, setSimilar] = useState<{ id: string; company: string; title: string }[] | null>(null);
   const [pending, startTransition] = useTransition();
+  const [busy, setBusy] = useState<string | null>(null);
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
     setSimilar(null);
   };
 
-  function read() {
+  // 원문에서 값을 뽑아 확인 단계로 넘어간다
+  async function extract(rawText: string) {
+    setBusy("값을 뽑는 중…");
+    const result = await readPostingAction(rawText);
+    if (!result.ok) return setMessage(result.message);
+    const { unverified: doubts, ...value } = result.value;
+    setDraft((previous) => ({
+      ...previous,
+      ...value,
+      rawText,
+      deadline: value.deadline ?? "",
+      minYears: value.minYears === null ? "" : String(value.minYears),
+      locationText: value.locationText ?? "",
+    }));
+    setUnverified(doubts);
+    setStep("fields");
+  }
+
+  // 그림을 읽기 좋은 크기로 잘라 글로 옮긴다
+  async function transcribe(sources: Blob[]): Promise<string | null> {
+    setBusy("그림을 읽는 중… (1분쯤 걸릴 수 있습니다)");
+    const sliced = await sliceImages(sources);
+    if (!sliced.ok) {
+      setMessage(sliced.message);
+      return null;
+    }
+    const result = await readPostingImagesAction(sliced.tiles);
+    if (!result.ok) {
+      setMessage(result.message);
+      return null;
+    }
+    return result.text;
+  }
+
+  const run = (work: () => Promise<void>) => {
     setMessage(null);
     startTransition(async () => {
-      const result = await readPostingAction(draft.rawText);
-      if (!result.ok) return setMessage(result.message);
-      const { unverified: doubts, ...value } = result.value;
-      setDraft((previous) => ({
-        ...previous,
-        ...value,
-        deadline: value.deadline ?? "",
-        minYears: value.minYears === null ? "" : String(value.minYears),
-        locationText: value.locationText ?? "",
-      }));
-      setUnverified(doubts);
-      setStep("fields");
+      try {
+        await work();
+      } catch {
+        setMessage("처리하지 못했습니다. 다시 시도해 주세요");
+      } finally {
+        setBusy(null);
+      }
     });
-  }
+  };
+
+  const read = () => run(() => extract(draft.rawText));
+
+  // 주소를 열어 글을 뽑는다. 본문이 그림이면 그림을 읽는다
+  const readUrl = () =>
+    run(async () => {
+      setBusy("주소를 여는 중…");
+      const page = await fetchPostingAction(draft.url);
+      if (!page.ok) return setMessage(page.message);
+      let text = page.text;
+      if (page.images.length > 0) {
+        const fromImages = await transcribe(page.images.map((image) => base64ToBlob(image.data, image.mediaType)));
+        if (fromImages === null) return;
+        text = [page.text, fromImages].filter(Boolean).join("\n\n");
+      }
+      set("rawText", text);
+      await extract(text);
+    });
+
+  const readFiles = (files: File[]) =>
+    run(async () => {
+      if (files.length === 0) return;
+      const text = await transcribe(files);
+      if (text === null) return;
+      set("rawText", text);
+      await extract(text);
+    });
 
   function save(force = false) {
     setMessage(null);
@@ -150,6 +208,33 @@ export function PostingForm({
             </label>
           )}
 
+          <div className="space-y-1">
+            <label htmlFor="posting-url" className="text-sm font-medium">
+              공고 주소
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="posting-url"
+                type="url"
+                value={draft.url}
+                onChange={(e) => set("url", e.target.value)}
+                placeholder="https://"
+                className={field}
+              />
+              <button
+                type="button"
+                disabled={pending || draft.url.trim() === ""}
+                onClick={readUrl}
+                className="shrink-0 rounded-lg border border-foreground/20 px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                주소로 읽기
+              </button>
+            </div>
+            <span className="block text-xs text-foreground/60">
+              주소를 넣으면 그 페이지를 열어 공고 글을 가져옵니다. 읽지 못하는 사이트는 아래에 글을 붙여 넣거나 그림으로 올려 주세요
+            </span>
+          </div>
+
           <label className="block space-y-1">
             <span className="text-sm font-medium">공고 원문</span>
             <textarea
@@ -163,13 +248,20 @@ export function PostingForm({
           </label>
 
           <label className="block space-y-1">
-            <span className="text-sm font-medium">공고 주소 (선택)</span>
+            <span className="text-sm font-medium">또는 공고 그림 올리기</span>
+            <span className="block text-xs text-foreground/60">
+              공고가 그림으로 올라와 있으면 그 그림이나 화면을 찍은 것을 올려 주세요. AI가 글로 옮깁니다 (JPG, PNG, WEBP)
+            </span>
             <input
-              type="url"
-              value={draft.url}
-              onChange={(e) => set("url", e.target.value)}
-              placeholder="https://"
-              className={field}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={(e) => {
+                const files = [...(e.target.files ?? [])];
+                e.target.value = "";
+                readFiles(files);
+              }}
+              className="block w-full text-sm"
             />
           </label>
 
@@ -185,6 +277,11 @@ export function PostingForm({
           </label>
         </fieldset>
 
+        {busy && (
+          <p role="status" className="text-sm text-foreground/70">
+            {busy}
+          </p>
+        )}
         {message && (
           <p role="alert" className="text-sm text-red-600">
             {message}
@@ -197,7 +294,7 @@ export function PostingForm({
             disabled={pending || draft.rawText.trim() === ""}
             className="rounded-lg bg-foreground px-4 py-2 font-medium text-background disabled:opacity-50"
           >
-            {pending ? "읽는 중…" : "읽기"}
+            읽기
           </button>
           <button
             type="button"
