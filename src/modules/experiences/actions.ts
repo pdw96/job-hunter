@@ -205,8 +205,14 @@ const IMPORT_MESSAGES: Record<string, string> = {
 };
 
 export type ImportActionResult =
-  | { ok: true; created: { id: string; name: string; claimCount: number }[]; skipped: number; more: boolean }
-  | { ok: false; message: string; stop?: boolean }; // stop: 한도에 닿아 더 보내도 소용없다
+  | {
+      ok: true;
+      created: { id: string; name: string; claimCount: number; trimmed: boolean }[];
+      skipped: number;
+      more: boolean;
+    }
+  // stop: 한도에 닿아 더 보내도 소용없다 / empty: 실패가 아니라 경험으로 볼 내용이 없었다
+  | { ok: false; message: string; stop?: boolean; empty?: boolean };
 
 // 글(붙여 넣기 또는 파일)을 경험 기록으로 가져온다. 파일은 글자만 뽑고 저장하지 않는다
 export async function importAction(formData: FormData): Promise<ImportActionResult> {
@@ -223,7 +229,7 @@ export async function importAction(formData: FormData): Promise<ImportActionResu
   if (!source.ok) return { ok: false, message: IMPORT_MESSAGES[source.reason] };
 
   const result = await importExperiences(db, ai, user.id, source.text);
-  if (!result.ok) return { ok: false, message: aiMessage(result.reason), stop: result.reason === "over_limit" };
+  if (!result.ok) return { ok: false, message: aiMessage(result.reason), stop: result.reason === "over_limit", empty: result.reason === "nothing_found" };
   refresh();
   return result;
 }
