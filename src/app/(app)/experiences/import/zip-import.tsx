@@ -7,8 +7,14 @@ import { deleteExperienceAction, importAction } from "@/modules/experiences/acti
 import type { PageGroup } from "@/modules/experiences/notion-export";
 
 type Outcome =
-  | { ok: true; created: { id: string; name: string; claimCount: number }[]; skipped: number; more: boolean }
-  | { ok: false; message: string };
+  | {
+      ok: true;
+      created: { id: string; name: string; claimCount: number; trimmed: boolean }[];
+      made?: number; // 처음에 만든 기록 수. 사용자가 지운 뒤에도 그대로 둔다
+      skipped: number;
+      more: boolean;
+    }
+  | { ok: false; message: string; stop?: boolean; empty?: boolean };
 
 // 노션 묶음을 골라 하나씩 가져온다. 묶음마다 AI를 한 번 부른다
 export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () => void }) {
@@ -21,7 +27,10 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
   const stop = useRef(false);
 
   const selectable = groups.flatMap((group, index) => (group.tooLong ? [] : [index]));
-  const failed = Object.entries(outcomes).flatMap(([index, outcome]) => (outcome.ok ? [] : [Number(index)]));
+  // 다시 보낼 만한 묶음: 호출이 실패했거나, 초안이 형식에 맞지 않아 하나도 만들지 못한 것
+  const failed = Object.entries(outcomes).flatMap(([index, outcome]) =>
+    (!outcome.ok && !outcome.empty) || (outcome.ok && outcome.made === 0) ? [Number(index)] : [],
+  );
 
   function toggle(index: number) {
     const next = new Set(selected);
@@ -42,12 +51,13 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
       setRunning({ done: position, total: indexes.length, title: groups[index].title });
       const formData = new FormData();
       formData.set("text", groups[index].text);
-      let outcome: Outcome & { stop?: boolean };
+      let outcome: Outcome;
       try {
         outcome = await importAction(formData);
       } catch {
         outcome = { ok: false, message: "연결이 끊겼습니다. 다시 시도해 주세요" };
       }
+      if (outcome.ok) outcome = { ...outcome, made: outcome.created.length };
       setOutcomes((previous) => ({ ...previous, [index]: outcome }));
       if (!outcome.ok && outcome.stop) {
         setNotice(`${outcome.message}. 남은 ${indexes.length - position - 1}개 묶음은 가져오지 않았습니다`);
@@ -160,8 +170,14 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
           return (
             <li key={key} className="space-y-1 py-3">
               <p className="text-sm text-foreground/60">{groups[index].title}</p>
-              {!outcome.ok && <p className="text-sm text-red-600">가져오지 못했습니다: {outcome.message}</p>}
-              {outcome.ok && outcome.created.length === 0 && <p className="text-sm">만든 기록이 없습니다</p>}
+              {!outcome.ok && outcome.empty && <p className="text-sm text-foreground/70">경험으로 볼 내용이 없어 기록을 만들지 않았습니다</p>}
+              {!outcome.ok && !outcome.empty && <p className="text-sm text-red-600">가져오지 못했습니다: {outcome.message}</p>}
+              {outcome.ok && outcome.made === 0 && (
+                <p className="text-sm text-red-600">AI가 만든 초안이 형식에 맞지 않아 기록을 만들지 못했습니다. 다시 가져와 주세요</p>
+              )}
+              {outcome.ok && outcome.made !== 0 && outcome.created.length === 0 && (
+                <p className="text-sm text-foreground/70">만든 기록을 모두 지웠습니다</p>
+              )}
               {outcome.ok &&
                 outcome.created.map((item) => (
                   <div key={item.id} className="flex flex-wrap items-center gap-3">
@@ -175,8 +191,13 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
                     </button>
                   </div>
                 ))}
-              {outcome.ok && (outcome.skipped > 0 || outcome.more) && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">다 담지 못한 내용이 있습니다. 이 묶음은 나눠서 다시 가져와 주세요</p>
+              {outcome.ok && outcome.created.some((item) => item.trimmed) && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  내용이 길어 일부가 잘린 기록이 있습니다. 원본과 비교해 빠진 내용을 채워 주세요
+                </p>
+              )}
+              {outcome.ok && outcome.created.length > 0 && (outcome.skipped > 0 || outcome.more) && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">다 담지 못한 내용이 있습니다. 원본과 비교해 빠진 경험을 확인해 주세요</p>
               )}
             </li>
           );

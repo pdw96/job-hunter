@@ -77,6 +77,11 @@ export function ImportForm() {
               형식이 맞지 않아 만들지 못한 초안이 {result.skipped}건 있습니다
             </p>
           )}
+          {result.created.some((item) => item.trimmed) && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              내용이 길어 일부가 잘린 기록이 있습니다. 원본과 비교해 빠진 내용을 채워 주세요
+            </p>
+          )}
           {result.more && (
             <p className="text-sm text-amber-700 dark:text-amber-400">
               글에 경험이 더 있어 다 담지 못했습니다. 나머지는 나눠서 다시 올려 주세요

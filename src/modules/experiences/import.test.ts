@@ -182,3 +182,28 @@ test("금지 표현은 원본에 글자 그대로 있는 것만 받는다", asyn
   if (!result.ok) throw new Error("가져오기 실패");
   expect((await getExperience(db, "u1", result.created[0].id))?.bannedPhrases).toEqual(["전 품목", "ERP 구축 주도"]);
 });
+
+test("한도를 넘긴 초안은 버리지 않고 한도에 맞춰 저장하며, 본문이 잘렸으면 알린다", async () => {
+  const draft = record({
+    actions: `${"결제 승인 과정을 개선했다. ".repeat(400)}`,
+    tags: [...Array.from({ length: 14 }, (_, index) => `태그${index}`), "가".repeat(40)],
+    organization: "가".repeat(150),
+    roleClaims: [],
+  });
+  const result = await importExperiences(db, createFakeAi([{ records: [draft, school], more: false }]), "u1", source, now);
+  if (!result.ok) throw new Error("가져오기 실패");
+  expect(result.skipped).toBe(0);
+  expect(result.created.map((item) => item.trimmed)).toEqual([true, false]);
+  const saved = await getExperience(db, "u1", result.created[0].id);
+  expect(saved?.actions?.length).toBeGreaterThan(3990); // 끝의 공백은 저장할 때 다듬어진다
+  expect(saved?.actions?.length).toBeLessThanOrEqual(4000);
+  expect(saved?.tags).toHaveLength(10);
+  expect(saved?.organization?.length).toBe(100);
+});
+
+test("수치의 글이나 근거가 한도를 넘어 잘려도 알린다", async () => {
+  const draft = record({ metrics: [{ text: "장애 80% 감소", basis: "근거 ".repeat(1500) }], roleClaims: [] });
+  const result = await importExperiences(db, createFakeAi([{ records: [draft], more: false }]), "u1", source, now);
+  if (!result.ok) throw new Error("가져오기 실패");
+  expect(result.created[0].trimmed).toBe(true);
+});

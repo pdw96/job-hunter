@@ -234,7 +234,12 @@ function notionRows(prepared: Prepared): CheckRow[] {
   const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample, check, expected, actual, pass });
 
   return [
-    row("묶음 하나를 경험 하나로 둔다", "1건", `${records.length}건: ${records.map((input) => input.name).join(", ")}`, records.length === 1),
+    row(
+      "묶음을 잘게 쪼개지 않는다",
+      "1~2건 (전체 요약, 성과 사례)",
+      `${records.length}건: ${records.map((input) => input.name).join(", ")}`,
+      records.length >= 1 && records.length <= 2,
+    ),
     row(
       "금지 표현을 옮긴다",
       "'전 품목', 'ERP 구축 주도'",

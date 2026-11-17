@@ -22,7 +22,38 @@ const importSchema = z.object({
   more: z.boolean(), // 경험이 더 있는데 다 담지 못했는가
 });
 
-type Prepared = { input: ExperienceInput; claims: (FoundClaim & { status: "pending" | "needs_fix" })[] };
+type Prepared = {
+  input: ExperienceInput;
+  claims: (FoundClaim & { status: "pending" | "needs_fix" })[];
+  trimmed: boolean; // 한도를 넘어 잘린 내용이 있는가
+};
+
+type Draft = z.infer<typeof draftSchema>;
+const LONG_FIELDS = ["situation", "actions", "result", "notDone", "evidenceNote"] as const;
+const SHORT_FIELDS = ["name", "organization", "role"] as const;
+
+// AI가 한도를 넘겨 적은 초안을 버리지 않고 한도에 맞춘다. 본문이나 수치가 잘렸으면 알린다
+function fitDraft(draft: Draft): { draft: Draft; trimmed: boolean } {
+  const fitted = { ...draft };
+  let trimmed = false;
+  for (const field of LONG_FIELDS) {
+    if (fitted[field].length > LIMITS.longText) {
+      fitted[field] = fitted[field].slice(0, LIMITS.longText);
+      trimmed = true;
+    }
+  }
+  for (const field of SHORT_FIELDS) fitted[field] = fitted[field].trim().slice(0, LIMITS.shortText);
+  if (fitted.metrics.length > LIMITS.metrics) trimmed = true;
+  if (fitted.metrics.some((metric) => metric.text.length > LIMITS.longText || metric.basis.length > LIMITS.longText)) trimmed = true;
+  fitted.metrics = fitted.metrics.slice(0, LIMITS.metrics).map((metric) => ({
+    text: metric.text.slice(0, LIMITS.longText),
+    basis: metric.basis.slice(0, LIMITS.longText),
+  }));
+  fitted.tags = [...new Set(fitted.tags.map((tag) => tag.trim()))]
+    .filter((tag) => tag !== "" && tag.length <= LIMITS.tagLength)
+    .slice(0, LIMITS.tags);
+  return { draft: fitted, trimmed };
+}
 
 // AI에게 글을 나누게 하고, 코드로 검사해 저장할 준비를 한다. 저장하지 않는다(프롬프트 점검에서도 쓴다)
 export async function requestImport(
@@ -55,7 +86,8 @@ export async function requestImport(
   const records: Prepared[] = [];
   let skipped = 0;
   const flatSource = squash(sourceText);
-  for (const { roleClaims, bannedPhrases, ...draft } of result.value.records.slice(0, MAX_RECORDS)) {
+  for (const { roleClaims, bannedPhrases, ...raw } of result.value.records.slice(0, MAX_RECORDS)) {
+    const { draft, trimmed } = fitDraft(raw);
     // 금지 표현은 사용자가 정한다. 원본에 글자 그대로 적혀 있는 것만 받고, AI가 지어낸 것은 버린다
     const banned = [...new Set(bannedPhrases.map(squash))]
       .filter((phrase) => phrase !== "" && phrase.length <= LIMITS.shortText && flatSource.includes(phrase))
@@ -83,13 +115,18 @@ export async function requestImport(
       .filter((quote) => isInvented(quote) && !scanned.some((claim) => claim.quote === quote))
       .map((quote) => ({ kind: "metric" as const, quote, phrase: null, origin: "code" as const, status: "needs_fix" as const }));
     const claims = [...extra, ...scanned].slice(0, MAX_CLAIMS);
-    records.push({ input, claims });
+    records.push({ input, claims, trimmed });
   }
   return { ok: true, records, skipped, more: result.value.more || result.value.records.length > MAX_RECORDS };
 }
 
 export type ImportResult =
-  | { ok: true; created: { id: string; name: string; claimCount: number }[]; skipped: number; more: boolean }
+  | {
+      ok: true;
+      created: { id: string; name: string; claimCount: number; trimmed: boolean }[];
+      skipped: number;
+      more: boolean;
+    }
   | { ok: false; reason: "over_limit" | "nothing_found" | AiFailure };
 
 // 글을 경험 기록으로 가져온다. 기록은 모두 미확인으로, 주장과 함께 저장한다
@@ -103,14 +140,14 @@ export async function importExperiences(
   const prepared = await requestImport(db, ai, userId, sourceText, now);
   if (!prepared.ok) return prepared;
 
-  const created: { id: string; name: string; claimCount: number }[] = [];
-  for (const { input, claims } of prepared.records) {
+  const created: { id: string; name: string; claimCount: number; trimmed: boolean }[] = [];
+  for (const { input, claims, trimmed } of prepared.records) {
     const id = await db.transaction(async (tx) => {
       const experienceId = await createExperience(tx, userId, input, "import");
       await insertClaims(tx, experienceId, claims);
       return experienceId;
     });
-    created.push({ id, name: input.name, claimCount: claims.length });
+    created.push({ id, name: input.name, claimCount: claims.length, trimmed });
   }
   return { ok: true, created, skipped: prepared.skipped, more: prepared.more };
 }
