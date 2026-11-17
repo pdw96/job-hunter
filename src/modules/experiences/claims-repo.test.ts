@@ -164,3 +164,11 @@ test("기록을 지우면 주장도 지워진다", async () => {
   await deleteExperience(db, "u1", id);
   expect(await db.select().from(claims).where(eq(claims.experienceId, id))).toEqual([]);
 });
+
+test("수치 칸과 본문에 같은 구절이 있으면, 숫자 모름을 눌러도 본문에 남아 있는 동안은 닫히지 않는다", async () => {
+  const id = await importOne("u1", { ...imported, metrics: [{ text: "장애가 80% 감소했다.", basis: null }] });
+  const claim = await byQuote(id, "80%");
+  expect(await answerClaim(db, "u1", claim.id, "unknown")).toEqual({ ok: true, status: "needs_fix" });
+  expect((await getExperience(db, "u1", id))?.metrics).toEqual([]);
+  expect(await confirmExperience(db, "u1", id)).toEqual({ ok: false, reason: "claims_pending" });
+});

@@ -27,7 +27,21 @@ function sentences(text: string | null): string[] {
     .split(/\n|(?<=[.!?])\s+/)
     .map((part) => part.replace(/^\s*(?:[-•·*▪◦]|\d+[.)])\s+/, "").trim())
     .filter((part) => part !== "")
-    .map((part) => part.slice(0, MAX_QUOTE));
+    .flatMap(pieces);
+}
+
+// 긴 문장은 잘라 버리지 않고 여러 조각으로 나눠, 뒤쪽의 숫자와 낱말도 빠지지 않게 한다. 되도록 띄어쓰기에서 나눈다
+function pieces(sentence: string): string[] {
+  const parts: string[] = [];
+  let rest = sentence;
+  while (rest.length > MAX_QUOTE) {
+    const space = rest.lastIndexOf(" ", MAX_QUOTE);
+    const cut = space > 0 ? space : MAX_QUOTE;
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest !== "") parts.push(rest);
+  return parts;
 }
 
 // 날짜 표기를 뺀 뒤에도 숫자가 남아 있는가
@@ -78,7 +92,10 @@ export function findClaims(input: ExperienceInput): FoundClaim[] {
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
-function proseContains(input: ExperienceInput, quote: string): boolean {
+// 구절이 남아 있는지 볼 때 살피는 칸
+export type ClaimTexts = Pick<ExperienceInput, "situation" | "actions" | "result" | "role" | "metrics">;
+
+export function proseContains(input: ClaimTexts, quote: string): boolean {
   const needle = squash(quote);
   const texts = [...PROSE_FIELDS.map((field) => input[field]), input.role, ...input.metrics.map((metric) => metric.text)];
   return texts.some((text) => text !== null && squash(text).includes(needle));
@@ -124,9 +141,16 @@ export function claimsAfterEdit(
     else if ((claim.status === "pending" || claim.status === "confirmed") && !present) deletes.push(claim.id);
   }
 
-  const room = Math.max(0, MAX_CLAIMS - (existing.length - deletes.length));
+  // 고쳐서 닫힌 옛 주장(fixed, removed)은 자리를 차지하지 않는다. 자리가 모자라면 오래된 것부터 지운다
+  const statusAfter = (claim: Claim) => updates.find((update) => update.id === claim.id)?.status ?? claim.status;
+  const kept = existing.filter((claim) => !deletes.includes(claim.id));
+  const closed = kept.filter((claim) => ["fixed", "removed"].includes(statusAfter(claim)));
+  const room = Math.max(0, MAX_CLAIMS - (kept.length - closed.length));
   const adds = findClaims(input)
     .filter((found) => !existing.some((claim) => sameClaim(claim, found)))
     .slice(0, room);
-  return { updates, deletes, adds };
+  const overflow = kept.length + adds.length - MAX_CLAIMS;
+  if (overflow > 0) deletes.push(...closed.slice(0, overflow).map((claim) => claim.id));
+  const gone = new Set(deletes);
+  return { updates: updates.filter((update) => !gone.has(update.id)), deletes, adds };
 }

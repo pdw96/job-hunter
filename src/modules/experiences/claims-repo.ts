@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
-import { type Claim, claimsAfterEdit, type ClaimStatus, type FoundClaim } from "./claims";
+import { type Claim, claimsAfterEdit, type ClaimStatus, type FoundClaim, proseContains } from "./claims";
 import type { ExperienceInput } from "./input";
 import { claims, experiences } from "./schema";
 
@@ -118,14 +118,14 @@ export async function answerClaim(
     let status: ClaimStatus = answer === "confirm" ? "confirmed" : "needs_fix";
 
     if (answer === "unknown") {
-      // 수치 칸의 줄이면 그 줄을 지우고 닫는다. 본문 속 숫자는 사용자가 고쳐야 한다
+      // 수치 칸의 줄이면 그 줄을 지운다. 같은 구절이 본문에도 남아 있으면 닫지 않고 고쳐야 할 것으로 둔다
       const remaining = experience.metrics.filter((metric) => metric.text.slice(0, 200) !== claim.quote);
       if (remaining.length !== experience.metrics.length) {
         await tx
           .update(experiences)
           .set({ metrics: remaining, contentVersion: sql`${experiences.contentVersion} + 1`, updatedAt: new Date() })
           .where(eq(experiences.id, experience.id));
-        status = "removed";
+        if (!proseContains({ ...experience, metrics: remaining }, claim.quote)) status = "removed";
       }
     }
     if (answer === "exaggerated" && claim.phrase) {

@@ -136,3 +136,26 @@ test("초안이 하나도 없으면 nothing_found다", async () => {
     reason: "nothing_found",
   });
 });
+
+test("산출 근거에 원본에 없던 숫자가 있으면 그 근거는 버린다", async () => {
+  const draft = record({
+    metrics: [
+      { text: "장애가 80% 감소했다.", basis: "고객 73명 설문 결과" },
+      { text: "장애 80% 감소", basis: "2023년 장애 기록" },
+    ],
+  });
+  const result = await importExperiences(db, createFakeAi([{ records: [draft], more: false }]), "u1", source, now);
+  if (!result.ok) throw new Error("가져오기 실패");
+  expect((await getExperience(db, "u1", result.created[0].id))?.metrics).toEqual([
+    { text: "장애가 80% 감소했다.", basis: null },
+    { text: "장애 80% 감소", basis: "2023년 장애 기록" },
+  ]);
+});
+
+test("긴 문장 뒤쪽에 지어낸 숫자가 있어도 고쳐야 할 주장으로 잡힌다", async () => {
+  const long = `${"결제 승인 과정을 개선했다 ".repeat(20)}그 결과 응답 시간이 47% 줄었다.`;
+  const result = await importExperiences(db, createFakeAi([{ records: [record({ result: long })], more: false }]), "u1", source, now);
+  if (!result.ok) throw new Error("가져오기 실패");
+  const claims = await listClaims(db, "u1", result.created[0].id);
+  expect(claims.find((claim) => claim.quote.includes("47%"))?.status).toBe("needs_fix");
+});

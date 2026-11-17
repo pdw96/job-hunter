@@ -58,14 +58,22 @@ export async function requestImport(
       skipped += 1;
       continue;
     }
-    const input = checked.value;
-    // 원본에 없던 숫자가 든 구절은 처음부터 고쳐야 할 것으로 둔다
-    const invented = new Set(Object.values(ungroundedNumbers(input, [sourceText])).flat());
+    const invented = new Set(Object.values(ungroundedNumbers(checked.value, [sourceText])).flat());
+    const isInvented = (text: string | null) => numbersIn(text).some((number) => invented.has(number));
+    // 산출 근거에 원본에 없던 숫자가 있으면 그 근거는 버린다(주장으로 물어볼 수 없는 칸이라 남기지 않는다)
+    const input: ExperienceInput = {
+      ...checked.value,
+      metrics: checked.value.metrics.map((metric) => (isInvented(metric.basis) ? { ...metric, basis: null } : metric)),
+    };
+    // 원본에 없던 숫자가 든 구절은 처음부터 고쳐야 할 것으로 둔다. 수치 줄은 잘린 인용이 아니라 전체 글로 본다
+    const longMetric = (quote: string) =>
+      input.metrics.some((metric) => metric.text.slice(0, 200) === quote && isInvented(metric.text));
     const claims = mergeClaims(findClaims(input), roleClaims, input).map((claim) => ({
       ...claim,
-      status: numbersIn(claim.quote).some((number) => invented.has(number))
-        ? ("needs_fix" as const)
-        : ("pending" as const),
+      status:
+        isInvented(claim.quote) || (claim.kind === "metric" && longMetric(claim.quote))
+          ? ("needs_fix" as const)
+          : ("pending" as const),
     }));
     records.push({ input, claims });
   }

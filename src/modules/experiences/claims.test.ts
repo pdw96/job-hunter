@@ -132,3 +132,33 @@ test("고쳤다가 같은 구절을 다시 써 넣으면 다시 대기로 돌아
   ]);
   expect(result.adds).toEqual([]);
 });
+
+test("긴 문장은 조각으로 나눠 뒤쪽의 숫자와 과장 낱말도 찾는다", () => {
+  const long = `${"가나다라 ".repeat(50)}끝에 매출이 37% 늘었고 이 일을 총괄했다.`;
+  const input = { ...base, situation: null, actions: long, result: null, metrics: [] };
+  const found = findClaims(input);
+  const metric = found.find((claim) => claim.kind === "metric");
+  const role = found.find((claim) => claim.kind === "role");
+  expect(metric?.quote).toContain("37%");
+  expect(role?.quote).toContain("총괄");
+  for (const claim of found) {
+    expect(claim.quote.length).toBeLessThanOrEqual(200);
+    expect(stillPresent(claim, input)).toBe(true);
+  }
+});
+
+test("닫힌 옛 주장이 30개여도 새 숫자는 새 주장이 되고, 옛 것이 그만큼 지워진다", () => {
+  const old: Claim[] = Array.from({ length: 30 }, (_, index) => ({
+    id: `old${index}`,
+    kind: "metric",
+    quote: `옛 수치 ${index + 100}건`,
+    phrase: null,
+    origin: "code",
+    status: index % 2 === 0 ? "fixed" : "removed",
+  }));
+  const input = { ...base, startMonth: null, endMonth: null, actions: null, metrics: [], result: "매출이 37% 늘었다." };
+  const { adds, deletes, updates } = claimsAfterEdit(old, input);
+  expect(adds.map((claim) => claim.quote)).toEqual(["매출이 37% 늘었다."]);
+  expect(deletes).toEqual(["old0"]);
+  expect(updates).toEqual([]);
+});
