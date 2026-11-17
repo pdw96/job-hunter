@@ -17,6 +17,9 @@
 | `BETTER_AUTH_SECRET` | 무작위 문자열 (`openssl rand -base64 32`) |
 | `BETTER_AUTH_URL` | 앱 주소 (예: `https://job-hunter.vercel.app`) |
 | `ADMIN_EMAIL` | 관리자 이메일 한 개. 허용 목록에 없어도 항상 들어올 수 있다 |
+| `ANTHROPIC_API_KEY` | Claude API 키. AI 판정과 인터뷰에 쓴다 |
+| `AI_MODEL` | 선택. 기본 `claude-sonnet-5-5` |
+| `AI_MONTHLY_LIMIT_USD` | 선택. 1인당 월 AI 사용 한도(달러). 기본 5 |
 
 ## 명령
 
@@ -27,7 +30,7 @@
 | `npm run db:generate` | 스키마를 바꾼 뒤 마이그레이션 파일 생성 |
 | `npm run db:migrate` | 마이그레이션 적용 |
 | `npm run build` | 빌드만 |
-| `npm run preview:local` | 외부 DB와 구글 로그인 없이 화면 확인 (메모리 DB, 가짜 사용자, http://localhost:3210). 브라우저에 `better-auth.session_token` 쿠키가 아무 값으로나 있어야 한다 |
+| `npm run preview:local` | 외부 DB·구글 로그인·AI 키 없이 화면 확인 (메모리 DB, 가짜 사용자, 정해진 답을 하는 가짜 AI, http://localhost:3210). 브라우저에 `better-auth.session_token` 쿠키가 아무 값으로나 있어야 한다 |
 | `npm run ncs:build` | `data/ncs/*.csv`로 NCS 데이터 마이그레이션 다시 생성 |
 
 ## 배포

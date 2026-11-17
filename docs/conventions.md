@@ -16,4 +16,13 @@
 | `profile` | 연락처 | `profile_contacts` |
 | `ncs` | NCS 직무 분류와 별칭 (모든 사용자가 함께 쓰는 기준 데이터, `userId` 없음) | `ncs_categories`, `ncs_aliases` |
 | `tracks` | 트랙, 설문 규칙, 희망 조건과 채점 배점 | `tracks_tracks`, `tracks_jobs` |
-| `experiences` | 경험 기록, 검증 규칙(루브릭과 검증 상태), 트랙별 사용 범위 | `experiences_experiences`, `experiences_track_scopes` |
+| `experiences` | 경험 기록, 검증 규칙(루브릭과 검증 상태), 트랙별 사용 범위, AI 판정, AI 인터뷰 | `experiences_experiences`, `experiences_track_scopes`, `experiences_interviews` |
+| `ai` | Claude API 호출, 사용량 기록과 월 한도, 보내기 전 연락처 가리기 | `ai_usage` |
+
+## AI 사용 규칙
+
+1. Claude API는 `src/modules/ai/anthropic-client.ts`에서만 부른다. 다른 모듈은 `AiClient`를 인자로 받고, 호출은 반드시 `runAi()`를 거친다(한도 검사, 연락처 가리기, 사용량 기록).
+2. AI에게 보내지 않는 것: `profile` 모듈의 연락처, 이메일, 사용자 id, 로그인 이름.
+3. AI가 돌려준 내용은 코드가 검사한 뒤에만 저장한다. AI가 만든 기록은 항상 미확인이고, AI 판정은 본인 확인을 바꾸지 않는다.
+4. 시간이 걸리는 AI 작업의 결과는 읽었을 때의 내용 그대로일 때만 반영한다(`contentVersion`).
+5. 테스트는 `createFakeAi()`를 쓴다. 실제 API를 부르는 테스트를 두지 않는다.

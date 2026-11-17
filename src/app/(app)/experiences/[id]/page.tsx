@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
-import { getExperience, getTrackScopes } from "@/modules/experiences/repo";
+import { getExperience, getTrackScopes, toInput } from "@/modules/experiences/repo";
 import { listTracks } from "@/modules/tracks/repo";
 import { ExperienceForm } from "../experience-form";
 import { RubricPanel } from "../rubric-panel";
@@ -15,9 +15,8 @@ export default async function ExperiencePage({ params }: { params: Promise<{ id:
   if (!experience) notFound();
 
   const [tracks, scopes] = await Promise.all([listTracks(db, user.id), getTrackScopes(db, user.id, id)]);
-  const { rubric, isConfirmed, state, createdAt, updatedAt, ...input } = experience;
-  void createdAt;
-  void updatedAt;
+  const { rubric, isConfirmed, state } = experience;
+  const input = toInput(experience);
 
   return (
     <div className="space-y-6">
@@ -32,7 +31,15 @@ export default async function ExperiencePage({ params }: { params: Promise<{ id:
           initialScopes={scopes}
           tracks={tracks.map((track) => ({ id: track.id, name: track.name }))}
         />
-        <RubricPanel id={id} kind={experience.kind} rubric={rubric} isConfirmed={isConfirmed} state={state} />
+        <RubricPanel
+          id={id}
+          kind={experience.kind}
+          rubric={rubric}
+          isConfirmed={isConfirmed}
+          state={state}
+          phraseCandidates={experience.phraseCandidates}
+          isJudged={experience.judgedAt !== null}
+        />
       </div>
     </div>
   );

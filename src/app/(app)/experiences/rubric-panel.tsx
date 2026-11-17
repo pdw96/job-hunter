@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { setConfirmedAction, setRubricClosedAction } from "@/modules/experiences/actions";
+import {
+  decidePhraseAction,
+  judgeAction,
+  setConfirmedAction,
+  setRubricClosedAction,
+  startInterviewAction,
+} from "@/modules/experiences/actions";
 import {
   type Kind,
   RUBRIC_ITEM_LABELS,
@@ -41,21 +47,37 @@ const STATE_HELP: Record<VerificationState, string> = {
   confirmed: "지원서에 쓸 수 있습니다",
 };
 
-type Props = { id: string; kind: Kind; rubric: StoredRubric; isConfirmed: boolean; state: VerificationState };
+type Props = {
+  id: string;
+  kind: Kind;
+  rubric: StoredRubric;
+  isConfirmed: boolean;
+  state: VerificationState;
+  phraseCandidates: string[];
+  isJudged: boolean;
+};
 
-export function RubricPanel({ id, kind, rubric, isConfirmed, state }: Props) {
+export function RubricPanel({ id, kind, rubric, isConfirmed, state, phraseCandidates, isJudged }: Props) {
   const dirty = useDirty();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const required = requiredItems(kind);
-  // 본인 역할·수준은 다음 단계에서 AI가 판정한다
+  // 본인 역할·수준은 AI 판정을 받아야 채워진다
   const waitsForAi = (["role", "level"] as RubricItem[]).some((item) => rubric[item].status === "unjudged");
+  const hasUnmet = RUBRIC_ITEMS.some((item) => rubric[item].status === "unmet");
+  const [busy, setBusy] = useState<"judge" | "interview" | null>(null);
 
-  function run(action: () => Promise<{ ok: true } | { ok: false; message: string }>) {
+  function run(
+    action: () => Promise<{ ok: true } | { ok: false; message: string }>,
+    kind: "judge" | "interview" | null = null,
+  ) {
     setMessage(null);
+    setBusy(kind);
     startTransition(async () => {
       const result = await action();
-      if (!result.ok) setMessage(result.message);
+      // 인터뷰를 시작하면 서버가 인터뷰 화면으로 보내므로 여기로 돌아오지 않는다
+      if (result && !result.ok) setMessage(result.message);
+      setBusy(null);
     });
   }
 
@@ -90,10 +112,62 @@ export function RubricPanel({ id, kind, rubric, isConfirmed, state }: Props) {
         })}
       </ul>
 
-      {waitsForAi && (
-        <p className="rounded bg-foreground/5 p-2 text-xs text-foreground/70">
-          본인 역할과 수준은 다음 단계에서 AI가 확인합니다. 그 전까지는 부분 확인까지만 됩니다
+      <div className="space-y-2">
+        <button
+          type="button"
+          disabled={pending || dirty}
+          onClick={() => run(() => judgeAction(id), "judge")}
+          className="w-full rounded-lg border border-foreground/20 px-3 py-2 font-medium disabled:opacity-50"
+        >
+          {busy === "judge" ? "판정 중…" : isJudged ? "AI 판정 다시 받기" : "AI 판정 받기"}
+        </button>
+        {hasUnmet && (
+          <button
+            type="button"
+            disabled={pending || dirty}
+            onClick={() => run(() => startInterviewAction({ experienceId: id }), "interview")}
+            className="w-full rounded-lg border border-foreground/20 px-3 py-2 font-medium disabled:opacity-50"
+          >
+            {busy === "interview" ? "준비 중…" : "지금 보완하기"}
+          </button>
+        )}
+        <p className="text-xs text-foreground/60">
+          {waitsForAi
+            ? "본인 역할과 수준은 AI 판정을 받아야 확인됩니다. AI는 내용이 구체적인지만 봅니다"
+            : "AI는 내용이 구체적인지만 봅니다. 사실인지는 직접 확인해 주세요"}
         </p>
+      </div>
+
+      {phraseCandidates.length > 0 && (
+        <div className="space-y-2 border-t border-foreground/10 pt-4">
+          <p className="font-medium">과장으로 읽힐 수 있는 표현</p>
+          <p className="text-xs text-foreground/60">금지 목록에 넣으면 지원서에 이 표현을 쓰지 않습니다</p>
+          <ul className="space-y-2">
+            {phraseCandidates.map((phrase) => (
+              <li key={phrase} className="space-y-1">
+                <p>“{phrase}”</p>
+                <div className="flex gap-3 text-xs">
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => run(() => decidePhraseAction(id, phrase, true))}
+                    className="underline disabled:opacity-50"
+                  >
+                    금지 목록에 넣기
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => run(() => decidePhraseAction(id, phrase, false))}
+                    className="underline disabled:opacity-50"
+                  >
+                    괜찮아요
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <div className="space-y-2 border-t border-foreground/10 pt-4">

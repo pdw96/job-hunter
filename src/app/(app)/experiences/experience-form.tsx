@@ -12,6 +12,9 @@ type Props = {
   initial?: ExperienceInput;
   initialScopes?: Record<string, Scope>;
   tracks: { id: string; name: string }[];
+  // 아래는 AI 인터뷰가 정리한 초안을 확인할 때 쓴다
+  interviewId?: string;
+  warnings?: Partial<Record<keyof ExperienceInput, string>>; // 대화에 없던 숫자 경고
 };
 
 const EMPTY: ExperienceInput = {
@@ -64,11 +67,13 @@ function Field({
   label,
   hint,
   error,
+  warning,
   children,
 }: {
   label: string;
   hint?: string;
   error?: string;
+  warning?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -76,6 +81,7 @@ function Field({
       <span className="text-sm font-medium">{label}</span>
       {hint && <span className="block text-xs text-foreground/60">{hint}</span>}
       {children}
+      {warning && <span className="block text-sm text-amber-700 dark:text-amber-400">{warning}</span>}
       {error && (
         <span role="alert" className="block text-sm text-red-600">
           {error}
@@ -85,7 +91,7 @@ function Field({
   );
 }
 
-export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
+export function ExperienceForm({ id, initial, initialScopes, tracks, interviewId, warnings = {} }: Props) {
   const router = useRouter();
   const start = initial ?? EMPTY;
   const startScopes = initialScopes ?? Object.fromEntries(tracks.map((track) => [track.id, "use" as Scope]));
@@ -137,14 +143,14 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
   function save() {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveExperienceAction(id ?? null, draft, scopes);
+      const result = await saveExperienceAction(id ?? null, draft, scopes, interviewId);
       if (!result.ok) {
         setErrors(result.errors);
         setMessage(result.message ?? "입력한 내용을 다시 확인해 주세요");
         return;
       }
       setErrors({});
-      if (id) {
+      if (id && !interviewId) {
         // 서버가 다듬은 값(공백 제거, 빈 수치 줄 삭제)으로 맞춘다
         setForm(result.value);
         setTagText(result.value.tags.join(", "));
@@ -176,7 +182,7 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
       <fieldset disabled={pending} className="m-0 min-w-0 space-y-8 border-0 p-0 disabled:opacity-70">
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">기본</h2>
-        <Field label="이름" hint="나중에 알아보기 쉬운 이름. 예: 결제 시스템 개편" error={errors.name}>
+        <Field label="이름" hint="나중에 알아보기 쉬운 이름. 예: 결제 시스템 개편" error={errors.name} warning={warnings.name}>
           <input
             value={form.name}
             onChange={(e) => set("name", e.target.value)}
@@ -198,15 +204,15 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
           </select>
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="소속·기관" error={errors.organization}>
+          <Field label="소속·기관" error={errors.organization} warning={warnings.organization}>
             <input {...text("organization")} maxLength={LIMITS.shortText} className={inputClass} />
           </Field>
-          <Field label="직무·역할" error={errors.role}>
+          <Field label="직무·역할" error={errors.role} warning={warnings.role}>
             <input {...text("role")} maxLength={LIMITS.shortText} className={inputClass} />
           </Field>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={isCertificate ? "취득 월" : "시작 월"} error={errors.startMonth}>
+          <Field label={isCertificate ? "취득 월" : "시작 월"} error={errors.startMonth} warning={warnings.startMonth}>
             <input
               type="month"
               min="1950-01"
@@ -217,7 +223,7 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
             />
           </Field>
           {!isCertificate && (
-            <Field label="끝 월" error={errors.endMonth}>
+            <Field label="끝 월" error={errors.endMonth} warning={warnings.endMonth}>
               <input
                 type="month"
                 min="1950-01"
@@ -240,17 +246,17 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">내용</h2>
-        <Field label="상황" hint="어떤 배경과 문제가 있었나요" error={errors.situation}>
+        <Field label="상황" hint="어떤 배경과 문제가 있었나요" error={errors.situation} warning={warnings.situation}>
           <textarea {...text("situation")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
         </Field>
         <Field
           label="본인이 한 일"
           hint="팀이나 다른 부서가 한 일과 구분해서, 본인이 직접 한 일만 적어 주세요"
-          error={errors.actions}
+          error={errors.actions} warning={warnings.actions}
         >
           <textarea {...text("actions")} rows={5} maxLength={LIMITS.longText} className={inputClass} />
         </Field>
-        <Field label="결과" error={errors.result}>
+        <Field label="결과" error={errors.result} warning={warnings.result}>
           <textarea {...text("result")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
         </Field>
       </section>
@@ -297,6 +303,7 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
             수치 추가
           </button>
         )}
+        {warnings.metrics && <p className="text-sm text-amber-700 dark:text-amber-400">{warnings.metrics}</p>}
         {errors.metrics && (
           <p role="alert" className="text-sm text-red-600">
             {errors.metrics}
@@ -309,7 +316,7 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
         <Field
           label="하지 않은 것"
           hint="이 경험에서 본인이 하지 않은 일. AI가 이 범위를 넘겨 쓰지 않습니다"
-          error={errors.notDone}
+          error={errors.notDone} warning={warnings.notDone}
         >
           <textarea {...text("notDone")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
         </Field>
@@ -367,7 +374,7 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">그 밖에</h2>
-        <Field label="증빙·확인 메모" hint="뒷받침할 서류나 자료가 무엇이고 어디에 있는지" error={errors.evidenceNote}>
+        <Field label="증빙·확인 메모" hint="뒷받침할 서류나 자료가 무엇이고 어디에 있는지" error={errors.evidenceNote} warning={warnings.evidenceNote}>
           <textarea {...text("evidenceNote")} rows={2} maxLength={LIMITS.longText} className={inputClass} />
         </Field>
         <Field label="태그" hint={`쉼표로 구분, ${LIMITS.tags}개까지`} error={errors.tags}>
@@ -437,7 +444,7 @@ export function ExperienceForm({ id, initial, initialScopes, tracks }: Props) {
       <div className="flex items-center gap-3">
         <button
           type="submit"
-          disabled={pending || (Boolean(id) && !changed)}
+          disabled={pending || (Boolean(id) && !interviewId && !changed)}
           className="rounded-lg bg-foreground px-4 py-2 font-medium text-background disabled:opacity-50"
         >
           {pending ? "저장 중…" : "저장"}
