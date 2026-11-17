@@ -83,3 +83,24 @@ test("같은 사이트의 끼워 넣은 페이지 주소만 모은다", () => {
     <iframe src="/member/login-frame"></iframe><iframe src="about:blank"></iframe><iframe></iframe>`);
   expect(contentFromHtml(html, "https://jobs.example.com/view?id=1").frames).toEqual(["https://jobs.example.com/view-detail?id=1&seq=0"]);
 });
+
+test("사람인 공고는 페이지에 끼워 넣은 주소가 없어도 상세요강 페이지의 주소를 만든다", () => {
+  const frames = (url: string) => contentFromHtml(page("<p>메뉴</p>"), url).frames;
+  expect(frames("https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=55530921&view_type=list")).toEqual([
+    "https://www.saramin.co.kr/zf_user/jobs/relay/view-detail?rec_idx=55530921&rec_seq=0",
+  ]);
+  expect(frames("https://www.saramin.co.kr/zf_user/jobs/view?rec_idx=123")).toHaveLength(1);
+  // 공고 번호가 숫자가 아니거나 다른 사이트이면 만들지 않는다
+  expect(frames("https://www.saramin.co.kr/zf_user/jobs/relay/view?rec_idx=1%26x=../a")).toEqual([]);
+  expect(frames("https://www.saramin.co.kr/zf_user/company-info/view?rec_idx=1")).toEqual([]);
+  expect(frames("https://saramin.example.com/zf_user/jobs/relay/view?rec_idx=1")).toEqual([]);
+});
+
+test("페이지 설명을 머리 부분에 함께 남긴다", () => {
+  const html = `<html><head><title>[가나다(주)] 조립 신입 - 채용사이트</title>
+    <meta name="description" content="가나다(주), 조립 신입, 경력:신입, 마감일:2026-11-19 &amp; 상시">
+    <meta property="og:description" content="두 번째 설명"></head><body><p>메뉴</p></body></html>`;
+  expect(contentFromHtml(html, "https://jobs.example.com/view?id=1").head).toBe(
+    "[가나다(주)] 조립 신입 - 채용사이트\n가나다(주), 조립 신입, 경력:신입, 마감일:2026-11-19 & 상시",
+  );
+});

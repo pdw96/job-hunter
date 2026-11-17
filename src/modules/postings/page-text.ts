@@ -25,7 +25,7 @@ export function decodeEntities(text: string): string {
 const SKIP = new Set(["script", "style", "noscript", "svg", "template", "iframe", "nav", "header", "footer", "aside", "select", "button", "title"]);
 const BREAK = new Set(["br", "hr", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "dt", "dd", "ul", "ol", "table"]);
 
-type Scanned = { text: string; title: string; jsonLd: string[]; images: string[]; frames: string[] };
+type Scanned = { text: string; title: string; description: string; jsonLd: string[]; images: string[]; frames: string[] };
 
 // HTML을 앞에서부터 한 번만 훑는다. 믿을 수 없는 페이지를 다루므로, 입력이 어떻게 생겼든 길이에 비례하는 시간 안에 끝나야 한다
 // (정규식으로 태그를 지우면 닫히지 않는 "<"가 많은 페이지에서 시간이 제곱으로 늘어난다)
@@ -36,6 +36,7 @@ function scan(html: string): Scanned {
   const images: string[] = [];
   const frames: string[] = [];
   let title = "";
+  let description = "";
   let position = 0;
   let closable = true; // 남은 글에 ">"가 더 있는가. 한 번 없다고 확인되면 다시 찾지 않는다
 
@@ -83,6 +84,10 @@ function scan(html: string): Scanned {
     position = tagEnd + 1;
 
     if (!closing && name === "iframe") frames.push(tag);
+    // 페이지 설명(검색 결과나 공유 화면에 나오는 한 줄). 채용 사이트는 여기에 회사, 직무, 마감일을 적어 두기도 한다
+    if (!closing && name === "meta" && description === "" && tag.length <= 2000 && /\s(?:name|property)=["'](?:og:)?description["']/i.test(tag)) {
+      description = tag.match(/\scontent="([^"]*)"/i)?.[1] ?? tag.match(/\scontent='([^']*)'/i)?.[1] ?? "";
+    }
     if (!closing && SKIP.has(name)) {
       const end = lower.indexOf(`</${name}`, position);
       const inner = html.slice(position, end === -1 ? html.length : end);
@@ -101,7 +106,7 @@ function scan(html: string): Scanned {
     else out.push(" ");
   }
 
-  return { text: tidy(out.join("")), title: tidy(title), jsonLd, images, frames };
+  return { text: tidy(out.join("")), title: tidy(title), description: tidy(description).slice(0, 500), jsonLd, images, frames };
 }
 
 // 문자 표기를 풀고 줄을 정리한다
@@ -227,6 +232,22 @@ function frameUrls(tags: string[], baseUrl: string): string[] {
   return found.slice(0, 2);
 }
 
+// 본문을 스크립트로 끼워 넣어서, 받은 페이지에는 끼워 넣은 페이지의 주소가 없는 사이트. 사이트가 쓰는 본문 주소를 직접 만든다
+function knownFrames(baseUrl: string): string[] {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return [];
+  }
+  // 사람인: 공고 번호(rec_idx)로 상세요강 페이지를 연다
+  const id = url.searchParams.get("rec_idx") ?? "";
+  if (url.hostname === "www.saramin.co.kr" && url.pathname.startsWith("/zf_user/jobs/") && /^\d{1,12}$/.test(id)) {
+    return [`https://www.saramin.co.kr/zf_user/jobs/relay/view-detail?rec_idx=${id}&rec_seq=0`];
+  }
+  return [];
+}
+
 export function contentFromHtml(html: string, baseUrl: string): PageContent {
   const page = scan(html);
   const structured = jobPostingFrom(page.jsonLd);
@@ -236,5 +257,8 @@ export function contentFromHtml(html: string, baseUrl: string): PageContent {
       ? `${structured}\n\n${page.text}`
       : structured
     : [page.title, page.text].filter(Boolean).join("\n\n");
-  return { text, images: imageUrls(page.images, baseUrl), frames: frameUrls(page.frames, baseUrl), head: structured ?? page.title };
+  // 본문을 다른 데서 가져올 때 남길 머리 부분. 페이지 설명에는 회사, 직무, 마감일이 한 줄로 들어 있기도 하다
+  const head = structured ?? [page.title, page.description].filter(Boolean).join("\n");
+  const frames = [...new Set([...knownFrames(baseUrl), ...frameUrls(page.frames, baseUrl)])].slice(0, 2);
+  return { text, images: imageUrls(page.images, baseUrl), frames, head };
 }
