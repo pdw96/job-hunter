@@ -128,7 +128,7 @@ test("AI에 보내는 글에 확인된 경험의 별명과 내용이 있고, 미
   await analyzePosting(db, ai, "u1", id, now);
 
   const request = ai.requests[0];
-  expect(request).toMatchObject({ purpose: "posting_match", effort: "medium", maxTokens: 8000 });
+  expect(request).toMatchObject({ purpose: "posting_match", effort: "medium", maxTokens: 16000 });
   const sent = request.messages[0].text;
   expect(request.messages).toHaveLength(1);
   expect(sent).toContain("[지원 직무]\n응용SW엔지니어링, 백엔드 개발자");
@@ -233,7 +233,7 @@ test("why에 경험에 없는 숫자가 있으면 why를 비운다", async () =>
         text: "Java 실무 경력 3년 이상",
         quote: "Java 실무 경력 3년 이상",
         // 3은 quote에, 2023은 경험의 기간에 있는 숫자다
-        evidence: [{ exp: "E1", level: "partial", why: "2023년에 Java로 결제 API를 설계했으나 3년에는 못 미친다" }],
+        evidence: [{ exp: "E1", level: "partial", why: "2023년에 Java로 결제 API를 설계했고, 공고는 Java 실무 3년 이상을 적었다" }],
       },
     ],
   });
@@ -242,7 +242,7 @@ test("why에 경험에 없는 숫자가 있으면 why를 비운다", async () =>
 
   expect(result.ok && result.value.requirements.map((r) => r.evidence)).toEqual([
     [{ experienceId: experience, level: "partial", why: "" }],
-    [{ experienceId: experience, level: "partial", why: "2023년에 Java로 결제 API를 설계했으나 3년에는 못 미친다" }],
+    [{ experienceId: experience, level: "partial", why: "2023년에 Java로 결제 API를 설계했고, 공고는 Java 실무 3년 이상을 적었다" }],
   ]);
 });
 

@@ -102,7 +102,8 @@ export async function analyzeText(
       messages: [{ role: "user", text: buildMessage(input) }],
       schema: analyzeSchema,
       effort: "medium",
-      maxTokens: 8000,
+      // 생각하는 데 쓰는 토큰도 max_tokens에 든다. 긴 공고에서 답이 늘 끊기면 점수를 못 봐 지원도 못 고르므로 넉넉히 둔다
+      maxTokens: 16000,
     },
     now,
   );

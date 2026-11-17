@@ -32,12 +32,12 @@ const sparse = {
   hasDetails: true,
 };
 const chrome = { ...sparse, company: "가나다(주)", title: "조립 신입 채용", isRolling: false, hasDetails: false };
-// 맞대기 예시의 맞는 답. ①(E1)은 Java·Kotlin 요구 사항의 근거이고, ②(E2)는 어디에도 쓰이지 않는다
+// 맞대기 예시의 맞는 답. ①(E1)은 Java·Kotlin 요구 사항의 근거이고, ②(E2)는 어디에도 쓰이지 않는다.
+// "경력 3~5년"은 코드가 따로 점수를 매기므로 요구 사항으로 뽑지 않는다
 const match = {
   field: { level: "same_job", reason: "같은 백엔드 직무" },
   requirements: [
     { kind: "required", text: "Java 또는 Kotlin 개발 경험", quote: "Java 또는 Kotlin 개발 경험", evidence: [{ exp: "E1", level: "full", why: "Kotlin으로 주문 API를 만들었다" }] },
-    { kind: "required", text: "경력 3~5년", quote: "경력 3~5년", evidence: [] },
     { kind: "preferred", text: "대용량 트래픽 처리 경험", quote: "대용량 트래픽 처리 경험", evidence: [] },
   ],
 };
@@ -60,7 +60,7 @@ beforeEach(async () => {
 
 test("값을 맞게 뽑고 없는 값을 비워 두면 모두 통과한다", async () => {
   const rows = await runPostingCheck(db, answering(full, sparse), "admin");
-  expect(rows).toHaveLength(24);
+  expect(rows).toHaveLength(25);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
 });
 
@@ -101,23 +101,23 @@ const matchChecks = [
   "Java·Kotlin 요구 사항의 근거로 ①을 짚는다",
   "②를 어느 요구 사항의 근거로도 짚지 않는다",
   "대용량 트래픽 우대는 부족한 점으로 남긴다",
+  "경력 연수만 적힌 요건(경력 3~5년)은 요구 사항으로 뽑지 않는다",
   "인용한 구절이 모두 원문에 있다",
   "분야를 same_job으로 본다",
 ];
 
-test("맞대기 예시는 다섯 줄로 나온다", async () => {
+test("맞대기 예시는 여섯 줄로 나온다", async () => {
   const rows = await runPostingCheck(db, answering(full, sparse), "admin");
   expect(rows.filter((row) => row.sample === "요구 사항 맞대기").map((row) => row.check)).toEqual(matchChecks);
 });
 
 test("②를 근거로 짚거나 없는 구절을 인용하면 잡아낸다", async () => {
-  const [kotlin, ...rest] = match.requirements;
+  const [kotlin, highTraffic] = match.requirements;
   const wrong = {
     field: { level: "other", reason: "" },
     requirements: [
-      kotlin,
-      { ...rest[0], quote: "원문에 없는 구절" },
-      { ...rest[1], evidence: [{ exp: "E2", level: "partial", why: "" }] },
+      { ...kotlin, quote: "원문에 없는 구절" },
+      { ...highTraffic, evidence: [{ exp: "E2", level: "partial", why: "" }] },
     ],
   };
   const rows = await runPostingCheck(db, answering(full, sparse, chrome, wrong), "admin");
@@ -133,4 +133,22 @@ test("①을 짚지 않으면 Java·Kotlin 줄이 실패한다", async () => {
   const noEvidence = { ...match, requirements: [{ ...match.requirements[0], evidence: [] }, ...match.requirements.slice(1)] };
   const rows = await runPostingCheck(db, answering(full, sparse, chrome, noEvidence), "admin");
   expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["Java·Kotlin 요구 사항의 근거로 ①을 짚는다"]);
+});
+
+test("경력 연수만 적힌 요건을 요구 사항으로 뽑으면 잡아낸다", async () => {
+  const withYears = {
+    ...match,
+    requirements: [...match.requirements, { kind: "required", text: "경력 3~5년", quote: "경력 3~5년", evidence: [] }],
+  };
+  const rows = await runPostingCheck(db, answering(full, sparse, chrome, withYears), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["경력 연수만 적힌 요건(경력 3~5년)은 요구 사항으로 뽑지 않는다"]);
+});
+
+test("연수를 다르게 띄어 써도 경력 연수 요건으로 본다", async () => {
+  const withYears = {
+    ...match,
+    requirements: [...match.requirements, { kind: "required", text: "3 ~ 5년의 경력", quote: "경력 3~5년", evidence: [] }],
+  };
+  const rows = await runPostingCheck(db, answering(full, sparse, chrome, withYears), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["경력 연수만 적힌 요건(경력 3~5년)은 요구 사항으로 뽑지 않는다"]);
 });

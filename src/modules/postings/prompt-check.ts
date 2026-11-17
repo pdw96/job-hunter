@@ -112,10 +112,13 @@ function matchRows(value: PostingAnalysis, row: Row): PostingCheckRow[] {
   const javaKotlin = all.filter((r) => r.kind === "required" && /Java|Kotlin/.test(`${r.text} ${r.quote}`));
   const highTraffic = all.filter((r) => r.kind === "preferred" && `${r.text} ${r.quote}`.includes("대용량"));
   const usedBy = (id: string) => all.filter((r) => r.evidence.some((e) => e.experienceId === id)).map((r) => r.text);
+  // 경력 연수는 코드가 설문의 총 경력으로 따로 점수를 매긴다. 띄어쓰기가 달라도 "3~5년"이 들어 있으면 그 요건으로 본다
+  const yearsOnly = all.filter((r) => `${r.text} ${r.quote}`.replace(/\s+/g, "").includes("3~5년"));
   return [
     row("Java·Kotlin 요구 사항의 근거로 ①을 짚는다", "①이 근거", show(javaKotlin.map((r) => (r.evidence.some((e) => e.experienceId === kotlin.id) ? "①" : "근거 없음"))), javaKotlin.some((r) => r.evidence.some((e) => e.experienceId === kotlin.id))),
     row("②를 어느 요구 사항의 근거로도 짚지 않는다", "없음", show(usedBy(excel.id)), usedBy(excel.id).length === 0),
     row("대용량 트래픽 우대는 부족한 점으로 남긴다", "근거 없음", highTraffic.length === 0 ? "요구 사항을 못 찾음" : show(highTraffic.map((r) => `근거 ${r.evidence.length}건`)), highTraffic.length > 0 && highTraffic.every((r) => r.evidence.length === 0)),
+    row("경력 연수만 적힌 요건(경력 3~5년)은 요구 사항으로 뽑지 않는다", "없음", show(yearsOnly.map((r) => r.text)), yearsOnly.length === 0),
     row("인용한 구절이 모두 원문에 있다", "모두 true", `${all.filter((r) => r.quoteFound).length}/${all.length}`, all.length > 0 && all.every((r) => r.quoteFound)),
     row("분야를 same_job으로 본다", "same_job", value.field.level, value.field.level === "same_job"),
   ];
