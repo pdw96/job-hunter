@@ -47,7 +47,14 @@ export function PromptCheck() {
             {rows.length}개 중 {passed}개 통과
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+            <table className="w-full min-w-[44rem] table-fixed border-collapse text-left text-sm">
+              <colgroup>
+                <col className="w-[22%]" />
+                <col className="w-[20%]" />
+                <col className="w-[16%]" />
+                <col />
+                <col className="w-14" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-foreground/20 text-foreground/60">
                   <th className="py-2 pr-3 font-normal">예시</th>
@@ -64,7 +71,7 @@ export function PromptCheck() {
                     <td className="py-2 pr-3">{row.check}</td>
                     <td className="py-2 pr-3">{row.expected}</td>
                     <td className="py-2 pr-3">{row.actual}</td>
-                    <td className={`py-2 font-medium ${row.pass ? "text-emerald-700 dark:text-emerald-400" : "text-red-600"}`}>
+                    <td className={`whitespace-nowrap py-2 font-medium ${row.pass ? "text-emerald-700 dark:text-emerald-400" : "text-red-600"}`}>
                       {row.pass ? "통과" : "다름"}
                     </td>
                   </tr>
