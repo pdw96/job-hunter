@@ -1,15 +1,18 @@
 import { describe, expect, test } from "vitest";
 import type { Criterion } from "@/modules/tracks/options";
 import type { PostingAnalysis, Requirement } from "./analysis";
-import { hasStaleEvidence, requirementLevel, type ScoreInput, scorePosting } from "./score";
+import { fieldTarget, hasStaleEvidence, requirementLevel, type ScoreInput, scorePosting } from "./score";
 
 const weights: Record<Criterion, number> = { jobMatch: 30, location: 25, experience: 20, field: 15, preferred: 10 };
 
 function requirement(over: Partial<Requirement> = {}): Requirement {
   return { kind: "required", text: "요구", quote: "원문", quoteFound: true, evidence: [], ...over };
 }
+const majorCode = "20";
+const jobs = [{ ncsCode: "20010202", customName: null }];
 function analysis(over: Partial<PostingAnalysis> = {}): PostingAnalysis {
   return {
+    target: fieldTarget({ majorCode, jobs }),
     requirements: [],
     field: { level: "same_job", reason: "" },
     analyzedAt: "2026-11-17T00:00:00.000Z",
@@ -19,7 +22,7 @@ function analysis(over: Partial<PostingAnalysis> = {}): PostingAnalysis {
 function input(over: Partial<ScoreInput> = {}): ScoreInput {
   return {
     posting: { regions: ["seoul"], careerType: "both", minYears: null },
-    track: { regions: ["seoul", "gyeonggi"], applicantType: "experienced", experienceMonths: 36, weights },
+    track: { majorCode, jobs, regions: ["seoul", "gyeonggi"], applicantType: "experienced", experienceMonths: 36, weights },
     analysis: analysis(),
     usable: new Map<string, number>(),
     ...over,
@@ -160,6 +163,31 @@ test("확인된 경험이 없으면 직무 일치·우대가 0으로 들어간�
   expect(result.criteria.jobMatch.score).toBe(0);
   expect(result.criteria.preferred.score).toBe(0);
   expect(result.fit).toBe(33);
+});
+
+describe("분야를 본 트랙", () => {
+  test("fieldTarget은 분야와 직무 순서로 정해지고, 직접 적은 직무는 이름으로 구분한다", () => {
+    const custom = { ncsCode: null, customName: "백엔드 개발자" };
+    expect(fieldTarget({ majorCode, jobs })).toBe(fieldTarget({ majorCode, jobs: [...jobs] }));
+    expect(fieldTarget({ majorCode, jobs: [jobs[0], custom] })).not.toBe(fieldTarget({ majorCode, jobs: [custom, jobs[0]] }));
+    expect(fieldTarget({ majorCode, jobs: [custom] })).not.toBe(fieldTarget({ majorCode, jobs: [{ ...custom, customName: "서버 개발자" }] }));
+    expect(fieldTarget({ majorCode: "21", jobs })).not.toBe(fieldTarget({ majorCode, jobs }));
+  });
+
+  test("맞댄 뒤 트랙의 분야나 직무가 바뀌면 분야만 null이고 요구 사항 점수는 남는다", () => {
+    const full = [{ experienceId: "a", contentVersion: 0, level: "full" as const, why: "" }];
+    const withRequirement = analysis({ requirements: [requirement({ evidence: full })] });
+    const changedJobs = scorePosting(
+      input({ analysis: withRequirement, usable: new Map([["a", 0]]), track: withTrack({ jobs: [{ ncsCode: null, customName: "데이터 엔지니어" }] }) }),
+    );
+    expect(changedJobs.criteria.field.score).toBeNull();
+    expect(changedJobs.criteria.jobMatch.score).toBe(1);
+    // 근무지만으로 매긴다
+    expect(changedJobs.desire).toBe(100);
+    const changedMajor = scorePosting(input({ track: withTrack({ majorCode: "21" }) }));
+    expect(changedMajor.criteria.field.score).toBeNull();
+    expect(scorePosting(input()).criteria.field.score).toBe(1);
+  });
 });
 
 test("analysis가 없으면 분야·직무 일치·우대가 null이고 fit은 경력 요건만으로 매긴다", () => {

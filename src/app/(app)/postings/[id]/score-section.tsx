@@ -116,6 +116,7 @@ export function ScoreSection({
   id,
   analysis,
   score,
+  fieldStale,
   appliedScore,
   candidates,
   track,
@@ -124,6 +125,7 @@ export function ScoreSection({
   track: { id: string; name: string } | null;
   analysis: PostingAnalysis | null;
   score: PostingScore | null;
+  fieldStale: boolean; // 맞댄 뒤 트랙의 분야나 직무가 바뀌었다(분야 점수는 알 수 없음)
   appliedScore: AppliedScore | null;
   candidates: { id: string; name: string; contentVersion: number }[];
 }) {
@@ -166,7 +168,7 @@ export function ScoreSection({
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2">
-            <ScoreCard title="원하는 정도" value={score.desire} keys={DESIRE_CRITERIA} score={score} notes={{ field: analysis.field.reason }} />
+            <ScoreCard title="원하는 정도" value={score.desire} keys={DESIRE_CRITERIA} score={score} notes={fieldStale ? {} : { field: analysis.field.reason }} />
             <ScoreCard title="자격이 맞는 정도" value={score.fit} keys={FIT_CRITERIA} score={score} notes={{}} />
           </div>
           <p className="text-xs text-foreground/60">점수는 붙을 확률이 아니라, 어느 공고에 먼저 시간을 쓸지 정하는 순서입니다</p>
@@ -174,6 +176,7 @@ export function ScoreSection({
             <span>{dateOf(analysis.analyzedAt)}에 봄</span>
             <AnalyzeButton id={id} again />
           </div>
+          {fieldStale && <p className="text-sm text-foreground/70">트랙의 직무가 바뀌어 분야는 다시 봐야 합니다</p>}
           {hasStaleEvidence(analysis, usable) && (
             <p className="text-sm text-foreground/70">경험 기록이 바뀌어 일부 근거를 뺐습니다. 다시 보기로 새로 맞대 보세요</p>
           )}

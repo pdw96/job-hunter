@@ -6,7 +6,7 @@ import { EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion
 import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } from "@/modules/postings/options";
 import { listEvidenceCandidates } from "@/modules/experiences/evidence";
 import { getPosting } from "@/modules/postings/repo";
-import { scorePosting, usableOf } from "@/modules/postings/score";
+import { fieldStale, scorePosting, usableOf } from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
 import { REGIONS } from "@/modules/tracks/options";
 import { getTrack } from "@/modules/tracks/repo";
@@ -82,6 +82,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         track={track ? { id: track.id, name: track.name } : null}
         analysis={posting.analysis}
         score={score}
+        fieldStale={track !== null && posting.analysis !== null && fieldStale(posting.analysis, track)}
         // 관심으로 되돌리면 지원할 때의 점수는 남겨 두되 보여 주지 않는다
         appliedScore={posting.status === "apply" ? posting.appliedScore : null}
         candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion }))}

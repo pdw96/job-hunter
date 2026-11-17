@@ -10,6 +10,7 @@ import type { PostingAnalysis } from "./analysis";
 import { applyWithCurrentScore } from "./apply";
 import { validatePosting } from "./input";
 import { createPosting, getPosting, saveAnalysis } from "./repo";
+import { fieldTarget } from "./score";
 
 let db: Db;
 let trackId: string;
@@ -70,6 +71,7 @@ async function addPosting(userId = "u1") {
 }
 
 const analysis = (experienceId: string, contentVersion = 0): PostingAnalysis => ({
+  target: fieldTarget(survey),
   field: { level: "same_job", reason: "같은 직무" },
   requirements: [
     {

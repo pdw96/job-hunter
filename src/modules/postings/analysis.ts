@@ -15,6 +15,7 @@ export type Requirement = {
 };
 export type FieldLevel = "same_job" | "same_field" | "other";
 export type PostingAnalysis = {
+  target: string; // 분야를 볼 때의 트랙 분야·직무 (fieldTarget). 트랙이 바뀌면 분야는 다시 봐야 한다
   requirements: Requirement[];
   field: { level: FieldLevel; reason: string };
   analyzedAt: string; // ISO

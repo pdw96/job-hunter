@@ -10,9 +10,11 @@ import { type CareerType, FIELD_SCORES, LOCATION_BY_RANK, MATCH_SCORES } from ".
 export const DESIRE_CRITERIA = ["location", "field"] as const satisfies readonly Criterion[];
 export const FIT_CRITERIA = ["jobMatch", "experience", "preferred"] as const satisfies readonly Criterion[];
 
+type FieldTrack = { majorCode: string; jobs: { ncsCode: string | null; customName: string | null }[] };
+
 export type ScoreInput = {
   posting: { regions: string[]; careerType: CareerType; minYears: number | null };
-  track: {
+  track: FieldTrack & {
     regions: string[];
     applicantType: ApplicantType;
     experienceMonths: number | null;
@@ -36,6 +38,14 @@ export const hasStaleEvidence = (analysis: PostingAnalysis, usable: Usable): boo
   analysis.requirements.some((r) =>
     r.evidence.some((e) => usable.has(e.experienceId) && !evidenceUsable(e, usable)),
   );
+
+// 분야 판단이 어느 트랙 분야·직무를 보고 한 것인지 나타내는 열쇠. 직무 순서도 들어간다
+export const fieldTarget = (track: FieldTrack): string =>
+  JSON.stringify([track.majorCode, ...track.jobs.map((job) => job.ncsCode ?? `custom:${job.customName ?? ""}`)]);
+
+// 맞댄 뒤 트랙의 분야나 직무가 바뀌었는지 (그러면 분야는 알 수 없음으로 둔다)
+export const fieldStale = (analysis: PostingAnalysis, track: FieldTrack): boolean =>
+  analysis.target !== fieldTarget(track);
 
 type Level = "full" | "partial" | "none";
 
@@ -96,7 +106,7 @@ function bundle(criteria: Record<Criterion, CriterionScore>, keys: readonly Crit
 export function scorePosting({ posting, track, analysis, usable }: ScoreInput): PostingScore {
   const scores: Record<Criterion, number | null> = {
     location: locationScore(posting, track),
-    field: analysis ? FIELD_SCORES[analysis.field.level] : null,
+    field: analysis && !fieldStale(analysis, track) ? FIELD_SCORES[analysis.field.level] : null,
     experience: experienceScore(posting, track),
     jobMatch: requirementsScore(analysis, "required", usable),
     preferred: requirementsScore(analysis, "preferred", usable),

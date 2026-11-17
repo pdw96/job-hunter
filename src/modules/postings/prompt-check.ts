@@ -1,8 +1,7 @@
 import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
 import type { EvidenceCandidate } from "@/modules/experiences/evidence";
-import { analyzeText } from "./analyze";
-import type { PostingAnalysis } from "./analysis";
+import { analyzeText, type TextAnalysis } from "./analyze";
 import { type ExtractedPosting, extractPosting } from "./extract";
 
 // 준비한 공고 예시를 실제 AI에 돌려, 값을 맞게 뽑고 없는 값은 비워 두는지, 요구 사항에 맞는 경험만 근거로 짚는지 본다(관리자 전용, 호출 4번)
@@ -106,7 +105,7 @@ export const MATCH_CANDIDATES: EvidenceCandidate[] = [
 ];
 export const MATCH_SAMPLE = { name: "요구 사항 맞대기", source: FULL_POSTING.source, jobNames: ["백엔드 개발자"], majorName: "정보통신" };
 
-function matchRows(value: PostingAnalysis, row: Row): PostingCheckRow[] {
+function matchRows(value: TextAnalysis, row: Row): PostingCheckRow[] {
   const [kotlin, excel] = MATCH_CANDIDATES;
   const all = value.requirements;
   const javaKotlin = all.filter((r) => r.kind === "required" && /Java|Kotlin/.test(`${r.text} ${r.quote}`));

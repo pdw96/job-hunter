@@ -9,6 +9,7 @@ import { getTrack, listTracks } from "@/modules/tracks/repo";
 import type { Evidence, PostingAnalysis, Requirement } from "./analysis";
 import { ANALYZE_SYSTEM } from "./prompts";
 import { getPosting, saveAnalysis } from "./repo";
+import { fieldTarget } from "./score";
 
 // AI가 공고에서 요구 사항을 뽑고, 확인된 경험 가운데 근거가 되는 것을 짚는다.
 // AI에게는 경험의 실제 id 대신 E1, E2 같은 별명만 보내고, 답의 별명은 코드가 실제 id로 바꾼다.
@@ -84,14 +85,16 @@ function grounded(why: string, c: EvidenceCandidate, quote: string): boolean {
   return numbersIn(why.replace(/\bE\d+\b/g, "")).every((n) => known.has(n));
 }
 
-// 저장하지 않는다. 프롬프트 점검도 이것을 쓴다
+export type TextAnalysis = Omit<PostingAnalysis, "target">;
+
+// 저장하지 않는다. 프롬프트 점검도 이것을 쓴다(트랙이 없으므로 target은 analyzePosting이 붙인다)
 export async function analyzeText(
   db: Db,
   ai: AiClient,
   userId: string,
   input: AnalyzeInput,
   now: Date = new Date(),
-): Promise<{ ok: true; value: PostingAnalysis } | { ok: false; reason: "over_limit" | AiFailure }> {
+): Promise<{ ok: true; value: TextAnalysis } | { ok: false; reason: "over_limit" | AiFailure }> {
   const result = await runAi(
     db,
     ai,
@@ -181,7 +184,8 @@ export async function analyzePosting(
   );
   if (!analyzed.ok) return analyzed;
 
+  const analysis: PostingAnalysis = { target: fieldTarget(track), ...analyzed.value };
   // 읽었을 때의 원문·인재상 글 그대로일 때만 저장한다(그사이 고쳤으면 changed)
-  const saved = await saveAnalysis(db, userId, postingId, analyzed.value, readAs);
-  return saved.ok ? analyzed : saved;
+  const saved = await saveAnalysis(db, userId, postingId, analysis, readAs);
+  return saved.ok ? { ok: true, value: analysis } : saved;
 }

@@ -198,6 +198,7 @@ test("트랙별 공고 수를 센다. 지우면 줄어든다", async () => {
 });
 
 const analysis: PostingAnalysis = {
+  target: '["20","20010202"]',
   requirements: [
     { kind: "required", text: "백엔드 경력", quote: "백엔드 개발자", quoteFound: true, evidence: [] },
   ],

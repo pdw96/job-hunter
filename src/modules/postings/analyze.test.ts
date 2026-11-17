@@ -9,6 +9,7 @@ import { confirmExperience, createExperience, setTrackScope, updateExperience } 
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { analyzePosting, analyzeText } from "./analyze";
+import { fieldTarget } from "./score";
 import { validatePosting } from "./input";
 import { createPosting, getPosting, updatePosting } from "./repo";
 
@@ -327,12 +328,20 @@ test("경험이 하나도 없어도 요구 사항을 뽑아 저장한다", async
   const result = await analyzePosting(db, createFakeAi([reply]), "u1", id, now);
 
   const expected = {
+    target: fieldTarget(survey),
     requirements: [{ kind: "required", text: "Java 실무 경력 3년 이상", quote: "Java 실무 경력 3년 이상", quoteFound: true, evidence: [] }],
     field: { level: "same_job", reason: "공고의 직무가 지원 직무인 백엔드 개발자와 같다" },
     analyzedAt: now.toISOString(),
   };
   expect(result).toEqual({ ok: true, value: expected });
   expect((await getPosting(db, "u1", id))?.analysis).toEqual(expected);
+});
+
+test("분야를 본 트랙의 분야와 직무를 target으로 남긴다", async () => {
+  const id = await addPosting();
+  const result = await analyzePosting(db, createFakeAi([answer()]), "u1", id, now);
+  expect(result.ok && result.value.target).toBe(fieldTarget(survey));
+  expect((await getPosting(db, "u1", id))?.analysis?.target).toBe(fieldTarget(survey));
 });
 
 test("AI가 답하는 사이 원문이 바뀌면 changed이고 저장하지 않는다", async () => {
