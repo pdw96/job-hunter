@@ -236,17 +236,23 @@ test("공고 본문을 끼워 넣은 페이지에 둔 사이트는 그 페이지
   expect(pages.opened).toEqual(["https://jobs.example.com/view?id=1", "https://jobs.example.com/view-detail?id=1"]);
 });
 
-test("끼워 넣은 페이지의 본문이 그림이면 그 그림을 가져온다", async () => {
+test("끼워 넣은 페이지의 본문이 그림이면, 다시 불렀을 때 그 그림을 가져온다", async () => {
   const big = new Uint8Array(60 * 1024).fill(7);
-  const result = await fetchPosting(
-    "https://jobs.example.com/view?id=2",
-    deps({
-      "https://jobs.example.com/view?id=2": () => response(html(`${chrome}<iframe src="/view-detail?id=2"></iframe>`)),
-      "https://jobs.example.com/view-detail?id=2": () => response(html(`<img src="/up/posting.jpg">`)),
-      "https://jobs.example.com/up/posting.jpg": () => response(big, { headers: { "content-type": "image/jpeg" } }),
-    }),
-  );
-  expect(result.ok && result.images).toHaveLength(1);
+  const routes = {
+    "https://jobs.example.com/view?id=2": () => response(html(`${chrome}<iframe src="/view-detail?id=2"></iframe>`)),
+    "https://jobs.example.com/view-detail?id=2": () => response(html(`<img src="/up/posting.jpg">`)),
+    "https://jobs.example.com/up/posting.jpg": () => response(big, { headers: { "content-type": "image/jpeg" } }),
+  };
+  // 바깥 페이지에 글이 있으면 먼저 그 글을 돌려준다. 그 글에 공고 내용이 없으면 화면이 그림을 달라고 다시 부른다
+  const first = await fetchPosting("https://jobs.example.com/view?id=2", deps(routes));
+  expect(first.ok && first.images).toEqual([]);
+  const again = await fetchPosting("https://jobs.example.com/view?id=2", deps(routes), { forceImages: true });
+  expect(again.ok && again.images).toHaveLength(1);
+
+  // 바깥 페이지에 글이 거의 없으면 처음부터 그림을 돌려준다
+  const bare = { ...routes, "https://jobs.example.com/view?id=2": () => response(html(`<iframe src="/view-detail?id=2"></iframe>`)) };
+  const direct = await fetchPosting("https://jobs.example.com/view?id=2", deps(bare));
+  expect(direct.ok && direct.images).toHaveLength(1);
 });
 
 test("글이 충분해 보여도 요청하면 본문의 그림을 가져온다", async () => {
@@ -259,4 +265,29 @@ test("글이 충분해 보여도 요청하면 본문의 그림을 가져온다",
   expect(plain.ok && plain.images).toEqual([]);
   const forced = await fetchPosting("https://a.example.com/job", deps(routes), { forceImages: true });
   expect(forced.ok && forced.images).toHaveLength(1);
+});
+
+test("글이 몇 마디뿐인 끼워 넣은 페이지는 본문으로 보지 않고 바깥 페이지의 글을 쓴다", async () => {
+  const result = await fetchPosting(
+    "https://jobs.example.com/view?id=3",
+    deps({
+      "https://jobs.example.com/view?id=3": () => response(html(`${long}<iframe src="/widget"></iframe>`)),
+      "https://jobs.example.com/widget": () => response(html("<p>상담 창</p>")),
+    }),
+  );
+  expect(result.ok && result.text).toContain("백엔드 개발자를 찾습니다");
+  expect(result.ok && result.text).not.toContain("상담 창");
+});
+
+test("바깥 페이지에 글이 충분하면, 끼워 넣은 페이지에 그림이 있어도 글을 버리지 않는다", async () => {
+  const big = new Uint8Array(60 * 1024).fill(7);
+  const routes = {
+    "https://jobs.example.com/view?id=4": () => response(html(`${long}<iframe src="/frame"></iframe>`)),
+    "https://jobs.example.com/frame": () => response(html(`<img src="/up/photo.jpg">`)),
+    "https://jobs.example.com/up/photo.jpg": () => response(big, { headers: { "content-type": "image/jpeg" } }),
+  };
+  const plain = await fetchPosting("https://jobs.example.com/view?id=4", deps(routes));
+  expect(plain.ok && [plain.text.includes("백엔드 개발자를 찾습니다"), plain.images.length]).toEqual([true, 0]);
+  const forced = await fetchPosting("https://jobs.example.com/view?id=4", deps(routes), { forceImages: true });
+  expect(forced.ok && [forced.text.includes("백엔드 개발자를 찾습니다"), forced.images.length]).toEqual([true, 1]);
 });

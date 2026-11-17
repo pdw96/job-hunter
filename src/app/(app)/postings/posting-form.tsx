@@ -87,6 +87,8 @@ export function PostingForm({
     setBusy("값을 뽑는 중…");
     const result = await readPostingAction(rawText);
     if (!result.ok) {
+      // 값을 뽑지 못해도 읽어 온 글은 남겨 둔다. 다시 시도하거나 직접 채울 수 있다
+      set("rawText", rawText);
       setMessage(result.message);
       return true;
     }
@@ -146,6 +148,8 @@ export function PostingForm({
       const page = await fetchPostingAction(draft.url);
       if (!page.ok) return setMessage(page.message);
       let images = page.images;
+      // 그림과 함께 온 글은 공고의 일부(제목, 회사, 마감일)이므로 모두 남긴다
+      let head = page.text;
       if (images.length === 0) {
         // 글로 읽혔다. 공고 내용이 들어 있으면 끝이다
         if (await extract(page.text, true)) return;
@@ -153,6 +157,8 @@ export function PostingForm({
         setBusy("공고 그림을 찾는 중…");
         const again = await fetchPostingAction(draft.url, true);
         images = again.ok ? again.images : [];
+        // 이 경우의 글은 사이트의 메뉴와 안내다. 제목 한 줄만 남긴다
+        head = page.text.split("\n")[0];
         if (images.length === 0) {
           return setMessage(
             "이 주소에서는 공고 내용을 읽지 못했습니다(사이트의 메뉴와 안내 글만 읽혔습니다). 공고 화면을 그림으로 올리거나 공고 글을 붙여 넣어 주세요",
@@ -161,9 +167,7 @@ export function PostingForm({
       }
       const fromImages = await transcribe(images.map((image) => base64ToBlob(image.data, image.mediaType)));
       if (fromImages === null) return;
-      // 페이지의 글은 제목 한 줄만 남기고, 그림에서 옮긴 글을 본문으로 쓴다
-      const text = [page.text.split("\n")[0], fromImages].filter(Boolean).join("\n\n");
-      await extract(text);
+      await extract([head, fromImages].filter(Boolean).join("\n\n"));
     });
 
   const readFiles = (files: File[]) =>

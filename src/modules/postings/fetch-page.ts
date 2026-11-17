@@ -283,15 +283,20 @@ export async function fetchPosting(
     if (inner.text !== "") frameTexts.push(inner.text);
     frameImages.push(...inner.images);
   }
-  if (frameTexts.length > 0 || frameImages.length > 0) {
-    // 끼워 넣은 페이지가 본문이다. 바깥 페이지의 글(메뉴, 안내)은 제목 한 줄만 남긴다
+  const detail = frameTexts.join("\n").length;
+  if (detail >= MIN_TEXT) {
+    // 끼워 넣은 페이지에 글이 충분하면 그것이 본문이다. 바깥 페이지의 글(메뉴, 안내)은 제목 한 줄만 남긴다.
+    // 글이 몇 마디뿐인 끼워 넣은 페이지(상담 창 같은 것)는 본문으로 보지 않고 바깥 페이지를 그대로 쓴다
     text = [content.text.split("\n")[0], ...frameTexts].filter(Boolean).join("\n\n");
-    imageUrls = [...frameImages, ...content.images];
-    const detail = frameTexts.join("\n").length;
-    if (detail >= MIN_TEXT && !options.forceImages) return { ok: true, text, images: [] };
-    const images = await fetchImages(imageUrls.slice(0, 8), deps, signal);
-    if (images.length > 0) return { ok: true, text, images };
-    return detail > 0 ? { ok: true, text, images: [] } : { ok: false, reason: "empty" };
+    imageUrls = [...frameImages, ...content.images].slice(0, 8);
+    if (!options.forceImages) return { ok: true, text, images: [] };
+  } else if (frameImages.length > 0) {
+    // 끼워 넣은 페이지의 본문이 그림일 수 있다. 바깥 페이지의 글은 버리지 않고, 그 그림을 먼저 살핀다
+    imageUrls = [...frameImages, ...content.images].slice(0, 8);
+    const images = await fetchImages(imageUrls, deps, signal);
+    if (images.length > 0 && (text.length < MIN_TEXT || options.forceImages)) return { ok: true, text, images };
+    if (text.length >= MIN_TEXT) return { ok: true, text, images: [] };
+    return images.length > 0 ? { ok: true, text, images } : { ok: false, reason: "empty" };
   }
 
   if (text.length >= MIN_TEXT && !options.forceImages) return { ok: true, text, images: [] };
