@@ -32,6 +32,7 @@ const record = (over: Record<string, unknown> = {}) => ({
   notDone: "",
   evidenceNote: "",
   tags: [],
+  bannedPhrases: [],
   roleClaims: ["핵심 역할을 수행"],
   ...over,
 });
@@ -62,8 +63,8 @@ test("초안이 미확인 기록으로 저장되고, 가져온 기록으로 표�
   const claims = await listClaims(db, "u1", result.created[0].id);
   expect(claims.map((claim) => [claim.kind, claim.origin, claim.quote, claim.status])).toEqual([
     ["period", "code", "2023-03 ~ 2023-11", "pending"],
-    ["metric", "code", "장애가 80% 감소했다.", "pending"],
     ["role", "code", "결제 승인 API 개선 프로젝트를 주도하며 핵심 역할을 수행했다.", "pending"],
+    ["metric", "code", "장애가 80% 감소했다.", "pending"],
     ["role", "ai", "핵심 역할을 수행", "pending"],
   ]);
   expect(result.created[0].claimCount).toBe(4);
@@ -172,4 +173,12 @@ test("주장으로 훑지 않는 칸에 지어낸 숫자가 있으면 그 구절
   if (!current) throw new Error("기록 없음");
   await updateExperience(db, "u1", id, { ...toInput(current), evidenceNote: null });
   expect((await listClaims(db, "u1", id)).find((item) => item.id === claim?.id)?.status).toBe("fixed");
+});
+
+test("금지 표현은 원본에 글자 그대로 있는 것만 받는다", async () => {
+  const notion = `${source}\n\n## [하위 페이지] 사용 금지 표현\n- 🚫 "전 품목" (→ 6~15개 품목)\n- 🚫 "ERP 구축 주도"`;
+  const draft = record({ bannedPhrases: ["전 품목", "ERP 구축 주도", "AI가 지어낸 표현", " 전 품목 "] });
+  const result = await importExperiences(db, createFakeAi([{ records: [draft], more: false }]), "u1", notion, now);
+  if (!result.ok) throw new Error("가져오기 실패");
+  expect((await getExperience(db, "u1", result.created[0].id))?.bannedPhrases).toEqual(["전 품목", "ERP 구축 주도"]);
 });

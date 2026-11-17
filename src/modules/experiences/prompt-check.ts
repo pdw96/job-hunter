@@ -192,7 +192,66 @@ export const IMPORT_SAMPLE = {
 한국대학교 경영학과 | 2016.03 ~ 2022.02`,
 };
 
+// 노션에 본문과 하위 페이지로 정리해 둔 묶음. 금지 표현은 옮기고, 쓰지 말라는 수치와 남이 한 일은 넣지 않는지 본다
+export const NOTION_SAMPLE = {
+  name: "노션 묶음 가져오기",
+  source: `# 생산관리 전담 (2023.04~2024.10)
+
+구분: 재직
+소속·기관: 가나다화학
+증빙·확인 메모: 재직증명서로 기간 확인
+
+- 6~15개 품목의 생산계획과 자재 수급을 담당
+- 납기 지연 0건 (전 기간, 고객 요청일 기준)
+
+## [하위 페이지] 사용 금지 표현
+
+- 🚫 "전 품목" (→ 6~15개 품목)
+- 🚫 "ERP 구축 주도" (→ 구축 TF 코디네이터)
+
+## [하위 페이지] 수치 사용 여부
+
+- 쓰는 수치: 납기 지연 0건
+- 제외: 공정 지연 20% 감소 (근거가 없어 쓰지 않음)
+
+## [하위 페이지] 성과 사례 · 불량 원인 규명
+
+- 본인: 원인 가설을 세우고 분석 시험을 의뢰
+- 품질팀: 로트 이력 역추적을 주도`,
+};
+
 type Prepared = Extract<Awaited<ReturnType<typeof requestImport>>, { ok: true }>;
+
+function notionRows(prepared: Prepared): CheckRow[] {
+  const sample = NOTION_SAMPLE.name;
+  const records = prepared.records.map((record) => record.input);
+  const banned = records.flatMap((input) => input.bannedPhrases);
+  const used = records
+    .map((input) => [input.situation, input.actions, input.result, ...input.metrics.map((m) => m.text)].join(" "))
+    .join(" ");
+  const actions = records.map((input) => input.actions ?? "").join(" ");
+  const evidence = records.map((input) => input.evidenceNote ?? "").join(" ");
+  const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample, check, expected, actual, pass });
+
+  return [
+    row("묶음 하나를 경험 하나로 둔다", "1건", `${records.length}건: ${records.map((input) => input.name).join(", ")}`, records.length === 1),
+    row(
+      "금지 표현을 옮긴다",
+      "'전 품목', 'ERP 구축 주도'",
+      banned.length === 0 ? "없음" : banned.join(" / "),
+      ["전 품목", "ERP 구축 주도"].every((phrase) => banned.includes(phrase)),
+    ),
+    row("쓰지 말라는 수치를 넣지 않는다", "'20%'가 없음", used.includes("20%") ? "들어 있음" : "없음", !used.includes("20%")),
+    row("쓰는 수치는 옮긴다", "'납기 지연 0건'이 있음", used.includes("납기 지연 0건") ? "있음" : "없음", used.includes("납기 지연 0건")),
+    row(
+      "남이 한 일을 본인이 한 일로 적지 않는다",
+      "한 일에 '역추적'이 없음",
+      actions.includes("역추적") ? "들어 있음" : "없음",
+      !actions.includes("역추적"),
+    ),
+    row("증빙 메모를 옮긴다", "'재직증명서'가 있음", evidence.includes("재직증명서") ? "있음" : "없음", evidence.includes("재직증명서")),
+  ];
+}
 
 function importRows(prepared: Prepared): CheckRow[] {
   const sample = IMPORT_SAMPLE.name;
@@ -309,5 +368,10 @@ export async function runPromptCheck(db: Db, ai: AiClient, userId: string, now: 
     return result.ok ? importRows(result) : failed(IMPORT_SAMPLE.name, result.reason);
   })();
 
-  return (await Promise.all([...judged, ...extracted, imported])).flat();
+  const notion = (async () => {
+    const result = await requestImport(db, ai, userId, NOTION_SAMPLE.source, now);
+    return result.ok ? notionRows(result) : failed(NOTION_SAMPLE.name, result.reason);
+  })();
+
+  return (await Promise.all([...judged, ...extracted, imported, notion])).flat();
 }

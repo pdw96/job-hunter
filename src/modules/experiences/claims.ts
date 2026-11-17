@@ -1,3 +1,4 @@
+import { numbersIn } from "./grounding";
 import type { ExperienceInput } from "./input";
 
 // 가져온 기록의 "주장" 규칙. 화면과 DB를 모르는 순수 함수만 둔다.
@@ -44,18 +45,22 @@ export function quotePieces(sentence: string): string[] {
   return parts;
 }
 
-// 날짜 표기를 뺀 뒤에도 숫자가 남아 있는가
-function hasNumber(sentence: string): boolean {
-  // 전각 숫자(７３)도 숫자로 본다. 인용은 원문 그대로 둔다
-  const withoutDates = sentence
-    .normalize("NFKC")
-    // 연도(19xx, 20xx)와 월(1~12)일 때만 날짜로 본다. "1200.50만원" 같은 소수는 숫자로 남긴다
-    .replace(/(?<![\d.])(?:19|20)\d{2}\s*[-./]\s*(?:0?[1-9]|1[0-2])(?:\s*[-./]\s*\d{1,2})?(?!\d)/g, " ")
-    // "2023년", "23년 3월"은 날짜다. "12년간", "3년 동안" 같은 기간은 숫자로 남긴다
-    .replace(/(?<!\d)(?:(?:19|20)\d{2}\s*년(?!\s*(?:간|동안))(?:\s*\d{1,2}\s*월)?|\d{2}\s*년\s*\d{1,2}\s*월)(?:\s*\d{1,2}\s*일)?/g, " ")
-    .replace(/(?<!\d)\d{1,2}\s*월(?!\s*(?:간|동안))(?:\s*\d{1,2}\s*일)?/g, " ");
-  return /\d/.test(withoutDates);
+// 날짜 표기를 뺀 글. 전각 숫자(７３)도 숫자로 보도록 정규화한다(인용은 원문 그대로 둔다)
+function withoutDates(sentence: string): string {
+  return (
+    sentence
+      .normalize("NFKC")
+      // 연도(19xx, 20xx)와 월(1~12)일 때만 날짜로 본다. "1200.50만원" 같은 소수는 숫자로 남긴다
+      .replace(/(?<![\d.])(?:19|20)\d{2}\s*[-./]\s*(?:0?[1-9]|1[0-2])(?:\s*[-./]\s*\d{1,2})?(?!\d)/g, " ")
+      // "2023년", "23년 3월"은 날짜다. "12년간", "3년 동안" 같은 기간은 숫자로 남긴다
+      .replace(/(?<!\d)(?:(?:19|20)\d{2}\s*년(?!\s*(?:간|동안))(?:\s*\d{1,2}\s*월)?|\d{2}\s*년\s*\d{1,2}\s*월)(?:\s*\d{1,2}\s*일)?/g, " ")
+      .replace(/(?<!\d)\d{1,2}\s*월(?!\s*(?:간|동안))(?:\s*\d{1,2}\s*일)?/g, " ")
+  );
 }
+
+// 날짜가 아닌 숫자들
+const numbersOf = (sentence: string) => numbersIn(withoutDates(sentence));
+const hasNumber = (sentence: string) => /\d/.test(withoutDates(sentence));
 
 function periodQuote(input: ExperienceInput): string | null {
   if (!input.startMonth) return null;
@@ -83,15 +88,17 @@ export function findClaims(input: ExperienceInput): FoundClaim[] {
       if (index === 0 || hasNumber(piece)) add({ kind: "metric", quote: piece, phrase: null, origin: "code" });
     });
   }
+  // 같은 내용을 두 번 묻지 않는다.
+  // 문장의 숫자가 모두 수치 줄에 이미 있으면 그 문장의 숫자는 수치 줄로 묻고,
+  // 숫자와 과장 낱말이 한 문장에 있으면 수치 주장 하나로 묻는다(과장임 답을 고를 수 있게 낱말을 함께 둔다)
+  const asked = new Set(input.metrics.flatMap((metric) => numbersOf(metric.text)));
   for (const field of PROSE_FIELDS) {
     for (const sentence of sentences(input[field])) {
-      if (hasNumber(sentence)) add({ kind: "metric", quote: sentence, phrase: null, origin: "code" });
-    }
-  }
-  for (const field of PROSE_FIELDS) {
-    for (const sentence of sentences(input[field])) {
-      const word = INFLATING.find((candidate) => sentence.includes(candidate));
-      if (word) add({ kind: "role", quote: sentence, phrase: word, origin: "code" });
+      const word = INFLATING.find((candidate) => sentence.includes(candidate)) ?? null;
+      const numbers = numbersOf(sentence);
+      const newNumber = numbers.some((number) => !asked.has(number)) || (numbers.length === 0 && hasNumber(sentence));
+      if (newNumber) add({ kind: "metric", quote: sentence, phrase: word, origin: "code" });
+      else if (word) add({ kind: "role", quote: sentence, phrase: word, origin: "code" });
     }
   }
   return found;
@@ -123,7 +130,10 @@ export function mergeClaims(code: FoundClaim[], aiQuotes: string[], input: Exper
   for (const raw of aiQuotes) {
     const quote = raw.trim().slice(0, MAX_QUOTE);
     if (quote === "" || !proseContains(input, quote)) continue;
-    if (merged.some((claim) => claim.kind === "role" && claim.quote === quote)) continue;
+    // 코드가 이미 같은 낱말로 묻는 문장의 일부이면 다시 묻지 않는다
+    if (merged.some((claim) => claim.quote === quote || (claim.phrase !== null && claim.quote.includes(quote) && quote.includes(claim.phrase)))) {
+      continue;
+    }
     merged.push({ kind: "role", quote, phrase: quote.slice(0, 100), origin: "ai" });
   }
   return merged.slice(0, MAX_CLAIMS);

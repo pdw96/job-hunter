@@ -32,13 +32,14 @@ beforeEach(async () => {
   await db.insert(user).values({ id: "admin", name: "A", email: "a@example.com" });
 });
 
-const CALLS = JUDGE_SAMPLES.length + EXTRACT_SAMPLES.length + 1; // +1은 가져오기 예시
+const CALLS = JUDGE_SAMPLES.length + EXTRACT_SAMPLES.length + 2; // +2는 가져오기 예시 둘
 
 // 가져오기 예시를 원본 그대로 세 건으로 나눈 답
 const imported = {
   records: [
     {
       ...draft,
+      bannedPhrases: [],
       name: "가나다커머스 마케팅팀",
       kind: "job",
       startMonth: "2022-03",
@@ -50,6 +51,7 @@ const imported = {
     },
     {
       ...draft,
+      bannedPhrases: [],
       name: "브랜드 리뉴얼 프로젝트",
       startMonth: "2023-06",
       endMonth: "2023-09",
@@ -57,7 +59,7 @@ const imported = {
       notDone: "",
       roleClaims: [],
     },
-    { ...draft, name: "한국대학교 경영학과", kind: "school", startMonth: "2016-03", endMonth: "2022-02", actions: "", notDone: "", roleClaims: [] },
+    { ...draft, bannedPhrases: [], name: "한국대학교 경영학과", kind: "school", startMonth: "2016-03", endMonth: "2022-02", actions: "", notDone: "", roleClaims: [] },
   ],
   more: false,
 };
@@ -129,5 +131,62 @@ test("가져오기 예시: 내용을 키우거나 없는 숫자·칸을 채우�
     "원본에 없는 칸을 채우지 않는다",
     "코드가 숫자와 과장 낱말을 주장으로 잡는다",
     "AI가 부풀린 표현을 더 짚는다",
+  ]);
+});
+
+// 노션 묶음 요청에만 다른 답을 준다
+const notionAnswering = (notion: unknown) =>
+  createFakeAi(
+    Array.from({ length: CALLS }, () => (request: { purpose: string; messages: { text: string }[] }) =>
+      request.purpose === "judge"
+        ? allMet
+        : request.purpose !== "import"
+          ? draft
+          : request.messages[0].text.includes("[하위 페이지]")
+            ? notion
+            : imported,
+    ),
+  );
+
+const notionRecord = {
+  ...draft,
+  name: "생산관리 전담",
+  kind: "job",
+  organization: "가나다화학",
+  startMonth: "2023-04",
+  endMonth: "2024-10",
+  situation: "",
+  actions: "6~15개 품목의 생산계획과 자재 수급을 담당\n원인 가설을 세우고 분석 시험을 의뢰",
+  result: "납기 지연 0건 (전 기간, 고객 요청일 기준)",
+  metrics: [],
+  notDone: "로트 이력 역추적은 품질팀이 주도",
+  evidenceNote: "재직증명서로 기간 확인",
+  roleClaims: [],
+  bannedPhrases: ["전 품목", "ERP 구축 주도"],
+};
+
+test("노션 묶음 예시: 금지 표현을 옮기고 제외한 수치와 남이 한 일을 넣지 않으면 모두 통과한다", async () => {
+  const rows = (await runPromptCheck(db, notionAnswering({ records: [notionRecord], more: false }), "admin")).filter(
+    (r) => r.sample === "노션 묶음 가져오기",
+  );
+  expect(rows).toHaveLength(6);
+  expect(rows.filter((r) => !r.pass)).toEqual([]);
+});
+
+test("노션 묶음 예시: 제외한 수치를 넣거나 금지 표현을 빠뜨리면 잡아낸다", async () => {
+  const wrong = {
+    ...notionRecord,
+    actions: "로트 이력 역추적을 주도",
+    result: "공정 지연 20% 감소",
+    evidenceNote: "",
+    bannedPhrases: [],
+  };
+  const rows = (await runPromptCheck(db, notionAnswering({ records: [wrong, notionRecord], more: false }), "admin")).filter(
+    (r) => r.sample === "노션 묶음 가져오기",
+  );
+  expect(rows.filter((r) => !r.pass).map((r) => r.check)).toEqual([
+    "묶음 하나를 경험 하나로 둔다",
+    "쓰지 말라는 수치를 넣지 않는다",
+    "남이 한 일을 본인이 한 일로 적지 않는다",
   ]);
 });

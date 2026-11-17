@@ -56,8 +56,8 @@ test("가져온 기록에는 기간·수치·역할 주장이 대기 상태로 �
   expect(list.map((claim) => [claim.kind, claim.status])).toEqual([
     ["period", "pending"],
     ["metric", "pending"],
-    ["metric", "pending"],
     ["role", "pending"],
+    ["metric", "pending"],
   ]);
   expect(await countOpenClaims(db, "u1")).toEqual({ [id]: 4 });
 });
@@ -221,4 +221,12 @@ test("금지 표현이 가득 차 있으면 과장임을 받지 않고 알린다
   expect(await answerClaim(db, "u1", claim.id, "exaggerated")).toEqual({ ok: false, reason: "banned_full" });
   expect((await getExperience(db, "u1", id))?.bannedPhrases).toEqual(full);
   expect((await byQuote(id, "주도했다")).status).toBe("pending");
+});
+
+test("숫자와 과장 낱말이 함께 든 수치 주장에는 과장임으로 답할 수 있다", async () => {
+  const id = await importOne("u1", { ...imported, actions: null, result: "개선을 주도해 장애가 80% 감소했다." });
+  const claim = await byQuote(id, "80%");
+  expect([claim.kind, claim.phrase]).toEqual(["metric", "주도"]);
+  expect(await answerClaim(db, "u1", claim.id, "exaggerated")).toEqual({ ok: true, status: "needs_fix" });
+  expect((await getExperience(db, "u1", id))?.bannedPhrases).toEqual(["주도"]);
 });

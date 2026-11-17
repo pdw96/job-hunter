@@ -7,7 +7,10 @@ import { numbersIn, ungroundedNumbers } from "./grounding";
 import { type ExperienceInput, validateExperience } from "./input";
 import { draftSchema } from "./interview";
 import { IMPORT_SYSTEM } from "./prompts";
+import { LIMITS } from "./options";
 import { createExperience } from "./repo";
+
+const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
 // 가져오기. 글을 AI가 경험 단위로 쪼개고, 코드가 검사한 뒤 미확인 기록과 주장으로 저장한다.
 // 가져온 글은 AI가 쓴 것일 수 있으므로 내용을 사실로 취급하지 않는다.
@@ -15,7 +18,7 @@ import { createExperience } from "./repo";
 const MAX_RECORDS = 12;
 
 const importSchema = z.object({
-  records: z.array(draftSchema.extend({ roleClaims: z.array(z.string()) })),
+  records: z.array(draftSchema.extend({ roleClaims: z.array(z.string()), bannedPhrases: z.array(z.string()) })),
   more: z.boolean(), // 경험이 더 있는데 다 담지 못했는가
 });
 
@@ -51,9 +54,14 @@ export async function requestImport(
 
   const records: Prepared[] = [];
   let skipped = 0;
-  for (const { roleClaims, ...draft } of result.value.records.slice(0, MAX_RECORDS)) {
-    // AI가 준 초안도 사람이 입력한 것과 같은 검사를 거친다. 금지 표현은 사용자가 정하므로 비워 둔다
-    const checked = validateExperience({ ...draft, bannedPhrases: [] });
+  const flatSource = squash(sourceText);
+  for (const { roleClaims, bannedPhrases, ...draft } of result.value.records.slice(0, MAX_RECORDS)) {
+    // 금지 표현은 사용자가 정한다. 원본에 글자 그대로 적혀 있는 것만 받고, AI가 지어낸 것은 버린다
+    const banned = [...new Set(bannedPhrases.map(squash))]
+      .filter((phrase) => phrase !== "" && phrase.length <= LIMITS.shortText && flatSource.includes(phrase))
+      .slice(0, LIMITS.bannedPhrases);
+    // AI가 준 초안도 사람이 입력한 것과 같은 검사를 거친다
+    const checked = validateExperience({ ...draft, bannedPhrases: banned });
     if (!checked.ok) {
       skipped += 1;
       continue;

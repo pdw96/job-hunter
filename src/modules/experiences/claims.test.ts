@@ -137,10 +137,11 @@ test("긴 문장은 조각으로 나눠 뒤쪽의 숫자와 과장 낱말도 찾
   const long = `${"가나다라 ".repeat(50)}끝에 매출이 37% 늘었고 이 일을 총괄했다.`;
   const input = { ...base, situation: null, actions: long, result: null, metrics: [] };
   const found = findClaims(input);
+  // 숫자와 과장 낱말이 같은 조각에 있으면 주장 하나로 묻는다
   const metric = found.find((claim) => claim.kind === "metric");
-  const role = found.find((claim) => claim.kind === "role");
   expect(metric?.quote).toContain("37%");
-  expect(role?.quote).toContain("총괄");
+  expect(metric?.phrase).toBe("총괄");
+  expect(found.filter((claim) => claim.kind === "role")).toEqual([]);
   for (const claim of found) {
     expect(claim.quote.length).toBeLessThanOrEqual(200);
     expect(stillPresent(claim, input)).toBe(true);
@@ -193,4 +194,28 @@ test("기간을 나타내는 숫자(12년간, 3개월)는 날짜로 보지 않�
     result: "서비스를 12년간 운영했다. 2023년 3월에 시작했다. 23년 3월 15일에 끝났다. 6월에 발표했다. 3년 동안 유지했다.",
   };
   expect(quotes(input, "metric")).toEqual(["서비스를 12년간 운영했다.", "3년 동안 유지했다."]);
+});
+
+test("문장의 숫자가 모두 수치 줄에 있으면 그 문장은 수치로 다시 묻지 않는다", () => {
+  const input = {
+    ...base,
+    actions: null,
+    result: "캠페인을 주도하여 매출 30% 향상에 기여. 팔로워를 2만 명까지 늘렸다. 재방문율은 12% 올랐다.",
+    metrics: [
+      { text: "매출 30% 향상", basis: null },
+      { text: "팔로워 2만 명", basis: null },
+    ],
+  };
+  expect(findClaims(input).map((claim) => [claim.kind, claim.quote, claim.phrase])).toEqual([
+    ["period", "2023-03 ~ 2023-11", null],
+    ["metric", "매출 30% 향상", null],
+    ["metric", "팔로워 2만 명", null],
+    ["role", "캠페인을 주도하여 매출 30% 향상에 기여.", "주도"],
+    ["metric", "재방문율은 12% 올랐다.", null],
+  ]);
+});
+
+test("AI가 짚은 구절이 코드가 같은 낱말로 묻는 문장의 일부이면 넣지 않는다", () => {
+  const merged = mergeClaims(findClaims(base), ["프로젝트를 주도했다", "테스트 코드를 작성"], base);
+  expect(merged.filter((claim) => claim.origin === "ai").map((claim) => claim.quote)).toEqual(["테스트 코드를 작성"]);
 });
