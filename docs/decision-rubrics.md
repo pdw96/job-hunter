@@ -74,8 +74,11 @@ Vercel 프로젝트 `job-hunter`(`prj_JuWhSZfsqdotjWAph0ysJumHWHpP`, 팀 `team_w
 
 ## ⑥ 새 세션
 
-한 세션으로 이어 간다. 구현은 작업마다 새 하위 에이전트에 맡긴다(`superpowers:subagent-driven-development`). 다음 낌새가 보이면 사용자에게 새 세션을 권한다.
+같은 계획 안의 일(구현, 검토 대응, 배포 확인, 그 배포에서 나온 버그 수정)은 한 세션으로 이어 간다. 구현은 작업마다 새 하위 에이전트에 맡긴다(`superpowers:subagent-driven-development`).
 
+다음 때는 사용자에게 새 세션을 권한다. AI는 새 세션을 열 수 없으므로 사용자가 연다. 새 세션은 `docs/status.md`의 다음 할 일부터 한다. 권하기 전에 `docs/status.md`를 고쳐 둔다.
+
+- 지금 계획의 PR이 모두 합쳐지고 배포 확인까지 끝났고, 다음 할 일이 다른 계획 문서(`docs/superpowers/plans/`의 새 파일)다. 이유는 환각이 아니라 집중과 비용이다(긴 대화는 매번 다시 읽힌다)
 - 이미 정한 것을 다시 묻는다
 - 같은 실수가 되풀이된다
 - 문서와 다른 내용을 사실처럼 말한다
