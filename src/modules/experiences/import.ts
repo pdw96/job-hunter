@@ -44,6 +44,7 @@ function fitDraft(draft: Draft): { draft: Draft; trimmed: boolean } {
   }
   for (const field of SHORT_FIELDS) fitted[field] = fitted[field].trim().slice(0, LIMITS.shortText);
   if (fitted.metrics.length > LIMITS.metrics) trimmed = true;
+  if (fitted.metrics.some((metric) => metric.text.length > LIMITS.longText || metric.basis.length > LIMITS.longText)) trimmed = true;
   fitted.metrics = fitted.metrics.slice(0, LIMITS.metrics).map((metric) => ({
     text: metric.text.slice(0, LIMITS.longText),
     basis: metric.basis.slice(0, LIMITS.longText),

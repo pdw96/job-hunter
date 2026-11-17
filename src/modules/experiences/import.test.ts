@@ -200,3 +200,10 @@ test("한도를 넘긴 초안은 버리지 않고 한도에 맞춰 저장하며,
   expect(saved?.tags).toHaveLength(10);
   expect(saved?.organization?.length).toBe(100);
 });
+
+test("수치의 글이나 근거가 한도를 넘어 잘려도 알린다", async () => {
+  const draft = record({ metrics: [{ text: "장애 80% 감소", basis: "근거 ".repeat(1500) }], roleClaims: [] });
+  const result = await importExperiences(db, createFakeAi([{ records: [draft], more: false }]), "u1", source, now);
+  if (!result.ok) throw new Error("가져오기 실패");
+  expect(result.created[0].trimmed).toBe(true);
+});

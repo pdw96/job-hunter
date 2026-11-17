@@ -7,7 +7,13 @@ import { deleteExperienceAction, importAction } from "@/modules/experiences/acti
 import type { PageGroup } from "@/modules/experiences/notion-export";
 
 type Outcome =
-  | { ok: true; created: { id: string; name: string; claimCount: number; trimmed: boolean }[]; skipped: number; more: boolean }
+  | {
+      ok: true;
+      created: { id: string; name: string; claimCount: number; trimmed: boolean }[];
+      made?: number; // 처음에 만든 기록 수. 사용자가 지운 뒤에도 그대로 둔다
+      skipped: number;
+      more: boolean;
+    }
   | { ok: false; message: string; stop?: boolean; empty?: boolean };
 
 // 노션 묶음을 골라 하나씩 가져온다. 묶음마다 AI를 한 번 부른다
@@ -23,7 +29,7 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
   const selectable = groups.flatMap((group, index) => (group.tooLong ? [] : [index]));
   // 다시 보낼 만한 묶음: 호출이 실패했거나, 초안이 형식에 맞지 않아 하나도 만들지 못한 것
   const failed = Object.entries(outcomes).flatMap(([index, outcome]) =>
-    (!outcome.ok && !outcome.empty) || (outcome.ok && outcome.created.length === 0) ? [Number(index)] : [],
+    (!outcome.ok && !outcome.empty) || (outcome.ok && outcome.made === 0) ? [Number(index)] : [],
   );
 
   function toggle(index: number) {
@@ -51,6 +57,7 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
       } catch {
         outcome = { ok: false, message: "연결이 끊겼습니다. 다시 시도해 주세요" };
       }
+      if (outcome.ok) outcome = { ...outcome, made: outcome.created.length };
       setOutcomes((previous) => ({ ...previous, [index]: outcome }));
       if (!outcome.ok && outcome.stop) {
         setNotice(`${outcome.message}. 남은 ${indexes.length - position - 1}개 묶음은 가져오지 않았습니다`);
@@ -165,8 +172,11 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
               <p className="text-sm text-foreground/60">{groups[index].title}</p>
               {!outcome.ok && outcome.empty && <p className="text-sm text-foreground/70">경험으로 볼 내용이 없어 기록을 만들지 않았습니다</p>}
               {!outcome.ok && !outcome.empty && <p className="text-sm text-red-600">가져오지 못했습니다: {outcome.message}</p>}
-              {outcome.ok && outcome.created.length === 0 && (
+              {outcome.ok && outcome.made === 0 && (
                 <p className="text-sm text-red-600">AI가 만든 초안이 형식에 맞지 않아 기록을 만들지 못했습니다. 다시 가져와 주세요</p>
+              )}
+              {outcome.ok && outcome.made !== 0 && outcome.created.length === 0 && (
+                <p className="text-sm text-foreground/70">만든 기록을 모두 지웠습니다</p>
               )}
               {outcome.ok &&
                 outcome.created.map((item) => (
