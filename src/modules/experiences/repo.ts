@@ -20,9 +20,34 @@ export type Experience = ExperienceInput & {
   rubric: StoredRubric;
   isConfirmed: boolean;
   state: VerificationState;
+  contentVersion: number;
+  phraseCandidates: string[];
+  dismissedPhrases: string[];
+  judgedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
+
+// 기록에서 사용자가 입력하는 칸만 고른다(화면의 입력 폼에 넘길 때 쓴다)
+export function toInput(experience: Experience): ExperienceInput {
+  return {
+    name: experience.name,
+    kind: experience.kind,
+    organization: experience.organization,
+    role: experience.role,
+    startMonth: experience.startMonth,
+    endMonth: experience.endMonth,
+    isOngoing: experience.isOngoing,
+    situation: experience.situation,
+    actions: experience.actions,
+    result: experience.result,
+    metrics: experience.metrics,
+    notDone: experience.notDone,
+    bannedPhrases: experience.bannedPhrases,
+    evidenceNote: experience.evidenceNote,
+    tags: experience.tags,
+  };
+}
 
 export type ExperienceSummary = Pick<
   Experience,
@@ -118,6 +143,10 @@ export async function updateExperience(
       ...(contentChanged
         ? {
             confirmedAt: null,
+            // 판정과 후보는 예전 내용에 대한 것이므로 지운다
+            contentVersion: sql`${experiences.contentVersion} + 1`,
+            phraseCandidates: [],
+            judgedAt: null,
             rubric: withStatuses(
               rubricAfterContentEdit(input.kind, statuses(current.rubric), periodOf(input)),
               current.rubric,

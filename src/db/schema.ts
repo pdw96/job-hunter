@@ -6,3 +6,4 @@ export * from "../modules/profile/schema";
 export * from "../modules/ncs/schema";
 export * from "../modules/tracks/schema";
 export * from "../modules/experiences/schema";
+export * from "../modules/ai/schema";

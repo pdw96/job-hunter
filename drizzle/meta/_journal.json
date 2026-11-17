@@ -50,6 +50,27 @@
       "when": 1794838831439,
       "tag": "0006_slippery_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794892134952,
+      "tag": "0007_cultured_red_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794892246025,
+      "tag": "0008_bored_garia",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794892488263,
+      "tag": "0009_mushy_jane_foster",
+      "breakpoints": true
     }
   ]
 }
