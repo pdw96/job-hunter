@@ -6,6 +6,8 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import type { AiImage } from "@/modules/ai/client";
 import { ai } from "@/modules/ai/provider";
+import { analyzePosting } from "./analyze";
+import { applyWithCurrentScore } from "./apply";
 import { type ExtractedPosting, extractPosting } from "./extract";
 // 로컬 미리보기에서는 next.config.ts가 이 파일을 src/dev/local-fetch-page.ts로 바꿔 끼운다
 import { fetchPosting } from "@/modules/postings/fetch-page";
@@ -129,6 +131,31 @@ export async function savePostingAction(
   return { ok: true, id: created.id };
 }
 
+// 공고의 요구 사항을 뽑고 경험과 맞댄다(AI 호출 1번). 점수는 화면이 그릴 때 계산한다
+export async function analyzePostingAction(id: string): Promise<SimpleResult> {
+  const user = await requireUser();
+  if (typeof id !== "string") return { ok: false, message: NOT_FOUND };
+  const result = await analyzePosting(db, ai, user.id, id);
+  if (!result.ok) {
+    if (result.reason === "not_found") return { ok: false, message: NOT_FOUND };
+    if (result.reason === "changed") return { ok: false, message: "점수를 보는 사이 공고가 바뀌었습니다. 다시 눌러 주세요" };
+    return { ok: false, message: AI_MESSAGES[result.reason] ?? AI_MESSAGES.unavailable };
+  }
+  refresh(id);
+  return { ok: true };
+}
+
+// 지원으로 정한다. 점수는 브라우저에서 받지 않고 서버가 지금 다시 계산해 남긴다
+export async function applyToPostingAction(id: string): Promise<SimpleResult> {
+  const user = await requireUser();
+  if (typeof id !== "string") return { ok: false, message: NOT_FOUND };
+  const result = await applyWithCurrentScore(db, user.id, id);
+  if (!result.ok) return { ok: false, message: result.reason === "no_analysis" ? "먼저 점수를 봐 주세요" : NOT_FOUND };
+  refresh(id);
+  return { ok: true };
+}
+
+// 관심·보류·제외로 바꾼다. 지원에서 관심으로 되돌릴 때도 쓴다(지원할 때의 점수는 남겨 둔다)
 export async function setPostingStatusAction(id: string, status: "interest" | "hold" | "excluded"): Promise<SimpleResult> {
   const user = await requireUser();
   if (typeof id !== "string" || !["interest", "hold", "excluded"].includes(status)) return { ok: false, message: NOT_FOUND };

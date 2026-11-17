@@ -5,7 +5,7 @@ import { user } from "@/modules/auth/schema";
 import { createTrack, updateTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { validatePosting } from "./input";
-import type { PostingAnalysis, AppliedScore } from "./analysis";
+import type { PostingAnalysis, AppliedScore, PostingScore } from "./analysis";
 import {
   applyToPosting,
   countPostings,
@@ -18,6 +18,7 @@ import {
   setExcludeOverride,
   setStatus,
   sortByDeadline,
+  sortByScore,
   updatePosting,
 } from "./repo";
 
@@ -128,6 +129,39 @@ test("마감일이 같으면 나중에 넣은 것이 앞에 온다", () => {
     { deadline: "2026-11-20", createdAt: new Date("2026-11-02"), name: "나중" },
   ];
   expect(sortByDeadline(list, today).map((item) => item.name)).toEqual(["나중", "먼저"]);
+});
+
+const score = (desire: number | null, fit: number | null) => ({ desire, fit }) as PostingScore;
+
+test("점수순 정렬: 높은 점수가 앞, 점수가 없는 공고는 뒤", () => {
+  const list = [
+    { id: "a", deadline: "2026-11-20", createdAt: new Date("2026-11-01") },
+    { id: "b", deadline: "2026-11-21", createdAt: new Date("2026-11-01") },
+    { id: "c", deadline: "2026-11-19", createdAt: new Date("2026-11-01") },
+    { id: "d", deadline: "2026-11-18", createdAt: new Date("2026-11-01") },
+  ];
+  const scores = new Map([
+    ["a", score(40, 90)],
+    ["b", score(80, null)],
+    ["c", score(60, 70)],
+  ]);
+  expect(sortByScore(list, "desire", scores, today).map((item) => item.id)).toEqual(["b", "c", "a", "d"]);
+  // 자격 점수가 null인 b와 점수가 없는 d는 뒤에서 마감순
+  expect(sortByScore(list, "fit", scores, today).map((item) => item.id)).toEqual(["a", "c", "d", "b"]);
+});
+
+test("점수순 정렬: 점수가 같으면 마감순", () => {
+  const list = [
+    { id: "late", deadline: "2026-12-01", createdAt: new Date("2026-11-01") },
+    { id: "rolling", deadline: null, createdAt: new Date("2026-11-01") },
+    { id: "soon", deadline: "2026-11-18", createdAt: new Date("2026-11-01") },
+  ];
+  const scores = new Map([
+    ["late", score(70, 50)],
+    ["rolling", score(70, 50)],
+    ["soon", score(70, 50)],
+  ]);
+  expect(sortByScore(list, "fit", scores, today).map((item) => item.id)).toEqual(["soon", "late", "rolling"]);
 });
 
 test("내용을 고치면 그래도 진행 표시가 풀린다", async () => {

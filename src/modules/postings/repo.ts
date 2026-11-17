@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, count, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "@/modules/tracks/repo";
-import type { AppliedScore, PostingAnalysis } from "./analysis";
+import type { AppliedScore, PostingAnalysis, PostingScore } from "./analysis";
 import type { PostingInput } from "./input";
 import { POSTING_LIMITS, type PostingStatus } from "./options";
 import { postings } from "./schema";
@@ -81,6 +81,23 @@ export function sortByDeadline<T extends { deadline: string | null; createdAt: D
       (a.deadline ?? "").localeCompare(b.deadline ?? "") * (group(a) === 2 ? -1 : 1) ||
       b.createdAt.getTime() - a.createdAt.getTime(),
   );
+}
+
+// 점수가 높은 순. 점수가 없는(또는 알 수 없는) 공고는 뒤로, 점수가 같으면 마감순
+export function sortByScore<T extends { id: string; deadline: string | null; createdAt: Date }>(
+  list: T[],
+  key: "desire" | "fit",
+  scores: ReadonlyMap<string, PostingScore>,
+  today: string,
+): T[] {
+  const value = (item: T) => scores.get(item.id)?.[key] ?? null;
+  // sort는 안정 정렬이므로 마감순으로 먼저 늘어놓으면 같은 점수끼리는 마감순이 남는다
+  return sortByDeadline(list, today).sort((a, b) => {
+    const x = value(a);
+    const y = value(b);
+    if (x === null || y === null) return (x === null ? 1 : 0) - (y === null ? 1 : 0);
+    return y - x;
+  });
 }
 
 export async function listPostings(db: Db, userId: string, trackId: string, today: string): Promise<Posting[]> {
