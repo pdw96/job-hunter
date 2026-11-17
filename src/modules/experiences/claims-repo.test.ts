@@ -186,3 +186,30 @@ test("숫자 모름으로 수치 줄을 지우면 예전 판정과 후보도 지
   expect(row.phraseCandidates).toEqual([]);
   expect(row.contentVersion).toBe(1);
 });
+
+test("긴 수치 줄의 한 조각에서 숫자 모름을 누르면 같은 줄의 다른 주장도 정리된다", async () => {
+  const text = `${"가나다라 ".repeat(50)}그래서 매출이 37% 늘었다`;
+  const id = await importOne("u1", { ...imported, result: null, metrics: [{ text, basis: null }] });
+  const later = await byQuote(id, "37%");
+  await db.update(claims).set({ status: "needs_fix" }).where(eq(claims.id, later.id));
+  const first = await byQuote(id, "가나다라");
+  expect(first.id).not.toBe(later.id);
+  expect(await answerClaim(db, "u1", first.id, "unknown")).toEqual({ ok: true, status: "removed" });
+  const after = await listClaims(db, "u1", id);
+  expect(after.find((claim) => claim.id === later.id)?.status).toBe("fixed");
+  expect(after.filter((claim) => claim.status === "pending").map((claim) => claim.kind)).toEqual(["period", "role"]);
+});
+
+test("확인한 뒤 판정 대상이 아닌 칸을 고쳐 주장이 다시 열리면 본인 확인이 풀린다", async () => {
+  const id = await importOne("u1", { ...imported, evidenceNote: "고객 73명 설문 결과" });
+  await insertClaims(db, id, [{ kind: "metric", quote: "고객 73명 설문 결과", phrase: null, origin: "code", status: "needs_fix" }], 10);
+  await updateExperience(db, "u1", id, { ...imported, evidenceNote: null });
+  for (const claim of await listClaims(db, "u1", id)) {
+    if (claim.status === "pending") await answerClaim(db, "u1", claim.id, "confirm");
+  }
+  expect(await confirmExperience(db, "u1", id)).toEqual({ ok: true });
+
+  await updateExperience(db, "u1", id, { ...imported, evidenceNote: "고객 73명 설문 결과" });
+  expect((await getExperience(db, "u1", id))?.state).not.toBe("confirmed");
+  expect(await confirmExperience(db, "u1", id)).toEqual({ ok: false, reason: "claims_pending" });
+});

@@ -175,3 +175,8 @@ test("긴 수치 줄은 조각으로 나눠 뒤쪽 숫자도 묻고, 그 숫자�
   expect(updates).toEqual([{ id: "c1", status: "fixed" }]);
   expect(adds.map((claim) => claim.quote).join()).toContain("12%");
 });
+
+test("소수로 적은 금액이 든 문장은 날짜로 보지 않고 수치 주장으로 잡는다", () => {
+  const input = { ...base, metrics: [], result: "예산 1200.50만원을 집행했다. 2023.03에 시작했다." };
+  expect(quotes(input, "metric")).toEqual(["예산 1200.50만원을 집행했다."]);
+});

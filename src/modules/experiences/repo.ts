@@ -140,7 +140,11 @@ export async function updateExperience(
       })
       .where(mine(userId, id));
     // 가져온 기록은 고친 내용에 맞춰 주장을 다시 맞춘다(고친 구절은 닫고, 새 숫자는 새로 묻는다)
-    if (current.source === "import") await syncClaimsAfterEdit(tx, id, input);
+    if (current.source === "import") {
+      await syncClaimsAfterEdit(tx, id, input);
+      // 고친 뒤 열린 주장이 생겼으면(판정 대상이 아닌 칸을 고쳤더라도) 본인 확인을 푼다
+      if (await hasOpenClaims(tx, id)) await tx.update(experiences).set({ confirmedAt: null }).where(mine(userId, id));
+    }
   });
   return { ok: true };
 }

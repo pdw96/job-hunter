@@ -118,6 +118,7 @@ export async function answerClaim(
     if (answer === "exaggerated" && claim.kind !== "role") return { ok: false as const, reason: "not_allowed" as const };
 
     let status: ClaimStatus = answer === "confirm" ? "confirmed" : "needs_fix";
+    let removedMetric: typeof experience.metrics | null = null;
 
     if (answer === "unknown") {
       // 수치 칸의 줄이면 그 줄을 지운다. 같은 구절이 본문에도 남아 있으면 닫지 않고 고쳐야 할 것으로 둔다
@@ -136,6 +137,7 @@ export async function answerClaim(
             ),
           })
           .where(eq(experiences.id, experience.id));
+        removedMetric = remaining;
         if (!proseContains({ ...experience, metrics: remaining }, claim.quote)) status = "removed";
       }
     }
@@ -148,6 +150,8 @@ export async function answerClaim(
     }
 
     await tx.update(claims).set({ status, updatedAt: new Date() }).where(eq(claims.id, claim.id));
+    // 수치 줄을 지웠으면 그 줄에서 나온 다른 주장도 남은 내용에 맞춘다(본문에 남은 구절은 그대로 둔다)
+    if (removedMetric) await syncClaimsAfterEdit(tx, experience.id, { ...experience, metrics: removedMetric });
     return { ok: true as const, status };
   });
 }
