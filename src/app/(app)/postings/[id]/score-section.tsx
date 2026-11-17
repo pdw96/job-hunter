@@ -134,7 +134,7 @@ export function ScoreSection({
 
       {appliedScore && (
         <p className="text-sm">
-          지원할 때의 점수 {number(appliedScore.desire)} / {number(appliedScore.fit)}{" "}
+          지원할 때의 점수: 원하는 정도 {number(appliedScore.desire)} · 자격이 맞는 정도 {number(appliedScore.fit)}{" "}
           <span className="text-foreground/60">({dateOf(appliedScore.appliedAt)})</span>
         </p>
       )}

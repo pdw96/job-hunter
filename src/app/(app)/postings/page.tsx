@@ -18,7 +18,8 @@ const SORTS = [
 ] as const;
 type Sort = (typeof SORTS)[number]["id"];
 
-const scoreText = (value: number | null) => (value === null ? "알 수 없음" : String(value));
+// 목록은 짧게 보이므로 매길 수 없는 점수는 "–"로 둔다("원하는 알 수 없음"처럼 어색해지지 않게)
+const scoreText = (value: number | null) => (value === null ? "–" : String(value));
 
 export default async function PostingsPage({ searchParams }: { searchParams: Promise<{ track?: string; sort?: string }> }) {
   const user = await requireUser();

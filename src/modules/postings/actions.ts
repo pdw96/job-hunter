@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
-import type { AiImage } from "@/modules/ai/client";
+import type { AiFailure, AiImage } from "@/modules/ai/client";
 import { ai } from "@/modules/ai/provider";
 import { analyzePosting } from "./analyze";
 import { applyWithCurrentScore } from "./apply";
@@ -131,6 +131,15 @@ export async function savePostingAction(
   return { ok: true, id: created.id };
 }
 
+// 점수 보기용. 값 뽑기와 달리 직접 채울 값이 없으므로 다시 시도하라고만 한다
+const SCORE_MESSAGES: Record<"over_limit" | AiFailure, string> = {
+  over_limit: "이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 볼 수 있습니다",
+  refused: "AI가 이 공고를 읽지 못했습니다. 다시 시도해 주세요",
+  truncated: "AI의 답이 중간에 끊겼습니다. 다시 시도해 주세요",
+  invalid: "AI의 답을 읽지 못했습니다. 다시 시도해 주세요",
+  unavailable: "AI 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요",
+};
+
 // 공고의 요구 사항을 뽑고 경험과 맞댄다(AI 호출 1번). 점수는 화면이 그릴 때 계산한다
 export async function analyzePostingAction(id: string): Promise<SimpleResult> {
   const user = await requireUser();
@@ -139,7 +148,7 @@ export async function analyzePostingAction(id: string): Promise<SimpleResult> {
   if (!result.ok) {
     if (result.reason === "not_found") return { ok: false, message: NOT_FOUND };
     if (result.reason === "changed") return { ok: false, message: "점수를 보는 사이 공고가 바뀌었습니다. 다시 눌러 주세요" };
-    return { ok: false, message: AI_MESSAGES[result.reason] ?? AI_MESSAGES.unavailable };
+    return { ok: false, message: SCORE_MESSAGES[result.reason] };
   }
   refresh(id);
   return { ok: true };
