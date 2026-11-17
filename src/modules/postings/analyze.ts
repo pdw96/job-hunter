@@ -74,7 +74,7 @@ function buildMessage(input: AnalyzeInput): string {
   return sections.map(([label, value]) => `[${label}]\n${value}`).join("\n\n");
 }
 
-// why의 숫자가 그 경험의 글과 quote에 있는지. 별명(E1)의 숫자는 보지 않는다
+// why의 숫자가 그 경험의 글과 (원문에서 찾은) quote에 있는지. 별명(E1)의 숫자는 보지 않는다
 function grounded(why: string, c: EvidenceCandidate, quote: string): boolean {
   const known = new Set(
     [c.name, c.organization, c.role, c.startMonth, c.endMonth, c.situation, c.actions, c.result, c.notDone, quote].flatMap(
@@ -117,6 +117,10 @@ export async function analyzeText(
     .filter((raw) => raw.text !== "")
     .slice(0, LIMITS.requirements)
     .map((raw) => {
+      const quoteKey = squash(raw.quote);
+      const quoteFound = quoteKey !== "" && source.includes(quoteKey);
+      // 원문에서 찾지 못한 quote는 AI가 지어낸 것일 수 있으므로 why의 숫자 근거로 쓰지 않는다
+      const quoteForWhy = quoteFound ? raw.quote : "";
       const seen = new Set<string>();
       const evidence: Evidence[] = [];
       for (const item of raw.evidence) {
@@ -124,10 +128,9 @@ export async function analyzeText(
         if (!candidate || seen.has(candidate.id)) continue;
         seen.add(candidate.id);
         const why = item.why.trim().slice(0, LIMITS.why);
-        evidence.push({ experienceId: candidate.id, level: item.level, why: grounded(why, candidate, raw.quote) ? why : "" });
+        evidence.push({ experienceId: candidate.id, level: item.level, why: grounded(why, candidate, quoteForWhy) ? why : "" });
       }
-      const quoteKey = squash(raw.quote);
-      return { kind: raw.kind, text: raw.text, quote: raw.quote, quoteFound: quoteKey !== "" && source.includes(quoteKey), evidence };
+      return { kind: raw.kind, text: raw.text, quote: raw.quote, quoteFound, evidence };
     });
 
   return {

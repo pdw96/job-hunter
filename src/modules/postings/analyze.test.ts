@@ -246,6 +246,29 @@ test("why에 경험에 없는 숫자가 있으면 why를 비운다", async () =>
   ]);
 });
 
+test("원문에서 찾지 못한 quote의 숫자는 why의 근거가 되지 못한다", async () => {
+  const experience = await addExperience(job);
+  const id = await addPosting();
+  const reply = answer({
+    requirements: [
+      {
+        kind: "required",
+        text: "장애 감소 경험",
+        quote: "장애 90% 감소 경험", // 원문에 없는 구절
+        evidence: [{ exp: "E1", level: "full", why: "결제 장애를 90% 줄였다" }],
+      },
+    ],
+  });
+
+  const result = await analyzePosting(db, createFakeAi([reply]), "u1", id, now);
+
+  expect(result.ok && result.value.requirements[0]).toMatchObject({
+    quoteFound: false,
+    evidence: [{ experienceId: experience, level: "full", why: "" }],
+  });
+  expect((await getPosting(db, "u1", id))?.analysis?.requirements[0].evidence[0].why).toBe("");
+});
+
 test("글자 수를 자르고 빈 요구 사항은 버린다", async () => {
   const id = await addPosting();
   const reply = answer({
