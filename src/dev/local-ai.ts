@@ -96,6 +96,33 @@ function importRecords(text: string) {
   };
 }
 
+// 공고 원문에서 값을 뽑는 흉내. 첫 줄을 "회사명 직무명"으로 보고, 눈에 띄는 낱말로 나머지를 채운다
+function posting(text: string) {
+  const source = text.replace(/^오늘 날짜: .*\n\n\[공고 원문\]\n/, "");
+  const [first = ""] = source.split("\n");
+  const [company = "", ...rest] = first.trim().split(/\s+/);
+  const deadline = source.match(/마감[^\d]{0,6}(\d{4})[.-](\d{1,2})[.-](\d{1,2})/);
+  const years = source.match(/경력\s*(\d+)\s*년/);
+  const where = source.match(/근무지\s*[:：]\s*(.+)/);
+  const regions = [
+    ["seoul", "서울"],
+    ["gyeonggi", "경기"],
+    ["busan", "부산"],
+    ["daejeon", "대전"],
+  ].flatMap(([id, label]) => (where?.[1].includes(label) ? [id] : []));
+  return {
+    company,
+    title: rest.join(" ").replace(/\s*(채용|모집).*$/, ""),
+    deadline: deadline ? `${deadline[1]}-${deadline[2].padStart(2, "0")}-${deadline[3].padStart(2, "0")}` : "",
+    isRolling: /상시 채용|채용 시 마감/.test(source),
+    locationText: where?.[1].trim() ?? "",
+    regions,
+    careerType: years ? "experienced" : /신입/.test(source) ? "new" : "any",
+    minYears: years ? Number(years[1]) : -1,
+    employmentType: /정규직/.test(source) ? "regular" : /계약직/.test(source) ? "contract" : /인턴/.test(source) ? "intern" : "unknown",
+  };
+}
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
@@ -107,7 +134,9 @@ export const ai: AiClient = {
           ? interview(request as AiRequest<unknown>)
           : request.purpose === "import"
             ? importRecords(text)
-            : extract(text);
+            : request.purpose === "posting"
+              ? posting(text)
+              : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };
     return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };

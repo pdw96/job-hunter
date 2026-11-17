@@ -18,6 +18,7 @@ import {
 } from "./interview";
 import { approvePhrase, dismissPhrase, judgeExperience } from "./judge";
 import { RUBRIC_ITEMS, type RubricItem, SCOPES, type Scope } from "./options";
+import { runPostingCheck } from "@/modules/postings/prompt-check";
 import { type CheckRow, runPromptCheck } from "./prompt-check";
 import {
   closeRubricItem,
@@ -191,8 +192,9 @@ export async function runPromptCheckAction(): Promise<
   { ok: true; rows: CheckRow[] } | { ok: false; message: string }
 > {
   const admin = await requireAdmin();
-  const rows = await runPromptCheck(db, ai, admin.id);
-  return { ok: true, rows };
+  // 공고에서 값을 뽑는 프롬프트도 함께 점검한다
+  const [rows, postingRows] = await Promise.all([runPromptCheck(db, ai, admin.id), runPostingCheck(db, ai, admin.id)]);
+  return { ok: true, rows: [...rows, ...postingRows] };
 }
 
 const IMPORT_MESSAGES: Record<string, string> = {
