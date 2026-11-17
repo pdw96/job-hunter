@@ -285,9 +285,9 @@ export async function fetchPosting(
   }
   const detail = frameTexts.join("\n").length;
   if (detail >= MIN_TEXT) {
-    // 끼워 넣은 페이지에 글이 충분하면 그것이 본문이다. 바깥 페이지의 글(메뉴, 안내)은 제목 한 줄만 남긴다.
+    // 끼워 넣은 페이지에 글이 충분하면 그것이 본문이다. 바깥 페이지의 글(메뉴, 안내)은 머리 부분(제목이나 정해진 형식의 공고 정보)만 남긴다.
     // 글이 몇 마디뿐인 끼워 넣은 페이지(상담 창 같은 것)는 본문으로 보지 않고 바깥 페이지를 그대로 쓴다
-    text = [content.text.split("\n")[0], ...frameTexts].filter(Boolean).join("\n\n");
+    text = [content.head, ...frameTexts].filter(Boolean).join("\n\n");
     imageUrls = [...frameImages, ...content.images].slice(0, 8);
     if (!options.forceImages) return { ok: true, text, images: [] };
   } else if (frameImages.length > 0) {

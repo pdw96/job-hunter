@@ -291,3 +291,23 @@ test("바깥 페이지에 글이 충분하면, 끼워 넣은 페이지에 그림
   const forced = await fetchPosting("https://jobs.example.com/view?id=4", deps(routes), { forceImages: true });
   expect(forced.ok && [forced.text.includes("백엔드 개발자를 찾습니다"), forced.images.length]).toEqual([true, 1]);
 });
+
+test("끼워 넣은 페이지를 본문으로 쓸 때도 바깥 페이지의 정해진 형식 공고 정보는 남긴다", async () => {
+  const ld = JSON.stringify({
+    "@type": "JobPosting",
+    title: "조립 신입",
+    hiringOrganization: { name: "가나다(주)" },
+    validThrough: "2026-12-05",
+  });
+  const result = await fetchPosting(
+    "https://jobs.example.com/view?id=5",
+    deps({
+      "https://jobs.example.com/view?id=5": () =>
+        response(`<html><head><title>채용</title><script type="application/ld+json">${ld}</script></head><body>${chrome}<iframe src="/detail"></iframe></body></html>`),
+      "https://jobs.example.com/detail": () => response(html(long)),
+    }),
+  );
+  expect(result.ok && result.text.split("\n").slice(0, 3)).toEqual(["회사: 가나다(주)", "직무: 조립 신입", "마감: 2026-12-05"]);
+  expect(result.ok && result.text).toContain("백엔드 개발자를 찾습니다");
+  expect(result.ok && result.text).not.toContain("고객센터");
+});

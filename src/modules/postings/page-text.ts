@@ -4,6 +4,8 @@ export type PageContent = {
   text: string;
   images: string[]; // 본문에 있는 그림의 주소(절대 주소). 공고가 그림으로 올라온 경우에 쓴다
   frames: string[]; // 페이지 안에 끼워 넣은 다른 페이지의 주소. 공고 본문을 이렇게 따로 넣어 두는 사이트가 있다
+  // 본문을 다른 데서 가져올 때도 남길 머리 부분: 정해진 형식의 공고 정보가 있으면 그것, 없으면 페이지 제목
+  head: string;
 };
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", middot: "·", bull: "•" };
@@ -234,5 +236,5 @@ export function contentFromHtml(html: string, baseUrl: string): PageContent {
       ? `${structured}\n\n${page.text}`
       : structured
     : [page.title, page.text].filter(Boolean).join("\n\n");
-  return { text, images: imageUrls(page.images, baseUrl), frames: frameUrls(page.frames, baseUrl) };
+  return { text, images: imageUrls(page.images, baseUrl), frames: frameUrls(page.frames, baseUrl), head: structured ?? page.title };
 }
