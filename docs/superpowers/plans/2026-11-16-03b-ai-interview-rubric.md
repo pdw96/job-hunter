@@ -186,3 +186,4 @@ SDK 코드를 쓰기 전에 설치된 버전의 문서와 타입을 다시 확�
 - 대체 모델(`fallbacks: "default"`)은 `client.beta.messages.parse`에서 함께 쓸 수 있어 켰다
 - 인터뷰의 답을 덧붙일 때, 읽었을 때의 대화 길이와 같을 때만 저장한다(같은 답이 두 번 들어가는 것을 막는다)
 - 앱이 쓰는 AI는 `src/modules/ai/provider.ts`에서 내보낸다. 로컬 미리보기는 이 파일을 `src/dev/local-ai.ts`로 바꿔 끼운다
+- 실제 호출 점검(Task 5 Step 2)은 이 세션에서 하지 못한다. 세션이 Claude API 주소에 사용자 키를 받아 쓰는 것을 막고 있다. 대신 관리 화면에 `AI 프롬프트 점검` 버튼을 만들었다(`src/modules/experiences/prompt-check.ts`). 배포된 앱에서 Vercel의 키로 예시 기록 6개와 예시 대화 2개를 돌려 기대와 실제를 표로 보여 준다. 프롬프트나 모델을 바꿀 때마다 다시 돌린다

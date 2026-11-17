@@ -194,24 +194,21 @@ export async function answerInterview(
 
 export type DraftWarnings = Partial<Record<keyof ExperienceInput, string>>;
 
-// 대화를 기록 초안으로 정리한다. 저장하지 않는다
-export async function draftFromInterview(
+type DraftResult =
+  | { ok: true; draft: ExperienceInput; warnings: DraftWarnings }
+  | { ok: false; reason: "over_limit" | AiFailure };
+
+// 대화(와 보완이면 기존 기록)를 기록 초안으로 바꾸고, 코드로 한 번 더 검사한다
+export async function requestDraft(
   db: Db,
   ai: AiClient,
   userId: string,
-  interviewId: string,
+  messages: InterviewMessage[],
+  experience: Experience | null,
   now: Date = new Date(),
-): Promise<
-  | { ok: true; draft: ExperienceInput; warnings: DraftWarnings; experienceId: string | null }
-  | { ok: false; reason: Common | "empty" }
-> {
-  const interview = await getInterview(db, userId, interviewId);
-  if (!interview) return { ok: false, reason: "not_found" };
-  const answers = interview.messages.filter((message) => message.role === "user").map((message) => message.text);
-  if (answers.length === 0) return { ok: false, reason: "empty" };
-
-  const experience = await loadExperience(db, userId, interview.experienceId);
-  const transcript = interview.messages
+): Promise<DraftResult> {
+  const answers = messages.filter((message) => message.role === "user").map((message) => message.text);
+  const transcript = messages
     .map((message) => `${message.role === "user" ? "지원자" : "질문"}: ${message.text}`)
     .join("\n");
   const request = [
@@ -248,7 +245,27 @@ export async function draftFromInterview(
   for (const [field, numbers] of Object.entries(ungroundedNumbers(checked.value, sources))) {
     warnings[field as keyof ExperienceInput] = `대화에 없던 숫자가 있습니다: ${numbers.join(", ")}`;
   }
-  return { ok: true, draft: checked.value, warnings, experienceId: interview.experienceId };
+  return { ok: true, draft: checked.value, warnings };
+}
+
+// 인터뷰의 대화를 기록 초안으로 정리한다. 저장하지 않는다
+export async function draftFromInterview(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  interviewId: string,
+  now: Date = new Date(),
+): Promise<
+  | { ok: true; draft: ExperienceInput; warnings: DraftWarnings; experienceId: string | null }
+  | { ok: false; reason: Common | "empty" }
+> {
+  const interview = await getInterview(db, userId, interviewId);
+  if (!interview) return { ok: false, reason: "not_found" };
+  if (!interview.messages.some((message) => message.role === "user")) return { ok: false, reason: "empty" };
+
+  const experience = await loadExperience(db, userId, interview.experienceId);
+  const result = await requestDraft(db, ai, userId, interview.messages, experience, now);
+  return result.ok ? { ...result, experienceId: interview.experienceId } : result;
 }
 
 export async function finishInterview(

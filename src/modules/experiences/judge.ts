@@ -15,14 +15,14 @@ const MAX_CANDIDATES = 20;
 const JUDGED_ITEMS = ["role", "level", "metrics", "evidence"] as const satisfies readonly RubricItem[];
 
 const itemSchema = z.object({ status: z.enum(["met", "unmet"]), note: z.string() });
-const judgementSchema = z.object({
+export const judgementSchema = z.object({
   role: itemSchema,
   level: itemSchema,
   metrics: itemSchema,
   evidence: itemSchema,
   phraseCandidates: z.array(z.string()),
 });
-type Judgement = z.infer<typeof judgementSchema>;
+export type Judgement = z.infer<typeof judgementSchema>;
 
 type Failure = "not_found" | "changed" | "over_limit" | AiFailure;
 

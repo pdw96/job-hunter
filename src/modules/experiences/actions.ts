@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { requireUser } from "@/lib/session";
+import { requireAdmin, requireUser } from "@/lib/session";
 import { ai } from "@/modules/ai/provider";
 import { type ExperienceErrors, type ExperienceInput, validateExperience } from "./input";
 import {
@@ -15,6 +15,7 @@ import {
 } from "./interview";
 import { approvePhrase, dismissPhrase, judgeExperience } from "./judge";
 import { RUBRIC_ITEMS, type RubricItem, SCOPES, type Scope } from "./options";
+import { type CheckRow, runPromptCheck } from "./prompt-check";
 import {
   closeRubricItem,
   confirmExperience,
@@ -172,4 +173,13 @@ export async function draftInterviewAction(
   return result.ok
     ? { ok: true, draft: result.draft, warnings: result.warnings }
     : { ok: false, message: aiMessage(result.reason) };
+}
+
+// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 8번, 비용 발생)
+export async function runPromptCheckAction(): Promise<
+  { ok: true; rows: CheckRow[] } | { ok: false; message: string }
+> {
+  const admin = await requireAdmin();
+  const rows = await runPromptCheck(db, ai, admin.id);
+  return { ok: true, rows };
 }

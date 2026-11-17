@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { requireAdmin } from "@/lib/session";
 import { addEmailAction, removeEmailAction } from "@/modules/access/actions";
 import { isAdminEmail, listAllowedEmails } from "@/modules/access/allowlist";
+import { PromptCheck } from "./prompt-check";
 
 const ERRORS: Record<string, string> = {
   invalid: "이메일 형식이 올바르지 않습니다",
@@ -64,6 +65,8 @@ export default async function AdminPage({
           </li>
         ))}
       </ul>
+
+      <PromptCheck />
     </div>
   );
 }
