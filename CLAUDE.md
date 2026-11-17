@@ -32,7 +32,7 @@
 - 로컬 미리보기: `LOCAL_PREVIEW=1 npx next build` 뒤 `LOCAL_PREVIEW=1 npx next start -p 3210`을 백그라운드로 띄운다. DB, 로그인, AI, 페이지 읽기가 `src/dev/local-*.ts`의 가짜로 바뀐다
 - 테스트의 DB는 PGlite에 실제 마이그레이션을 적용한다(`createTestDb()`)
 - 배포: Vercel이 `main`에서 배포하고, 실제 서비스 빌드에서만 마이그레이션을 적용한다. 주소는 https://job-hunter-six-nu.vercel.app
-- 작업 환경에서는 채용 사이트에 접속할 수 없다. 사이트에 맞춘 수정이 필요하면 사용자에게 저장한 페이지 파일을 받는다
+- 작업 환경에서는 채용 사이트에 직접 접속할 수 없다. 사이트 구조 확인은 판단표 ⑤를 따른다
 
 ## 지금 상태 (2026-11-17)
 
