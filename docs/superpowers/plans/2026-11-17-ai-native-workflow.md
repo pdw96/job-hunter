@@ -46,13 +46,13 @@
 **Interfaces:**
 - Produces: 판단 지점 제목 `## ① Codex 재검토`, `## ② 합치기`, `## ③ 계획 승인`, `## ④ 배포 후 확인`, `## ⑤ 실제 사이트 구조`, `## ⑥ 새 세션`, 그리고 `## 판단 기록`, `## 점검`, `## 직접 만든 장치`. Task 2, 3이 이 제목을 가리킨다
 
-- [ ] **Step 1: Nimble로 공개 공고 하나를 읽어 본다 (⑤의 내용을 정한다)**
+- [x] **Step 1: Nimble로 공개 공고 하나를 읽어 본다 (⑤의 내용을 정한다)**
 
 `mcp__Nimble__nimble_search`로 사람인의 공개 공고 주소 하나를 찾고, `mcp__Nimble__nimble_extract`로 그 주소를 읽는다. 사용자 정보는 보내지 않는다.
 판정: 본문(자격 요건, 우대 사항, 마감일)이 글로 나오면 "된다". 메뉴나 로그인 안내만 나오면 "안 된다".
 결과는 이 계획 끝의 "구현하면서 달라진 점"에 한 줄 적는다.
 
-- [ ] **Step 2: 확인 명령을 먼저 만들어 두고 실패하는 것을 본다**
+- [x] **Step 2: 확인 명령을 먼저 만들어 두고 실패하는 것을 본다**
 
 ```bash
 f=docs/decision-rubrics.md
@@ -62,7 +62,7 @@ awk '/^## /{if(t~/^## (①|②|③|④|⑤|⑥)/ && n>20)print t" "n"줄";t=$0;n
 
 Expected: 파일이 없어서 `test`가 실패하고 awk가 "can't open file"을 낸다.
 
-- [ ] **Step 3: `docs/decision-rubrics.md`를 쓴다**
+- [x] **Step 3: `docs/decision-rubrics.md`를 쓴다**
 
 맨 위: 이 문서가 무엇인지 두 줄. "점수는 정답이 아니라 판단을 돕는 표다. 판단표를 느슨하게(덜 묻게) 고치는 것은 사용자 승인을 받는다." `마지막 점검: 2026-11-17 (처음 만듦)`.
 
@@ -83,7 +83,7 @@ Expected: 파일이 없어서 `test`가 실패하고 awk가 "can't open file"을
 - `.claude/hooks/related-test.sh` | 파일을 고친 뒤 옆 테스트의 실패를 바로 모른다. 전체 테스트는 2분이 걸려 매번 돌리지 않는다
 - `.claude/skills/ship/SKILL.md` | 올리는 순서(검사 → PR → 검토 → 합치기 → 확인)를 매번 문서에서 찾아 맞춰야 한다
 
-- [ ] **Step 4: Step 2의 확인 명령을 다시 돌린다**
+- [x] **Step 4: Step 2의 확인 명령을 다시 돌린다**
 
 Expected: 아무것도 출력되지 않는다(제목이 다 있고, 20줄을 넘는 판단 지점이 없다). 그리고 다음이 모두 한 번 이상 나온다:
 
@@ -93,7 +93,7 @@ grep -c "codex-review-state\|drizzle/\|처음 생긴\|한 번만\|이름, 횟수
 
 Expected: 5 이상
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add docs/decision-rubrics.md
@@ -108,7 +108,7 @@ git commit -m "docs: 판단 지점 여섯 개의 판단표"
 **Interfaces:**
 - Consumes: Task 1의 `docs/decision-rubrics.md`와 그 제목들
 
-- [ ] **Step 1: 확인 명령을 돌려 지금 상태를 본다**
+- [x] **Step 1: 확인 명령을 돌려 지금 상태를 본다**
 
 ```bash
 grep -n "새 세션은 이 파일과\|다음 작업 진행해\|decision-rubrics" CLAUDE.md; wc -l < CLAUDE.md
@@ -116,7 +116,7 @@ grep -n "새 세션은 이 파일과\|다음 작업 진행해\|decision-rubrics"
 
 Expected: "새 세션은 이 파일과"와 "다음 작업 진행해"가 나오고 `decision-rubrics`는 없다. 56
 
-- [ ] **Step 2: `CLAUDE.md`를 고친다**
+- [x] **Step 2: `CLAUDE.md`를 고친다**
 
 - 머리: "새 세션은 ... 시작한다"를 바꾼다 → "한 세션으로 이어 간다. 다른 세션이 이어받을 때는 이 파일과 `docs/`만 보고 아래 **지금 상태**의 다음 할 일부터 한다."
 - "일하는 방식":
@@ -126,7 +126,7 @@ Expected: "새 세션은 이 파일과"와 "다음 작업 진행해"가 나오�
 - "지켜야 할 것", "개발 메모"는 그대로 둔다
 - "지금 상태"의 끝 문장을 → "계획 하나가 끝날 때마다 이 "지금 상태"를 고치고, 판단표를 점검한다(`docs/decision-rubrics.md`의 "점검")"
 
-- [ ] **Step 3: 확인 명령을 다시 돌린다**
+- [x] **Step 3: 확인 명령을 다시 돌린다**
 
 ```bash
 grep -c "새 세션은 이 파일과" CLAUDE.md; grep -c "decision-rubrics" CLAUDE.md; grep -c "기타 (짧게 적기)" CLAUDE.md; wc -l < CLAUDE.md
@@ -134,7 +134,7 @@ grep -c "새 세션은 이 파일과" CLAUDE.md; grep -c "decision-rubrics" CLAU
 
 Expected: `0`, `3` 이상, `1`, 56 이하
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add CLAUDE.md
@@ -149,7 +149,7 @@ git commit -m "docs: 작업 안내를 한 세션 원칙과 판단표에 맞춰 �
 **Interfaces:**
 - Consumes: Task 1의 `## ① Codex 재검토`, `## ② 합치기`, `## ④ 배포 후 확인`, `## 판단 기록`
 
-- [ ] **Step 1: 확인 명령을 돌려 지금 상태를 본다**
+- [x] **Step 1: 확인 명령을 돌려 지금 상태를 본다**
 
 ```bash
 grep -n "disable-model-invocation\|사용자에게 묻는다\|decision-rubrics" .claude/skills/ship/SKILL.md; cat CLAUDE.md .claude/skills/ship/SKILL.md | wc -l
@@ -157,7 +157,7 @@ grep -n "disable-model-invocation\|사용자에게 묻는다\|decision-rubrics" 
 
 Expected: `disable-model-invocation: true`와 7번 "사용자에게 묻는다"가 나온다. `decision-rubrics`는 없다
 
-- [ ] **Step 2: `SKILL.md`를 고친다**
+- [x] **Step 2: `SKILL.md`를 고친다**
 
 - 앞부분: `disable-model-invocation: true`를 지운다. 구현이 끝나면 AI가 스스로 부르게 한다. description을 "구현이 끝난 작업을 검사하고, PR을 올리고, 검토를 처리하고, 판단표에 따라 합치고 배포를 확인한다"로 바꾼다
 - 1~4번(검사, 계획 문서, 커밋, PR)은 그대로 둔다. 4번에 "본문 끝에 `판단 기록`을 둔다(판단표의 "판단 기록")"를 더한다
@@ -166,7 +166,7 @@ Expected: `disable-model-invocation: true`와 7번 "사용자에게 묻는다"�
 - 8번(합친 뒤): "판단표 ④를 따른다"로 줄이고, "작업 브랜치를 `origin/main`에서 다시 시작한다"는 남긴다
 - 맨 위의 "사용자가 합치라고 하기 전에는 합치지 않는다" 문장을 → "합치기는 판단표 ②를 따른다(`main`에 합치면 실제 서비스에 배포된다)"
 
-- [ ] **Step 3: 확인 명령을 다시 돌린다**
+- [x] **Step 3: 확인 명령을 다시 돌린다**
 
 ```bash
 grep -c "disable-model-invocation" .claude/skills/ship/SKILL.md; grep -c "판단표" .claude/skills/ship/SKILL.md; cat CLAUDE.md .claude/skills/ship/SKILL.md | wc -l
@@ -174,7 +174,7 @@ grep -c "disable-model-invocation" .claude/skills/ship/SKILL.md; grep -c "판단
 
 Expected: `0`, `3` 이상, 78 미만
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 
 ```bash
 git add .claude/skills/ship/SKILL.md
@@ -186,12 +186,12 @@ git commit -m "docs: 올리기 순서가 판단표로 재검토·합치기·배�
 **Files:**
 - Modify: `docs/superpowers/plans/2026-11-17-ai-native-workflow.md` (끝에 "구현하면서 달라진 점")
 
-- [ ] **Step 1: PR #15를 닫는다**
+- [x] **Step 1: PR #15를 닫는다**
 
 `mcp__github__add_issue_comment`로 "이 PR은 절차를 더 적어 넣는 쪽이라, `docs/superpowers/specs/2026-11-17-ai-native-workflow-design.md`의 방향(덜어내고 판단표로 정한다)과 반대여서 닫습니다. 대신 [PR #16 주소]에서 다룹니다." 끝에 Claude Code 꼬리말을 붙인다. 그다음 `mcp__github__update_pull_request`로 `state: closed`.
 확인: `mcp__github__pull_request_read`(get)에서 `state`가 `closed`
 
-- [ ] **Step 2: 전체 확인을 돌린다**
+- [x] **Step 2: 전체 확인을 돌린다**
 
 ```bash
 git diff --stat origin/main -- src drizzle .claude/settings.json .claude/hooks | tail -1; cat CLAUDE.md .claude/skills/ship/SKILL.md | wc -l
@@ -199,7 +199,7 @@ git diff --stat origin/main -- src drizzle .claude/settings.json .claude/hooks |
 
 Expected: 첫 줄이 비어 있다(제품 코드, 설정, 훅을 바꾸지 않았다). 둘째 줄은 78 미만
 
-- [ ] **Step 3: 계획 문서 끝에 "구현하면서 달라진 점"을 적고 커밋한다**
+- [x] **Step 3: 계획 문서 끝에 "구현하면서 달라진 점"을 적고 커밋한다**
 
 Nimble 결과(Task 1 Step 1), 계획과 달라진 점. 그리고 `/ship`으로 올린다. 이 PR은 판단표를 바꾸므로 반드시 묻기에 해당하고, 사용자가 합친다.
 
@@ -207,3 +207,9 @@ Nimble 결과(Task 1 Step 1), 계획과 달라진 점. 그리고 `/ship`으로 �
 git add docs/superpowers/plans/2026-11-17-ai-native-workflow.md
 git commit -m "docs: AI가 더 맡는 개발 방식 계획의 구현 기록"
 ```
+
+## 구현하면서 달라진 점
+
+- (Task 1) Nimble 시험: 사람인 공고 하나(`rec_idx=54650098`)를 읽었다. 기본 설정(`vx6`, 글자)으로는 공고 주소에서 메뉴와 로그인 안내만 나왔다(본문이 끼워 넣은 페이지에 있다). 상세요강 주소(`relay/view-detail`)를 `driver: "vx8"`, `output_format: "simplified_html"`로 읽으니 본문 구조가 보였다. 이 공고는 본문이 그림 한 장이었다. 그래서 판정 기준을 "본문이 글로 나오면"에서 "본문 구조가 보이면"으로 바꿨고(⑤의 목적이 구조 확인이라서), ⑤에 이 설정을 적었다
+- (Task 3) 계획은 `/ship`의 5~7번을 하나로 합치라 했으나, 지적 처리 절차(사실 확인, 테스트 먼저, 스레드 답)가 사라져서 5번(검토)과 6번(합치기)으로 나눴다. 작업 환경이 PR을 초안으로 만들기 때문에, 4번에 "초안이면 풀어서 Codex 검토를 시작한다"를 더했다
+- 줄 수: `CLAUDE.md` 55줄 + `/ship` 18줄 = 73줄(전 78줄). 판단표 문서는 판단 지점마다 4~19줄
