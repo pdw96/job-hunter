@@ -41,6 +41,13 @@ export function ClaimsPanel({ experienceId, claims }: { experienceId: string; cl
   const toFix = claims.filter((claim) => claim.status === "needs_fix");
   const closed = claims.length - pendingClaims.length - toFix.length;
   const current = pendingClaims[0];
+  // 숫자와 과장 낱말이 함께 든 문장은 한 번에 묻고, 과장임도 고를 수 있게 한다
+  const mixed = current?.kind === "metric" && current.phrase !== null;
+  const answers = !current
+    ? []
+    : mixed
+      ? [...ANSWERS.metric.slice(0, 2), { answer: "exaggerated" as const, label: "과장임" }, ...ANSWERS.metric.slice(2)]
+      : ANSWERS[current.kind];
 
   if (claims.length === 0 || (pendingClaims.length === 0 && toFix.length === 0)) return null;
 
@@ -65,10 +72,11 @@ export function ClaimsPanel({ experienceId, claims }: { experienceId: string; cl
         <div className="space-y-3 rounded-lg bg-foreground/5 p-4">
           <p className="text-xs text-foreground/60">
             {KIND_LABELS[current.kind]} · {KIND_QUESTIONS[current.kind]}
+            {mixed && ` “${current.phrase}”처럼 역할이 크게 적혀 있지는 않나요?`}
           </p>
           <p className="text-lg">“{current.quote}”</p>
           <div className="flex flex-wrap gap-2">
-            {ANSWERS[current.kind].map(({ answer, label }) => (
+            {answers.map(({ answer, label }) => (
               <button
                 key={answer}
                 type="button"

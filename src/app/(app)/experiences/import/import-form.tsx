@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 import { deleteExperienceAction, importAction, type ImportActionResult } from "@/modules/experiences/actions";
+import { groupPages, type PageGroup } from "@/modules/experiences/notion-export";
+import { readZip } from "./read-zip";
+import { ZipImport } from "./zip-import";
 
 type Created = Extract<ImportActionResult, { ok: true }>;
 
@@ -15,6 +18,26 @@ export function ImportForm() {
   const [result, setResult] = useState<Created | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [groups, setGroups] = useState<PageGroup[] | null>(null);
+  const [opening, setOpening] = useState(false);
+
+  // zip(노션 내보내기)은 서버로 보내지 않고 여기서 풀어 묶음 목록을 보여 준다
+  async function pick(file: File | undefined) {
+    setMessage(null);
+    if (!file || !/\.zip$/i.test(file.name)) {
+      setFileName(file?.name ?? null);
+      return;
+    }
+    if (fileRef.current) fileRef.current.value = "";
+    setFileName(null);
+    setOpening(true);
+    const zip = await readZip(file);
+    setOpening(false);
+    if (!zip.ok) return setMessage(zip.message);
+    const found = groupPages(zip.files);
+    if (found.length === 0) return setMessage("가져올 페이지를 찾지 못했습니다");
+    setGroups(found);
+  }
 
   function submit() {
     setMessage(null);
@@ -38,6 +61,8 @@ export function ImportForm() {
       router.refresh();
     });
   }
+
+  if (groups) return <ZipImport groups={groups} onBack={() => setGroups(null)} />;
 
   if (result) {
     return (
@@ -108,7 +133,8 @@ export function ImportForm() {
         <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/70">
           <li>연락처(전화번호, 이메일, 주소)는 지우고 올리는 것이 안전합니다</li>
           <li>원본 파일은 저장하지 않습니다</li>
-          <li>노션: 페이지를 복사해 붙여 넣거나, “내보내기 → Markdown &amp; CSV”로 받은 파일을 올려 주세요</li>
+          <li>노션: “내보내기 → Markdown &amp; CSV”로 받은 zip을 그대로 올리면 경험별 묶음으로 나눠 가져옵니다</li>
+          <li>zip은 이 브라우저 안에서만 풀고, 고른 묶음의 글만 보냅니다</li>
         </ul>
       </div>
 
@@ -128,12 +154,14 @@ export function ImportForm() {
         <div className="space-y-1">
           <label className="block space-y-1">
             <span className="text-sm font-medium">또는 파일 올리기</span>
-            <span className="block text-xs text-foreground/60">PDF, 워드(.docx), 글 파일(.md, .txt, .csv) · 4MB까지</span>
+            <span className="block text-xs text-foreground/60">
+              PDF, 워드(.docx), 글 파일(.md, .txt, .csv) · 4MB까지 / 노션 내보내기(.zip) · 20MB까지
+            </span>
             <input
               ref={fileRef}
               type="file"
-              accept=".pdf,.docx,.md,.txt,.csv"
-              onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
+              accept=".pdf,.docx,.md,.txt,.csv,.zip"
+              onChange={(e) => void pick(e.target.files?.[0])}
               className="block w-full text-sm"
             />
           </label>
@@ -152,6 +180,7 @@ export function ImportForm() {
         </div>
       </fieldset>
 
+      {opening && <p className="text-sm text-foreground/70">zip을 여는 중…</p>}
       {message && (
         <p role="alert" className="text-sm text-red-600">
           {message}

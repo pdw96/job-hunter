@@ -64,14 +64,16 @@ function extract(text: string) {
 
 // 빈 줄로 나뉜 덩어리를 기록 하나로 본다
 function importRecords(text: string) {
-  const blocks = text.replace("[가져올 글]\n", "").split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
+  const source = text.replace("[가져올 글]\n", "");
+  // "# 제목"으로 시작하는 글(노션 묶음)은 통째로 기록 하나로 본다
+  const blocks = /^# /.test(source) ? [source] : source.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
   return {
     records: blocks.slice(0, 12).map((block) => {
       const [title, ...rest] = block.split("\n");
       const period = block.match(/(\d{4})[.-](\d{1,2})\s*~\s*(\d{4})[.-](\d{1,2})/);
-      const body = rest.join("\n").trim();
+      const body = rest.join("\n").replace(/^## \[하위 페이지\].*$/gm, "").replace(/\n{2,}/g, "\n").trim().slice(0, 600);
       return {
-        name: title.replace(/\(.*\)/, "").trim().slice(0, 60),
+        name: title.replace(/^# /, "").replace(/\(.*\)/, "").trim().slice(0, 60),
         kind: /대학교|고등학교/.test(title) ? "school" : "project",
         organization: "",
         role: "",
@@ -86,6 +88,8 @@ function importRecords(text: string) {
         evidenceNote: "",
         tags: [],
         roleClaims: body.includes("핵심 역할") ? ["핵심 역할을 수행했다"] : [],
+        // "🚫 "표현"" 줄을 금지 표현으로 본다
+        bannedPhrases: [...block.matchAll(/🚫\s*"([^"]+)"/g)].map((match) => match[1]),
       };
     }),
     more: blocks.length > 12,

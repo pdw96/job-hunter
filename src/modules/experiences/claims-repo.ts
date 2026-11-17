@@ -116,7 +116,10 @@ export async function answerClaim(
     // 답할 수 있는 것은 열린 주장뿐이고, 종류에 맞는 답만 받는다
     if (claim.status !== "pending" && claim.status !== "needs_fix") return { ok: false as const, reason: "not_allowed" as const };
     if (answer === "unknown" && claim.kind !== "metric") return { ok: false as const, reason: "not_allowed" as const };
-    if (answer === "exaggerated" && claim.kind !== "role") return { ok: false as const, reason: "not_allowed" as const };
+    // 과장임은 역할 주장과, 과장 낱말이 함께 든 수치 주장에 답할 수 있다
+    if (answer === "exaggerated" && claim.kind !== "role" && !claim.phrase) {
+      return { ok: false as const, reason: "not_allowed" as const };
+    }
     // 금지 표현이 가득 차 새 표현을 넣을 수 없으면, 넣은 척하지 않고 알린다
     if (
       answer === "exaggerated" &&
