@@ -6,7 +6,7 @@ import { EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion
 import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } from "@/modules/postings/options";
 import { listEvidenceCandidates } from "@/modules/experiences/evidence";
 import { getPosting } from "@/modules/postings/repo";
-import { scorePosting } from "@/modules/postings/score";
+import { scorePosting, usableOf } from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
 import { REGIONS } from "@/modules/tracks/options";
 import { getTrack } from "@/modules/tracks/repo";
@@ -29,10 +29,10 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
     listEvidenceCandidates(db, user.id, posting.trackId),
   ]);
   const reasons = track ? exclusionReasons(posting, track, today) : [];
-  // 점수는 그릴 때마다 지금의 경험 후보로 계산한다(지웠거나 확인을 푼 경험은 바로 빠진다)
+  // 점수는 그릴 때마다 지금의 경험 후보로 계산한다(지웠거나 확인을 풀었거나 맞댄 뒤 고친 경험은 바로 빠진다)
   const score =
     track && posting.analysis
-      ? scorePosting({ posting, track, analysis: posting.analysis, usable: new Set(candidates.map((c) => c.id)) })
+      ? scorePosting({ posting, track, analysis: posting.analysis, usable: usableOf(candidates) })
       : null;
 
   const facts: [string, string][] = [
@@ -84,7 +84,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         score={score}
         // 관심으로 되돌리면 지원할 때의 점수는 남겨 두되 보여 주지 않는다
         appliedScore={posting.status === "apply" ? posting.appliedScore : null}
-        candidates={candidates.map((c) => ({ id: c.id, name: c.name }))}
+        candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion }))}
       />
 
       <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">

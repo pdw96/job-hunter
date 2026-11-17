@@ -4,7 +4,8 @@ import type { Criterion } from "@/modules/tracks/options";
 
 export type RequirementKind = "required" | "preferred";
 export type MatchLevel = "full" | "partial";
-export type Evidence = { experienceId: string; level: MatchLevel; why: string };
+// contentVersion은 맞댈 때의 경험 내용 버전. 그 뒤 경험을 고쳤으면 이 근거는 세지 않는다
+export type Evidence = { experienceId: string; contentVersion: number; level: MatchLevel; why: string };
 export type Requirement = {
   kind: RequirementKind;
   text: string;

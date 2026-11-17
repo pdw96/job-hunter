@@ -3,7 +3,7 @@ import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
 import type { ExperienceInput } from "@/modules/experiences/input";
-import { confirmExperience, createExperience, unconfirmExperience } from "@/modules/experiences/repo";
+import { confirmExperience, createExperience, unconfirmExperience, updateExperience } from "@/modules/experiences/repo";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import type { PostingAnalysis } from "./analysis";
@@ -69,7 +69,7 @@ async function addPosting(userId = "u1") {
   return result.id;
 }
 
-const analysis = (experienceId: string): PostingAnalysis => ({
+const analysis = (experienceId: string, contentVersion = 0): PostingAnalysis => ({
   field: { level: "same_job", reason: "같은 직무" },
   requirements: [
     {
@@ -77,7 +77,7 @@ const analysis = (experienceId: string): PostingAnalysis => ({
       text: "Java 실무 경력 3년 이상",
       quote: "Java 실무 경력 3년 이상",
       quoteFound: true,
-      evidence: [{ experienceId, level: "partial", why: "Java 결제 API 설계" }],
+      evidence: [{ experienceId, contentVersion, level: "partial", why: "Java 결제 API 설계" }],
     },
     { kind: "preferred", text: "대용량 트래픽 경험", quote: "대용량 트래픽 경험", quoteFound: true, evidence: [] },
   ],
@@ -138,6 +138,21 @@ test("근거 경험이 확인되어 있으면 그 근거가 점수에 들어간�
   await applyWithCurrentScore(db, "u1", id, now);
   // 직무 일치 0.5 → (0.5·30 + 0.7·20) / 60 = 48
   expect((await getPosting(db, "u1", id))?.appliedScore).toMatchObject({ fit: 48, criteria: { jobMatch: { score: 0.5 } } });
+});
+
+test("맞댄 뒤 근거 경험의 내용을 고쳐 다시 확인했으면 그 근거는 점수에 들어가지 않는다", async () => {
+  const experienceId = await createExperience(db, "u1", job);
+  await confirmExperience(db, "u1", experienceId);
+  const id = await addPosting();
+  await saveAnalysis(db, "u1", id, analysis(experienceId), { rawText, companyNote: null });
+
+  // Java를 빼고 고친 뒤 다시 확인한다(내용 버전이 오른다)
+  await updateExperience(db, "u1", experienceId, { ...job, actions: "Python으로 정산 배치를 만들었다" });
+  await confirmExperience(db, "u1", experienceId);
+  expect(await applyWithCurrentScore(db, "u1", id, now)).toEqual({ ok: true });
+
+  // 직무 일치 0 → (0.7·20) / 60 = 23
+  expect((await getPosting(db, "u1", id))?.appliedScore).toMatchObject({ fit: 23, criteria: { jobMatch: { score: 0 } } });
 });
 
 test("이미 지원한 공고는 다시 지원해도 지원할 때의 점수와 날짜가 바뀌지 않는다", async () => {

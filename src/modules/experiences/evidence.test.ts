@@ -115,5 +115,5 @@ test("수치와 증빙 메모 칸이 없다", async () => {
   const [c] = await listEvidenceCandidates(db, "u1", t1);
   expect(Object.keys(c)).not.toContain("metrics");
   expect(Object.keys(c)).not.toContain("evidenceNote");
-  expect(c).toMatchObject({ name: job.name, situation: job.situation, notDone: job.notDone });
+  expect(c).toMatchObject({ name: job.name, situation: job.situation, notDone: job.notDone, contentVersion: 0 });
 });

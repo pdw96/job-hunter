@@ -5,7 +5,7 @@ import { createFakeAi } from "@/modules/ai/fake-client";
 import { aiUsage } from "@/modules/ai/schema";
 import { user } from "@/modules/auth/schema";
 import type { ExperienceInput } from "@/modules/experiences/input";
-import { confirmExperience, createExperience, setTrackScope } from "@/modules/experiences/repo";
+import { confirmExperience, createExperience, setTrackScope, updateExperience } from "@/modules/experiences/repo";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { analyzePosting, analyzeText } from "./analyze";
@@ -188,10 +188,27 @@ test("없는 별명(E9)을 가리킨 근거는 버리고, 별명을 실제 id로
   expect(result.ok).toBe(true);
   const evidence = result.ok ? result.value.requirements[0].evidence : [];
   expect(evidence).toEqual([
-    { experienceId: second, level: "partial", why: "교육에서 Java를 배웠다" },
-    { experienceId: first, level: "full", why: "결제 API를 Java로 설계했다" },
+    { experienceId: second, contentVersion: 0, level: "partial", why: "교육에서 Java를 배웠다" },
+    { experienceId: first, contentVersion: 0, level: "full", why: "결제 API를 Java로 설계했다" },
   ]);
   expect((await getPosting(db, "u1", id))?.analysis?.requirements[0].evidence).toEqual(evidence);
+});
+
+test("근거에 맞댈 때의 경험 내용 버전을 남기고, 그 버전은 AI에 보내지 않는다", async () => {
+  const experience = await addExperience(job);
+  // 내용을 두 번 고쳐 버전을 2로 올리고 다시 확인한다
+  await updateExperience(db, "u1", experience, { ...job, result: "장애가 크게 줄었다" });
+  await updateExperience(db, "u1", experience, { ...job, result: "장애가 많이 줄었다" });
+  await confirmExperience(db, "u1", experience);
+  const id = await addPosting();
+  const ai = createFakeAi([answer()]);
+
+  const result = await analyzePosting(db, ai, "u1", id, now);
+
+  expect(result.ok && result.value.requirements[0].evidence).toEqual([
+    { experienceId: experience, contentVersion: 2, level: "partial", why: "공고의 Java 실무와 경험의 Java 결제 API 설계가 겹친다" },
+  ]);
+  expect(ai.requests[0].messages[0].text).not.toMatch(/버전|version/i);
 });
 
 test("원문에 없는 quote는 quoteFound false", async () => {
@@ -241,8 +258,8 @@ test("why에 경험에 없는 숫자가 있으면 why를 비운다", async () =>
   const result = await analyzePosting(db, createFakeAi([reply]), "u1", id, now);
 
   expect(result.ok && result.value.requirements.map((r) => r.evidence)).toEqual([
-    [{ experienceId: experience, level: "partial", why: "" }],
-    [{ experienceId: experience, level: "partial", why: "2023년에 Java로 결제 API를 설계했고, 공고는 Java 실무 3년 이상을 적었다" }],
+    [{ experienceId: experience, contentVersion: 0, level: "partial", why: "" }],
+    [{ experienceId: experience, contentVersion: 0, level: "partial", why: "2023년에 Java로 결제 API를 설계했고, 공고는 Java 실무 3년 이상을 적었다" }],
   ]);
 });
 
@@ -264,7 +281,7 @@ test("원문에서 찾지 못한 quote의 숫자는 why의 근거가 되지 못�
 
   expect(result.ok && result.value.requirements[0]).toMatchObject({
     quoteFound: false,
-    evidence: [{ experienceId: experience, level: "full", why: "" }],
+    evidence: [{ experienceId: experience, contentVersion: 0, level: "full", why: "" }],
   });
   expect((await getPosting(db, "u1", id))?.analysis?.requirements[0].evidence[0].why).toBe("");
 });

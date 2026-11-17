@@ -7,7 +7,8 @@ import { experiences, trackScopes } from "./schema";
 import { verificationState } from "./verification";
 
 // 공고의 요구 사항에 근거로 댈 수 있는 경험 후보. 확인됨·부분 확인만, 그 트랙에서 제외하지 않은 것만.
-// 수치와 증빙 메모는 AI에 보내지 않으므로 이 모양에 없다
+// 수치와 증빙 메모는 AI에 보내지 않으므로 이 모양에 없다. contentVersion은 근거가 어느 내용으로 짚혔는지
+// 남기려고 두며 AI에 보내지 않는다
 
 export type EvidenceCandidate = Pick<
   Experience,
@@ -23,6 +24,7 @@ export type EvidenceCandidate = Pick<
   | "actions"
   | "result"
   | "notDone"
+  | "contentVersion"
 > & { state: "confirmed" | "partial" };
 
 export async function listEvidenceCandidates(db: Db, userId: string, trackId: string): Promise<EvidenceCandidate[]> {
@@ -52,6 +54,7 @@ export async function listEvidenceCandidates(db: Db, userId: string, trackId: st
       actions: row.actions,
       result: row.result,
       notDone: row.notDone,
+      contentVersion: row.contentVersion,
       state,
     });
   }

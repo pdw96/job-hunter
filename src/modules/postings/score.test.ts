@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { Criterion } from "@/modules/tracks/options";
 import type { PostingAnalysis, Requirement } from "./analysis";
-import { requirementLevel, type ScoreInput, scorePosting } from "./score";
+import { hasStaleEvidence, requirementLevel, type ScoreInput, scorePosting } from "./score";
 
 const weights: Record<Criterion, number> = { jobMatch: 30, location: 25, experience: 20, field: 15, preferred: 10 };
 
@@ -21,7 +21,7 @@ function input(over: Partial<ScoreInput> = {}): ScoreInput {
     posting: { regions: ["seoul"], careerType: "both", minYears: null },
     track: { regions: ["seoul", "gyeonggi"], applicantType: "experienced", experienceMonths: 36, weights },
     analysis: analysis(),
-    usable: new Set<string>(),
+    usable: new Map<string, number>(),
     ...over,
   };
 }
@@ -102,21 +102,35 @@ test("경력 요건: 경력 개월을 모르면 0개월로 본다", () => {
 
 describe("requirementLevel", () => {
   const evidence = [
-    { experienceId: "a", level: "partial" as const, why: "" },
-    { experienceId: "b", level: "full" as const, why: "" },
+    { experienceId: "a", contentVersion: 0, level: "partial" as const, why: "" },
+    { experienceId: "b", contentVersion: 2, level: "full" as const, why: "" },
   ];
   test("근거 경험이 usable에 없으면 none으로 본다", () => {
-    expect(requirementLevel(requirement({ evidence }), new Set())).toBe("none");
-    expect(requirementLevel(requirement({ evidence }), new Set(["zzz"]))).toBe("none");
+    expect(requirementLevel(requirement({ evidence }), new Map())).toBe("none");
+    expect(requirementLevel(requirement({ evidence }), new Map([["zzz", 0]]))).toBe("none");
   });
   test("usable인 것 중 가장 높은 level을 쓴다", () => {
-    expect(requirementLevel(requirement({ evidence }), new Set(["a", "b"]))).toBe("full");
-    expect(requirementLevel(requirement({ evidence }), new Set(["a"]))).toBe("partial");
+    expect(requirementLevel(requirement({ evidence }), new Map([["a", 0], ["b", 2]]))).toBe("full");
+    expect(requirementLevel(requirement({ evidence }), new Map([["a", 0]]))).toBe("partial");
+  });
+  test("근거 경험의 내용 버전이 다르면 none", () => {
+    // 맞댄 뒤 경험을 고쳐(버전이 오름) 다시 확인했다면 예전 내용으로 짚은 근거는 세지 않는다
+    expect(requirementLevel(requirement({ evidence }), new Map([["a", 1], ["b", 3]]))).toBe("none");
+    expect(requirementLevel(requirement({ evidence }), new Map([["a", 0], ["b", 3]]))).toBe("partial");
   });
 });
 
+test("hasStaleEvidence: 쓸 수 있는 경험인데 버전이 다른 근거가 있을 때만 true", () => {
+  const evidence = [{ experienceId: "a", contentVersion: 0, level: "full" as const, why: "" }];
+  const withEvidence = analysis({ requirements: [requirement({ evidence })] });
+  expect(hasStaleEvidence(withEvidence, new Map([["a", 1]]))).toBe(true);
+  expect(hasStaleEvidence(withEvidence, new Map([["a", 0]]))).toBe(false);
+  // 지웠거나 확인을 푼 경험은 고친 것이 아니라 빠진 것이다
+  expect(hasStaleEvidence(withEvidence, new Map())).toBe(false);
+});
+
 test("직무 일치는 필수 요구 사항을 덮은 비율이고, 원문에서 찾지 못한 것은 뺀다", () => {
-  const full = [{ experienceId: "a", level: "full" as const, why: "" }];
+  const full = [{ experienceId: "a", contentVersion: 0, level: "full" as const, why: "" }];
   const result = scorePosting(
     input({
       analysis: analysis({
@@ -126,21 +140,21 @@ test("직무 일치는 필수 요구 사항을 덮은 비율이고, 원문에서
           requirement({ evidence: full, quoteFound: false }),
         ],
       }),
-      usable: new Set(["a"]),
+      usable: new Map([["a", 0]]),
     }),
   );
   expect(result.criteria.jobMatch.score).toBe(0.5);
 });
 
 test("확인된 경험이 없으면 직무 일치·우대가 0으로 들어간다", () => {
-  const full = [{ experienceId: "a", level: "full" as const, why: "" }];
+  const full = [{ experienceId: "a", contentVersion: 0, level: "full" as const, why: "" }];
   const result = scorePosting(
     input({
       posting: { regions: ["seoul"], careerType: "experienced", minYears: null },
       analysis: analysis({
         requirements: [requirement({ evidence: full }), requirement({ kind: "preferred", evidence: full })],
       }),
-      usable: new Set(),
+      usable: new Map(),
     }),
   );
   expect(result.criteria.jobMatch.score).toBe(0);

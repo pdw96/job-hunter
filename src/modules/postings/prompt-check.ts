@@ -77,7 +77,7 @@ export const CHROME_ONLY = {
 };
 
 // 요구 사항 맞대기 예시. FULL_POSTING의 요구 사항에 ①은 맞고 ②는 어느 것과도 맞지 않는다
-const SAMPLE_EXPERIENCE_BASE = { organization: null, role: null, endMonth: null, isOngoing: false, notDone: null, state: "confirmed" } as const;
+const SAMPLE_EXPERIENCE_BASE = { organization: null, role: null, endMonth: null, isOngoing: false, notDone: null, contentVersion: 0, state: "confirmed" } as const;
 export const MATCH_CANDIDATES: EvidenceCandidate[] = [
   {
     ...SAMPLE_EXPERIENCE_BASE,

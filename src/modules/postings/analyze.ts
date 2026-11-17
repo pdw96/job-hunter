@@ -129,7 +129,12 @@ export async function analyzeText(
         if (!candidate || seen.has(candidate.id)) continue;
         seen.add(candidate.id);
         const why = item.why.trim().slice(0, LIMITS.why);
-        evidence.push({ experienceId: candidate.id, level: item.level, why: grounded(why, candidate, quoteForWhy) ? why : "" });
+        evidence.push({
+          experienceId: candidate.id,
+          contentVersion: candidate.contentVersion,
+          level: item.level,
+          why: grounded(why, candidate, quoteForWhy) ? why : "",
+        });
       }
       return { kind: raw.kind, text: raw.text, quote: raw.quote, quoteFound, evidence };
     });

@@ -1,6 +1,14 @@
 import Link from "next/link";
 import type { AppliedScore, PostingAnalysis, PostingScore, Requirement } from "@/modules/postings/analysis";
-import { DESIRE_CRITERIA, FIT_CRITERIA, requirementLevel } from "@/modules/postings/score";
+import {
+  DESIRE_CRITERIA,
+  evidenceUsable,
+  FIT_CRITERIA,
+  hasStaleEvidence,
+  requirementLevel,
+  type Usable,
+  usableOf,
+} from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
 import { type Criterion, CRITERION_LABELS } from "@/modules/tracks/options";
 import { StartInterview } from "../../experiences/start-interview";
@@ -65,12 +73,12 @@ function RequirementItem({
   names,
 }: {
   requirement: Requirement;
-  usable: ReadonlySet<string>;
+  usable: Usable;
   names: ReadonlyMap<string, string>;
 }) {
   const level = requirementLevel(requirement, usable);
-  // 지금 쓸 수 없는 경험(지웠거나 확인을 풀었거나 트랙에서 뺀 것)은 근거로 보여 주지 않는다
-  const evidence = requirement.evidence.filter((e) => usable.has(e.experienceId) && names.has(e.experienceId));
+  // 지금 쓸 수 없는 경험(지웠거나 확인을 풀었거나 트랙에서 뺀 것)과 맞댄 뒤 고친 경험은 근거로 보여 주지 않는다
+  const evidence = requirement.evidence.filter((e) => evidenceUsable(e, usable) && names.has(e.experienceId));
   return (
     <li className="space-y-1 py-3">
       <div className="flex items-start gap-2">
@@ -117,9 +125,9 @@ export function ScoreSection({
   analysis: PostingAnalysis | null;
   score: PostingScore | null;
   appliedScore: AppliedScore | null;
-  candidates: { id: string; name: string }[];
+  candidates: { id: string; name: string; contentVersion: number }[];
 }) {
-  const usable = new Set(candidates.map((c) => c.id));
+  const usable = usableOf(candidates);
   const names = new Map(candidates.map((c) => [c.id, c.name]));
   const requirements = analysis?.requirements ?? [];
   const groups = [
@@ -166,6 +174,9 @@ export function ScoreSection({
             <span>{dateOf(analysis.analyzedAt)}에 봄</span>
             <AnalyzeButton id={id} again />
           </div>
+          {hasStaleEvidence(analysis, usable) && (
+            <p className="text-sm text-foreground/70">경험 기록이 바뀌어 일부 근거를 뺐습니다. 다시 보기로 새로 맞대 보세요</p>
+          )}
 
           <div className="space-y-2">
             <h3 className="font-semibold">요구 사항</h3>

@@ -6,7 +6,7 @@ import { listEvidenceCandidates } from "@/modules/experiences/evidence";
 import type { PostingScore } from "@/modules/postings/analysis";
 import { POSTING_STATUS_LABELS } from "@/modules/postings/options";
 import { countPostings, listPostings, sortByScore } from "@/modules/postings/repo";
-import { scorePosting } from "@/modules/postings/score";
+import { scorePosting, usableOf } from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
 import { getTrack, listTracks } from "@/modules/tracks/repo";
 import { deadlineLabel } from "./deadline";
@@ -46,7 +46,7 @@ export default async function PostingsPage({ searchParams }: { searchParams: Pro
     listPostings(db, user.id, current.id, today),
     listEvidenceCandidates(db, user.id, current.id),
   ]);
-  const usable = new Set(candidates.map((c) => c.id));
+  const usable = usableOf(candidates);
   const scores = new Map<string, PostingScore>();
   if (track) {
     for (const posting of byDeadline) {

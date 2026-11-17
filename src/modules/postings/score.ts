@@ -1,6 +1,6 @@
 import type { ApplicantType, Criterion } from "@/modules/tracks/options";
 import { experienceMode } from "@/modules/tracks/survey";
-import type { CriterionScore, PostingAnalysis, PostingScore, Requirement } from "./analysis";
+import type { CriterionScore, Evidence, PostingAnalysis, PostingScore, Requirement } from "./analysis";
 import { type CareerType, FIELD_SCORES, LOCATION_BY_RANK, MATCH_SCORES } from "./options";
 
 // 공고와 트랙을 견줘 "원하는 정도"와 "자격이 맞는 정도"를 0~100으로 계산한다.
@@ -19,14 +19,29 @@ export type ScoreInput = {
     weights: Record<Criterion, number>;
   };
   analysis: PostingAnalysis | null;
-  usable: ReadonlySet<string>; // 지금 근거로 쓸 수 있는 경험 id (listEvidenceCandidates의 id)
+  usable: Usable;
 };
+
+// 지금 근거로 쓸 수 있는 경험 id → 지금의 내용 버전 (listEvidenceCandidates로 만든다)
+export type Usable = ReadonlyMap<string, number>;
+
+export const usableOf = (candidates: readonly { id: string; contentVersion: number }[]): Usable =>
+  new Map(candidates.map((c) => [c.id, c.contentVersion]));
+
+// 지금 쓸 수 있고, 맞댄 뒤 내용을 고치지 않은 경험의 근거만 센다
+export const evidenceUsable = (e: Evidence, usable: Usable): boolean => usable.get(e.experienceId) === e.contentVersion;
+
+// 경험은 쓸 수 있지만 맞댄 뒤 내용이 바뀌어 뺀 근거가 있는지 (화면이 다시 보기를 권한다)
+export const hasStaleEvidence = (analysis: PostingAnalysis, usable: Usable): boolean =>
+  analysis.requirements.some((r) =>
+    r.evidence.some((e) => usable.has(e.experienceId) && !evidenceUsable(e, usable)),
+  );
 
 type Level = "full" | "partial" | "none";
 
 // 근거 경험 중 지금 쓸 수 있는 것의 가장 높은 일치 정도
-export function requirementLevel(requirement: Requirement, usable: ReadonlySet<string>): Level {
-  const levels = requirement.evidence.filter((e) => usable.has(e.experienceId)).map((e) => e.level);
+export function requirementLevel(requirement: Requirement, usable: Usable): Level {
+  const levels = requirement.evidence.filter((e) => evidenceUsable(e, usable)).map((e) => e.level);
   if (levels.includes("full")) return "full";
   if (levels.includes("partial")) return "partial";
   return "none";
@@ -57,7 +72,7 @@ function experienceScore(posting: ScoreInput["posting"], track: ScoreInput["trac
 function requirementsScore(
   analysis: PostingAnalysis | null,
   kind: Requirement["kind"],
-  usable: ReadonlySet<string>,
+  usable: Usable,
 ): number | null {
   if (!analysis) return null;
   const found = analysis.requirements.filter((r) => r.kind === kind && r.quoteFound);
