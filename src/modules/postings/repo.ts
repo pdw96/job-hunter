@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "@/modules/tracks/repo";
 import type { AppliedScore, PostingAnalysis, PostingScore } from "./analysis";
@@ -194,7 +194,8 @@ export async function saveAnalysis(
   return { ok: false, reason: exists ? "changed" : "not_found" };
 }
 
-// 지원으로 정한다. 그때의 점수를 함께 남긴다(이후 기준이 바뀌어도 이 점수는 그대로)
+// 지원으로 정한다. 그때의 점수를 함께 남긴다(이후 기준이 바뀌어도 이 점수는 그대로).
+// 이미 지원한 공고는 고치지 않고 ok를 돌려준다(남긴 점수를 덮어쓰지 않는다)
 export async function applyToPosting(
   db: Db,
   userId: string,
@@ -204,7 +205,9 @@ export async function applyToPosting(
   const updated = await db
     .update(postings)
     .set({ status: "apply", appliedScore: score, updatedAt: new Date() })
-    .where(mine(userId, id))
+    .where(and(mine(userId, id), ne(postings.status, "apply")))
     .returning({ id: postings.id });
-  return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+  if (updated.length > 0) return { ok: true };
+  const [exists] = await db.select({ id: postings.id }).from(postings).where(mine(userId, id)).limit(1);
+  return exists ? { ok: true } : { ok: false, reason: "not_found" };
 }

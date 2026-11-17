@@ -140,6 +140,21 @@ test("근거 경험이 확인되어 있으면 그 근거가 점수에 들어간�
   expect((await getPosting(db, "u1", id))?.appliedScore).toMatchObject({ fit: 48, criteria: { jobMatch: { score: 0.5 } } });
 });
 
+test("이미 지원한 공고는 다시 지원해도 지원할 때의 점수와 날짜가 바뀌지 않는다", async () => {
+  const experienceId = await createExperience(db, "u1", job);
+  await confirmExperience(db, "u1", experienceId);
+  const id = await addPosting();
+  await saveAnalysis(db, "u1", id, analysis(experienceId), { rawText, companyNote: null });
+  await applyWithCurrentScore(db, "u1", id, now);
+  const first = (await getPosting(db, "u1", id))?.appliedScore;
+  expect(first).toMatchObject({ fit: 48, appliedAt: now.toISOString() });
+
+  // 다른 탭에 남은 예전 화면에서 한 번 더 누른 경우. 그사이 근거 경험의 확인을 풀었다
+  await unconfirmExperience(db, "u1", experienceId);
+  expect(await applyWithCurrentScore(db, "u1", id, new Date("2026-11-25T03:00:00Z"))).toEqual({ ok: true });
+  expect((await getPosting(db, "u1", id))?.appliedScore).toEqual(first);
+});
+
 test("남의 공고는 not_found", async () => {
   const id = await addPosting();
   await saveAnalysis(db, "u1", id, analysis("없음"), { rawText, companyNote: null });

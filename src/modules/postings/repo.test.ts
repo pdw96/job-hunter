@@ -265,6 +265,14 @@ test("지원에서 관심으로 되돌려도 appliedScore는 남는다", async (
   expect(await getPosting(db, "u1", id)).toMatchObject({ status: "interest", appliedScore: applied });
 });
 
+test("이미 지원한 공고에 applyToPosting을 다시 불러도 appliedScore는 그대로", async () => {
+  const id = await add();
+  await applyToPosting(db, "u1", id, applied);
+  const later: AppliedScore = { ...applied, fit: 1, appliedAt: "2026-12-31T00:00:00.000Z" };
+  expect(await applyToPosting(db, "u1", id, later)).toEqual({ ok: true });
+  expect(await getPosting(db, "u1", id)).toMatchObject({ status: "apply", appliedScore: applied });
+});
+
 test("남의 공고에 saveAnalysis·applyToPosting은 not_found", async () => {
   const id = await add();
   expect(await saveAnalysis(db, "u2", id, analysis, readAs)).toEqual({ ok: false, reason: "not_found" });

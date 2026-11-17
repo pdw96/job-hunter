@@ -14,6 +14,8 @@ export async function applyWithCurrentScore(
 ): Promise<{ ok: true } | { ok: false; reason: "not_found" | "no_analysis" }> {
   const posting = await getPosting(db, userId, id);
   if (!posting) return { ok: false, reason: "not_found" };
+  // 이미 지원했으면 그때 남긴 점수를 덮어쓰지 않는다(예전 화면이 남은 다른 탭에서 다시 눌러도 그대로)
+  if (posting.status === "apply") return { ok: true };
   // 지원은 점수를 본 뒤에만 고른다
   if (!posting.analysis) return { ok: false, reason: "no_analysis" };
   const track = await getTrack(db, userId, posting.trackId);
