@@ -3,6 +3,7 @@ import http from "node:http";
 import https from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
+import zlib from "node:zlib";
 import type { AiImage } from "@/modules/ai/client";
 import { IMAGE_TYPES } from "@/modules/ai/client";
 import { contentFromHtml } from "./page-text";
@@ -45,14 +46,41 @@ export function pinnedFetch(raw: string, init: { address: string; signal: AbortS
         },
       },
       (message) => {
-        const headers = new Headers();
-        for (const [name, value] of Object.entries(message.headers)) {
-          if (typeof value === "string") headers.set(name, value);
+        // 이 안에서 난 오류는 밖에서 잡히지 않으므로 직접 넘겨 준다
+        try {
+          const headers = new Headers();
+          for (const [name, value] of Object.entries(message.headers)) {
+            if (typeof value === "string") headers.set(name, value);
+          }
+          const status = message.statusCode ?? 502;
+          // 본문을 둘 수 없는 상태(204, 205, 304)와 넘겨 주기는 본문 없이 만든다
+          const empty = status < 200 || status === 204 || status === 205 || (status >= 300 && status < 400);
+          if (empty) {
+            message.resume();
+            resolve(new Response(null, { status: status < 200 ? 502 : status, headers }));
+            return;
+          }
+          // node:http는 압축을 풀어 주지 않는다. 크기 한도는 푼 뒤의 크기로 잰다
+          const encoding = (message.headers["content-encoding"] ?? "").toLowerCase().trim();
+          const unzip =
+            encoding === "gzip" || encoding === "x-gzip"
+              ? zlib.createGunzip()
+              : encoding === "deflate"
+                ? zlib.createInflate()
+                : encoding === "br"
+                  ? zlib.createBrotliDecompress()
+                  : null;
+          if (unzip) {
+            message.on("error", (error) => unzip.destroy(error));
+            headers.delete("content-length"); // 압축된 크기라서 쓸 수 없다
+            headers.delete("content-encoding");
+          }
+          const body = unzip ? message.pipe(unzip) : message;
+          resolve(new Response(Readable.toWeb(body) as ReadableStream<Uint8Array>, { status, headers }));
+        } catch (error) {
+          message.destroy();
+          reject(error);
         }
-        const status = message.statusCode ?? 502;
-        const empty = status === 204 || status === 304 || (status >= 300 && status < 400);
-        if (empty) message.resume();
-        resolve(new Response(empty ? null : (Readable.toWeb(message) as ReadableStream<Uint8Array>), { status, headers }));
       },
     );
     request.on("error", reject);
@@ -131,7 +159,12 @@ async function open(raw: string, maxBytes: number, accept: string, deps: PageDep
           address: addresses[0],
           signal,
           // 사용자 정보는 넣지 않는다
-          headers: { "user-agent": "Mozilla/5.0 (compatible; JobHunter/1.0)", accept, "accept-language": "ko-KR,ko;q=0.9,en;q=0.5" },
+          headers: {
+            "user-agent": "Mozilla/5.0 (compatible; JobHunter/1.0)",
+            accept,
+            "accept-language": "ko-KR,ko;q=0.9,en;q=0.5",
+            "accept-encoding": "gzip, deflate, br",
+          },
         }),
         signal,
       );

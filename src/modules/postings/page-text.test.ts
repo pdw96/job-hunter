@@ -65,3 +65,15 @@ test("글자가 거의 없는 페이지는 글이 짧게 나온다", () => {
   const html = page(`<div id="app"></div><script src="/app.js"></script>`);
   expect(contentFromHtml(html, "https://example.com/").text).toBe("가나다테크 채용");
 });
+
+test("닫히지 않는 태그가 아주 많은 페이지도 금방 끝난다", () => {
+  const started = Date.now();
+  for (const body of ["<".repeat(300_000), "<a ".repeat(100_000), "<script>".repeat(50_000), "<!--".repeat(80_000), `<p>${"&".repeat(200_000)}</p>`]) {
+    contentFromHtml(`<html><body>공고 ${body}</body></html>`, "https://example.com/");
+  }
+  expect(Date.now() - started).toBeLessThan(2000);
+});
+
+test("태그가 아닌 부등호는 글로 남긴다", () => {
+  expect(htmlToText("<p>경력 3 < 5년, 연봉 > 4천</p>")).toBe("경력 3 < 5년, 연봉 > 4천");
+});

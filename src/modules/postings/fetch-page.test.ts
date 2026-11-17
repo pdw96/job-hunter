@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { brotliCompressSync, gzipSync } from "node:zlib";
 import { fetchPosting, isPrivateAddress, type PageDeps, parsePublicUrl, pinnedFetch } from "./fetch-page";
 
 test("내부망과 자기 자신을 가리키는 주소를 알아본다", () => {
@@ -184,6 +185,36 @@ test("실제 연결은 이름을 다시 풀지 않고 넘겨받은 주소로 붙
     const moved = await pinnedFetch(`http://no-such-host.invalid:${port}/moved`, init);
     expect([moved.status, moved.headers.get("location")]).toEqual([302, "/next"]);
     expect(seen).toEqual([`no-such-host.invalid:${port}`, `no-such-host.invalid:${port}`]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("압축된 응답을 풀어 읽고, 본문을 둘 수 없는 상태 코드에도 죽지 않는다", async () => {
+  const server = createServer((request, reply) => {
+    if (request.url === "/gzip") {
+      reply.writeHead(200, { "content-type": "text/plain; charset=utf-8", "content-encoding": "gzip" });
+      reply.end(gzipSync("지퍼로 묶은 공고"));
+    } else if (request.url === "/br") {
+      reply.writeHead(200, { "content-type": "text/plain; charset=utf-8", "content-encoding": "br" });
+      reply.end(brotliCompressSync("브로틀리 공고"));
+    } else if (request.url === "/broken") {
+      reply.writeHead(200, { "content-encoding": "gzip" });
+      reply.end("압축이 아닌 글");
+    } else {
+      reply.writeHead(205);
+      reply.end();
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const get = (path: string) =>
+    pinnedFetch(`http://no-such-host.invalid:${port}${path}`, { address: "127.0.0.1", signal: AbortSignal.timeout(3000), headers: {} });
+  try {
+    expect(await (await get("/gzip")).text()).toBe("지퍼로 묶은 공고");
+    expect(await (await get("/br")).text()).toBe("브로틀리 공고");
+    await expect((await get("/broken")).text()).rejects.toThrow();
+    expect((await get("/reset")).status).toBe(205);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
