@@ -234,19 +234,10 @@ export type FetchedPosting =
   | { ok: true; text: string; images: AiImage[] } // images가 있으면 본문이 그림이라는 뜻이다. 그림을 읽어 글로 바꿔야 한다
   | { ok: false; reason: "bad_url" | "blocked" | "empty" };
 
-export async function fetchPosting(raw: string, deps: PageDeps = defaultDeps, totalMs = TOTAL_MS): Promise<FetchedPosting> {
-  // 넘겨 주기와 그림까지 모두 이 한도 안에서 끝낸다
-  const signal = AbortSignal.timeout(totalMs);
-  const page = await open(raw, MAX_PAGE_BYTES, "text/html,application/xhtml+xml", deps, signal);
-  if (!page.ok) return page;
-  if (page.contentType !== "" && !/html|text\/plain/.test(page.contentType)) return { ok: false, reason: "empty" };
-
-  const content = contentFromHtml(decodeHtml(page.bytes, page.contentType), page.url);
-  if (content.text.length >= MIN_TEXT) return { ok: true, text: content.text, images: [] };
-
-  // 글이 거의 없으면 본문이 그림일 수 있다. 본문의 그림 가운데 큰 것을 가져온다
+// 그림 주소들 가운데 큰 것을 가져온다
+async function fetchImages(urls: string[], deps: PageDeps, signal: AbortSignal): Promise<AiImage[]> {
   const candidates: { image: AiImage; size: number; order: number }[] = [];
-  for (const [order, url] of content.images.entries()) {
+  for (const [order, url] of urls.entries()) {
     if (signal.aborted) break;
     const fetched = await open(url, MAX_IMAGE_BYTES, "image/*", deps, signal);
     if (!fetched.ok || fetched.bytes.byteLength < MIN_IMAGE_BYTES) continue;
@@ -262,7 +253,62 @@ export async function fetchPosting(raw: string, deps: PageDeps = defaultDeps, to
     chosen.push(candidate);
     total += candidate.size;
   }
-  const images = chosen.sort((x, y) => x.order - y.order).map((candidate) => candidate.image);
+  return chosen.sort((x, y) => x.order - y.order).map((candidate) => candidate.image);
+}
+
+// 끼워 넣은 페이지의 그림을 앞에 두고 합친다. 같은 그림이 양쪽에 있으면 한 번만 센다
+const merged = (first: string[], second: string[]) => [...new Set([...first, ...second])].slice(0, 8);
+
+// forceImages: 글이 충분해 보여도 본문의 그림을 가져온다(읽힌 글이 사이트 안내뿐이었을 때 다시 부른다)
+export async function fetchPosting(
+  raw: string,
+  deps: PageDeps = defaultDeps,
+  options: { totalMs?: number; forceImages?: boolean } = {},
+): Promise<FetchedPosting> {
+  // 넘겨 주기와 끼워 넣은 페이지, 그림까지 모두 이 한도 안에서 끝낸다
+  const signal = AbortSignal.timeout(options.totalMs ?? TOTAL_MS);
+  const page = await open(raw, MAX_PAGE_BYTES, "text/html,application/xhtml+xml", deps, signal);
+  if (!page.ok) return page;
+  if (page.contentType !== "" && !/html|text\/plain/.test(page.contentType)) return { ok: false, reason: "empty" };
+
+  const content = contentFromHtml(decodeHtml(page.bytes, page.contentType), page.url);
+  let text = content.text;
+  let imageUrls = content.images;
+
+  // 공고 본문을 끼워 넣은 페이지(iframe)에 따로 두는 사이트가 있다. 같은 사이트의 것만 한 단계 열어 본다
+  const frameTexts: string[] = [];
+  const frameImages: string[] = [];
+  for (const url of content.frames) {
+    if (signal.aborted) break;
+    const frame = await open(url, MAX_PAGE_BYTES, "text/html,application/xhtml+xml", deps, signal);
+    if (!frame.ok || (frame.contentType !== "" && !/html|text\/plain/.test(frame.contentType))) continue;
+    const inner = contentFromHtml(decodeHtml(frame.bytes, frame.contentType), frame.url);
+    if (inner.text !== "") frameTexts.push(inner.text);
+    frameImages.push(...inner.images);
+  }
+  const detail = frameTexts.join("\n").length;
+  if (detail >= MIN_TEXT) {
+    // 끼워 넣은 페이지에 글이 충분하면 그것이 본문이다. 바깥 페이지의 글(메뉴, 안내)은 머리 부분(제목이나 정해진 형식의 공고 정보)만 남긴다.
+    // 글이 몇 마디뿐인 끼워 넣은 페이지(상담 창 같은 것)는 본문으로 보지 않고 바깥 페이지를 그대로 쓴다
+    text = [content.head, ...frameTexts].filter(Boolean).join("\n\n");
+    imageUrls = merged(frameImages, content.images);
+    if (!options.forceImages) return { ok: true, text, images: [] };
+  } else if (frameImages.length > 0) {
+    // 끼워 넣은 페이지의 본문이 그림일 수 있다. 바깥 페이지의 글은 버리지 않고, 그 그림을 먼저 살핀다
+    imageUrls = merged(frameImages, content.images);
+    // 끼워 넣은 페이지에 그림과 함께 적힌 짧은 글(회사, 마감일 같은 것)도 함께 남긴다
+    text = [text, ...frameTexts].filter(Boolean).join("\n\n");
+    // 글이 충분하면 그림을 내려받지 않고 글부터 돌려준다(그림은 화면이 다시 부를 때 가져온다)
+    if (text.length >= MIN_TEXT && !options.forceImages) return { ok: true, text, images: [] };
+    const images = await fetchImages(imageUrls, deps, signal);
+    if (images.length > 0) return { ok: true, text, images };
+    return text.length >= MIN_TEXT ? { ok: true, text, images: [] } : { ok: false, reason: "empty" };
+  }
+
+  if (text.length >= MIN_TEXT && !options.forceImages) return { ok: true, text, images: [] };
+
+  // 글이 거의 없으면 본문이 그림일 수 있다
+  const images = await fetchImages(imageUrls, deps, signal);
   if (images.length === 0) return { ok: false, reason: "empty" };
-  return { ok: true, text: content.text, images };
+  return { ok: true, text, images };
 }

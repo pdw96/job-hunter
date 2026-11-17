@@ -120,6 +120,7 @@ function posting(text: string) {
     careerType: years ? "experienced" : /신입/.test(source) ? "new" : "any",
     minYears: years ? Number(years[1]) : -1,
     employmentType: /정규직/.test(source) ? "regular" : /계약직/.test(source) ? "contract" : /인턴/.test(source) ? "intern" : "unknown",
+    hasDetails: /담당 업무|자격 요건|근무지|경력|정규직|채용 시 마감|영업/.test(source),
   };
 }
 

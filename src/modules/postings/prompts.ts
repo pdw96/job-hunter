@@ -14,7 +14,8 @@ export const POSTING_SYSTEM = `당신은 채용 공고 원문에서 정해진 �
   seoul 서울, gyeonggi 경기, incheon 인천, busan 부산, daegu 대구, gwangju 광주, daejeon 대전, ulsan 울산, sejong 세종, gangwon 강원, chungbuk 충북, chungnam 충남, jeonbuk 전북, jeonnam 전남, gyeongbuk 경북, gyeongnam 경남, jeju 제주
 - careerType: new 신입만 뽑음 / experienced 경력만 뽑음 / both 신입과 경력을 모두 뽑음("경력 무관", "신입·경력" 포함) / any 적혀 있지 않음.
 - minYears: 요구하는 최소 경력 연수(정수). "3년 이상"이면 3, "3~5년"이면 3입니다. 연수가 적혀 있지 않으면 -1.
-- employmentType: regular 정규직 / contract 계약직(파견, 기간제 포함) / intern 인턴 / unknown 적혀 있지 않음. "정규직 전환형 인턴"은 intern입니다.`;
+- employmentType: regular 정규직 / contract 계약직(파견, 기간제 포함) / intern 인턴 / unknown 적혀 있지 않음. "정규직 전환형 인턴"은 intern입니다.
+- hasDetails: 원문에 이 공고의 담당 업무, 자격 요건, 우대 사항, 근무 조건 가운데 하나라도 적혀 있으면 true. 제목과 채용 사이트의 메뉴, 로그인 안내, 서비스 소개 글만 있고 공고의 내용이 없으면 false. (공고 주소를 자동으로 읽으면 공고 내용은 빠지고 사이트의 틀만 읽히는 일이 있어서, 그런 경우를 가려내는 데 씁니다.)`;
 
 export const IMAGE_SYSTEM = `당신은 그림으로 올라온 채용 공고를 글로 옮겨 적습니다. 옮긴 글은 공고 원문으로 보관되고, 지원자가 이 공고에 지원할지 판단하는 근거가 됩니다.
 

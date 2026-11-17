@@ -3,6 +3,9 @@
 export type PageContent = {
   text: string;
   images: string[]; // 본문에 있는 그림의 주소(절대 주소). 공고가 그림으로 올라온 경우에 쓴다
+  frames: string[]; // 페이지 안에 끼워 넣은 다른 페이지의 주소. 공고 본문을 이렇게 따로 넣어 두는 사이트가 있다
+  // 본문을 다른 데서 가져올 때도 남길 머리 부분: 정해진 형식의 공고 정보가 있으면 그것, 없으면 페이지 제목
+  head: string;
 };
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", middot: "·", bull: "•" };
@@ -22,7 +25,7 @@ export function decodeEntities(text: string): string {
 const SKIP = new Set(["script", "style", "noscript", "svg", "template", "iframe", "nav", "header", "footer", "aside", "select", "button", "title"]);
 const BREAK = new Set(["br", "hr", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "dt", "dd", "ul", "ol", "table"]);
 
-type Scanned = { text: string; title: string; jsonLd: string[]; images: string[] };
+type Scanned = { text: string; title: string; jsonLd: string[]; images: string[]; frames: string[] };
 
 // HTML을 앞에서부터 한 번만 훑는다. 믿을 수 없는 페이지를 다루므로, 입력이 어떻게 생겼든 길이에 비례하는 시간 안에 끝나야 한다
 // (정규식으로 태그를 지우면 닫히지 않는 "<"가 많은 페이지에서 시간이 제곱으로 늘어난다)
@@ -31,6 +34,7 @@ function scan(html: string): Scanned {
   const out: string[] = [];
   const jsonLd: string[] = [];
   const images: string[] = [];
+  const frames: string[] = [];
   let title = "";
   let position = 0;
   let closable = true; // 남은 글에 ">"가 더 있는가. 한 번 없다고 확인되면 다시 찾지 않는다
@@ -78,6 +82,7 @@ function scan(html: string): Scanned {
     const tag = html.slice(open, tagEnd + 1);
     position = tagEnd + 1;
 
+    if (!closing && name === "iframe") frames.push(tag);
     if (!closing && SKIP.has(name)) {
       const end = lower.indexOf(`</${name}`, position);
       const inner = html.slice(position, end === -1 ? html.length : end);
@@ -96,7 +101,7 @@ function scan(html: string): Scanned {
     else out.push(" ");
   }
 
-  return { text: tidy(out.join("")), title: tidy(title), jsonLd, images };
+  return { text: tidy(out.join("")), title: tidy(title), jsonLd, images, frames };
 }
 
 // 문자 표기를 풀고 줄을 정리한다
@@ -200,6 +205,28 @@ function imageUrls(tags: string[], baseUrl: string): string[] {
   return found.slice(0, 8);
 }
 
+// 같은 사이트의 끼워 넣은 페이지만 고른다. 광고나 로그인 창은 뺀다
+function frameUrls(tags: string[], baseUrl: string): string[] {
+  const found: string[] = [];
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch {
+    return [];
+  }
+  for (const tag of tags.slice(0, 50)) {
+    const source = tag.match(/\ssrc=["']([^"']+)["']/i)?.[1];
+    if (!source || /about:blank|javascript:|login|banner|\/ad[s/_.-]|sns|share|comment/i.test(source)) continue;
+    try {
+      const url = new URL(decodeEntities(source), baseUrl);
+      if (url.hostname === host && (url.protocol === "http:" || url.protocol === "https:") && !found.includes(url.href)) found.push(url.href);
+    } catch {
+      // 주소로 읽을 수 없는 값은 건너뛴다
+    }
+  }
+  return found.slice(0, 2);
+}
+
 export function contentFromHtml(html: string, baseUrl: string): PageContent {
   const page = scan(html);
   const structured = jobPostingFrom(page.jsonLd);
@@ -209,5 +236,5 @@ export function contentFromHtml(html: string, baseUrl: string): PageContent {
       ? `${structured}\n\n${page.text}`
       : structured
     : [page.title, page.text].filter(Boolean).join("\n\n");
-  return { text, images: imageUrls(page.images, baseUrl) };
+  return { text, images: imageUrls(page.images, baseUrl), frames: frameUrls(page.frames, baseUrl), head: structured ?? page.title };
 }

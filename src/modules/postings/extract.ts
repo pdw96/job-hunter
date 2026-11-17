@@ -18,6 +18,7 @@ const extractSchema = z.object({
   careerType: z.enum(CAREER_TYPES),
   minYears: z.number(),
   employmentType: z.enum(POSTING_EMPLOYMENT_TYPES),
+  hasDetails: z.boolean(),
 });
 
 export type ExtractedPosting = {
@@ -30,6 +31,8 @@ export type ExtractedPosting = {
   careerType: CareerType;
   minYears: number | null;
   employmentType: PostingEmploymentType;
+  // 원문에 공고 내용(담당 업무, 자격 요건, 근무 조건)이 있는가. 주소로 읽었는데 사이트 안내 글만 읽힌 경우를 가려낸다
+  hasDetails: boolean;
   // 원문에서 글자 그대로 찾지 못한 값. 화면에서 다시 보라고 알린다
   unverified: ("company" | "title")[];
 };
@@ -80,6 +83,7 @@ export async function extractPosting(
       careerType: raw.careerType,
       minYears: years,
       employmentType: raw.employmentType,
+      hasDetails: raw.hasDetails,
       unverified: (["company", "title"] as const).filter(
         (field) => raw[field].trim() !== "" && !source.includes(squash(raw[field])),
       ),

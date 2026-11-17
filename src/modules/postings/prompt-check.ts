@@ -2,7 +2,7 @@ import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
 import { type ExtractedPosting, extractPosting } from "./extract";
 
-// 준비한 공고 예시를 실제 AI에 돌려, 값을 맞게 뽑고 없는 값은 비워 두는지 본다(관리자 전용, 호출 2번)
+// 준비한 공고 예시를 실제 AI에 돌려, 값을 맞게 뽑고 없는 값은 비워 두는지 본다(관리자 전용, 호출 3번)
 
 export type PostingCheckRow = { sample: string; check: string; expected: string; actual: string; pass: boolean };
 
@@ -48,6 +48,31 @@ export const SPARSE_POSTING = {
 지원 방법: 이력서와 포트폴리오를 메일로 보내 주세요. 채용 시 마감합니다.`,
 };
 
+// 주소로 읽었을 때 공고 내용은 빠지고 사이트의 틀만 읽힌 글. 공고 내용이 없다고 가려내는지 본다
+export const CHROME_ONLY = {
+  name: "사이트 안내만 읽힌 글",
+  source: `[가나다(주)] 조립 신입 채용(D-2) - 채용사이트
+
+본문 바로가기
+검색어입력
+로그인
+회원가입
+- 홈
+- 채용정보
+- 신입·인턴
+- 기업·연봉
+- 커뮤니티
+
+구직자의 개인정보 보호
+채용 과정에서 이름, 생년월일, 계좌정보 등 불필요한 개인정보를 요청하지 않습니다.
+
+로그인이 필요한 서비스입니다.
+아이디
+비밀번호
+아이디 찾기
+비밀번호 찾기`,
+};
+
 type Row = (check: string, expected: string, actual: string, pass: boolean) => PostingCheckRow;
 const show = (value: unknown) => (value === null || value === "" ? "비어 있음" : Array.isArray(value) ? value.join(", ") || "비어 있음" : String(value));
 
@@ -61,6 +86,7 @@ function fullRows(value: ExtractedPosting, row: Row): PostingCheckRow[] {
     row("요구 경력 (3~5년이면 3)", "3", show(value.minYears), value.minYears === 3),
     row("고용 형태", "regular", value.employmentType, value.employmentType === "regular"),
     row("원문에 없는 이름을 쓰지 않는다", "없음", show(value.unverified), value.unverified.length === 0),
+    row("공고 내용이 있다고 본다", "true", String(value.hasDetails), value.hasDetails),
   ];
 }
 
@@ -74,7 +100,12 @@ function sparseRows(value: ExtractedPosting, row: Row): PostingCheckRow[] {
     row("경력 연수를 지어내지 않는다", "비어 있음", show(value.minYears), value.minYears === null),
     row("신입·경력 구분을 지어내지 않는다", "any", value.careerType, value.careerType === "any"),
     row("고용 형태를 지어내지 않는다", "unknown", value.employmentType, value.employmentType === "unknown"),
+    row("적힌 값이 적어도 공고 내용은 있다고 본다", "true", String(value.hasDetails), value.hasDetails),
   ];
+}
+
+function chromeRows(value: ExtractedPosting, row: Row): PostingCheckRow[] {
+  return [row("공고 내용이 없는 글을 가려낸다", "false", String(value.hasDetails), !value.hasDetails)];
 }
 
 export async function runPostingCheck(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<PostingCheckRow[]> {
@@ -83,5 +114,5 @@ export async function runPostingCheck(db: Db, ai: AiClient, userId: string, now:
     const result = await extractPosting(db, ai, userId, sample.source, TODAY, now);
     return result.ok ? rows(result.value, row) : [row("AI 호출", "성공", `실패: ${result.reason}`, false)];
   };
-  return (await Promise.all([run(FULL_POSTING, fullRows), run(SPARSE_POSTING, sparseRows)])).flat();
+  return (await Promise.all([run(FULL_POSTING, fullRows), run(SPARSE_POSTING, sparseRows), run(CHROME_ONLY, chromeRows)])).flat();
 }
