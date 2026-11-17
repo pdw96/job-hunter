@@ -46,7 +46,9 @@ export function quotePieces(sentence: string): string[] {
 
 // 날짜 표기를 뺀 뒤에도 숫자가 남아 있는가
 function hasNumber(sentence: string): boolean {
+  // 전각 숫자(７３)도 숫자로 본다. 인용은 원문 그대로 둔다
   const withoutDates = sentence
+    .normalize("NFKC")
     // 연도(19xx, 20xx)와 월(1~12)일 때만 날짜로 본다. "1200.50만원" 같은 소수는 숫자로 남긴다
     .replace(/(?<![\d.])(?:19|20)\d{2}\s*[-./]\s*(?:0?[1-9]|1[0-2])(?:\s*[-./]\s*\d{1,2})?(?!\d)/g, " ")
     .replace(/\d{2,4}\s*년(?:\s*\d{1,2}\s*월)?(?:\s*\d{1,2}\s*일)?/g, " ")

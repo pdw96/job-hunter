@@ -180,3 +180,8 @@ test("소수로 적은 금액이 든 문장은 날짜로 보지 않고 수치 �
   const input = { ...base, metrics: [], result: "예산 1200.50만원을 집행했다. 2023.03에 시작했다." };
   expect(quotes(input, "metric")).toEqual(["예산 1200.50만원을 집행했다."]);
 });
+
+test("전각 숫자가 든 문장도 수치 주장으로 잡는다", () => {
+  const input = { ...base, metrics: [], result: "매출이 ７３% 증가했다." };
+  expect(quotes(input, "metric")).toEqual(["매출이 ７３% 증가했다."]);
+});
