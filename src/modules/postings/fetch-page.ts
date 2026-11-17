@@ -256,6 +256,9 @@ async function fetchImages(urls: string[], deps: PageDeps, signal: AbortSignal):
   return chosen.sort((x, y) => x.order - y.order).map((candidate) => candidate.image);
 }
 
+// 끼워 넣은 페이지의 그림을 앞에 두고 합친다. 같은 그림이 양쪽에 있으면 한 번만 센다
+const merged = (first: string[], second: string[]) => [...new Set([...first, ...second])].slice(0, 8);
+
 // forceImages: 글이 충분해 보여도 본문의 그림을 가져온다(읽힌 글이 사이트 안내뿐이었을 때 다시 부른다)
 export async function fetchPosting(
   raw: string,
@@ -288,11 +291,13 @@ export async function fetchPosting(
     // 끼워 넣은 페이지에 글이 충분하면 그것이 본문이다. 바깥 페이지의 글(메뉴, 안내)은 머리 부분(제목이나 정해진 형식의 공고 정보)만 남긴다.
     // 글이 몇 마디뿐인 끼워 넣은 페이지(상담 창 같은 것)는 본문으로 보지 않고 바깥 페이지를 그대로 쓴다
     text = [content.head, ...frameTexts].filter(Boolean).join("\n\n");
-    imageUrls = [...frameImages, ...content.images].slice(0, 8);
+    imageUrls = merged(frameImages, content.images);
     if (!options.forceImages) return { ok: true, text, images: [] };
   } else if (frameImages.length > 0) {
     // 끼워 넣은 페이지의 본문이 그림일 수 있다. 바깥 페이지의 글은 버리지 않고, 그 그림을 먼저 살핀다
-    imageUrls = [...frameImages, ...content.images].slice(0, 8);
+    imageUrls = merged(frameImages, content.images);
+    // 끼워 넣은 페이지에 그림과 함께 적힌 짧은 글(회사, 마감일 같은 것)도 함께 남긴다
+    text = [text, ...frameTexts].filter(Boolean).join("\n\n");
     const images = await fetchImages(imageUrls, deps, signal);
     if (images.length > 0 && (text.length < MIN_TEXT || options.forceImages)) return { ok: true, text, images };
     if (text.length >= MIN_TEXT) return { ok: true, text, images: [] };

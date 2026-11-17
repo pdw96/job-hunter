@@ -311,3 +311,21 @@ test("끼워 넣은 페이지를 본문으로 쓸 때도 바깥 페이지의 정
   expect(result.ok && result.text).toContain("백엔드 개발자를 찾습니다");
   expect(result.ok && result.text).not.toContain("고객센터");
 });
+
+test("끼워 넣은 페이지의 그림과 함께 적힌 짧은 글도 남기고, 양쪽에 있는 같은 그림은 한 번만 센다", async () => {
+  const first = new Uint8Array(80 * 1024).fill(1);
+  const second = new Uint8Array(60 * 1024).fill(2);
+  const image = (bytes: Uint8Array) => () => response(bytes, { headers: { "content-type": "image/png" } });
+  const result = await fetchPosting(
+    "https://jobs.example.com/view?id=6",
+    deps({
+      "https://jobs.example.com/view?id=6": () => response(html(`<img src="/up/1.png"><iframe src="/detail"></iframe>`)),
+      "https://jobs.example.com/detail": () => response(html(`<p>가나다(주) · 마감 12월 5일</p><img src="/up/1.png"><img src="/up/2.png">`)),
+      "https://jobs.example.com/up/1.png": image(first),
+      "https://jobs.example.com/up/2.png": image(second),
+    }),
+  );
+  const size = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64").length;
+  expect(result.ok && result.text).toContain("가나다(주) · 마감 12월 5일");
+  expect(result.ok && result.images.map((item) => item.data.length)).toEqual([size(first), size(second)]);
+});
