@@ -114,3 +114,8 @@ test("강조 호출이 실패하면 강조 3줄만 실패로 나온다", async (
   expect(bad).toHaveLength(3);
   expect(bad.every((row) => row.actual === "실패: invalid")).toBe(true);
 });
+
+test("①을 강조하지 않았으면 AI가 고른 것을 보여 준다", async () => {
+  const rows = await runResumeCheck(db, answering(write, { picks: [] }), "admin");
+  expect(rows.find((r) => r.check === "①을 강조한다")?.actual).toBe("강조하지 않음 · 고른 것: 없음");
+});

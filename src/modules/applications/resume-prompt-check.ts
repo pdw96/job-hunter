@@ -78,8 +78,10 @@ export async function runResumeCheck(db: Db, ai: AiClient, userId: string, now: 
     // 지어낸 숫자가 든 이유는 emphasisText가 비우므로, 비어 있으면 근거를 제대로 쓰지 못한 것이다
     const kotlinPick = picks.find((pick) => pick.experienceId === KOTLIN.id);
     const hasReason = kotlinPick !== undefined && kotlinPick.why !== "";
+    // 진단용: ①을 못 골랐을 때 AI가 실제로 고른 것을 보인다
+    const pickedNames = picks.map((pick) => [KOTLIN, CAFE].find((s) => s.id === pick.experienceId)?.name ?? pick.experienceId).join(", ") || "없음";
     return [
-      row(emphasisChecks[0], "강조함", picked(KOTLIN.id) ? "①을 강조함" : "강조하지 않음", picked(KOTLIN.id)),
+      row(emphasisChecks[0], "강조함", picked(KOTLIN.id) ? "①을 강조함" : `강조하지 않음 · 고른 것: ${pickedNames}`, picked(KOTLIN.id)),
       row(emphasisChecks[1], "강조하지 않음", picked(CAFE.id) ? "②를 강조함" : "강조하지 않음", !picked(CAFE.id)),
       row(emphasisChecks[2], "이유 있음", hasReason ? "이유 있음" : "비어 있음", hasReason),
     ];

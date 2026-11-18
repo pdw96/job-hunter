@@ -7,7 +7,7 @@ import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
-import { cut } from "./text";
+import { aliasKey, cut } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
 // 승인한 경험만으로 답을 쓰고, 문단 하나를 AI로 고치거나 직접 고친다.
@@ -55,7 +55,7 @@ function cleanParagraph(text: string, aliases: string[], sources: WritingSource[
   const byAlias = new Map(sources.map((s, i) => [`E${i + 1}`, s.id]));
   const ids = new Set<string>();
   for (const alias of aliases) {
-    const id = byAlias.get(alias.trim());
+    const id = byAlias.get(aliasKey(alias) ?? "");
     if (id) ids.add(id);
   }
   return { text: cut(text.trim(), APPLICATION_LIMITS.paragraph), sources: [...ids] };

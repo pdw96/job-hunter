@@ -108,3 +108,19 @@ test("추천 근거에 지어낸 숫자가 있어 비워지면 그 줄만 실패
   expect(failedRows.map((row) => row.check)).toEqual(["추천 근거가 비지 않는다(기록에 없는 숫자나 빈 답으로 지워지지 않음)"]);
   expect(failedRows[0].actual).toBe("비워짐: 주문 조회 API 개선 overlap");
 });
+
+test("①을 못 골랐으면 AI가 고른 것과 밀어낸 것을 보여 준다", async () => {
+  const bad = {
+    picks: [{ exp: "E2", overlap: "카페 경험", role: "음료를 만들었다" }],
+    passed: [{ exp: "E1", whyNot: "직무와 덜 맞는다" }],
+  };
+  const rows = await runApplicationCheck(db, answering(bad), "admin");
+  const row = rows.find((r) => r.check === "①을 고른다");
+  expect(row?.pass).toBe(false);
+  expect(row?.actual).toBe("고르지 않음 · 고른 것: 카페 바리스타 아르바이트 · 밀린 것: 주문 조회 API 개선(직무와 덜 맞는다)");
+});
+
+test("아무것도 고르지 않았으면 고른 것·밀린 것이 없음으로 나온다", async () => {
+  const rows = await runApplicationCheck(db, answering({ picks: [], passed: [] }), "admin");
+  expect(rows.find((r) => r.check === "①을 고른다")?.actual).toBe("고르지 않음 · 고른 것: 없음 · 밀린 것: 없음");
+});

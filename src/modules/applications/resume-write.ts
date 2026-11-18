@@ -9,6 +9,7 @@ import { RESUME_WRITE_SYSTEM } from "./prompts";
 import { cleanLines, buildEntry, detailFor, upsertEntries } from "./resume-entries";
 import { getCommonResume, getResume, insertCommonResume, saveResumeContent } from "./resume-repo";
 import { describeSource, postingTextOf, requirementsOf } from "./select";
+import { aliasKey } from "./text";
 import type { ResumeContent, ResumeDetail } from "./types";
 
 // 확인된 경험으로 이력서 줄을 쓴다. 머리(이름·소속·역할·기간)는 코드가 기록에서 만들고, AI는 줄만 쓴다.
@@ -81,7 +82,7 @@ export async function writeLines(
   let matched = 0;
   const seen = new Set<string>();
   for (const item of result.value.entries) {
-    const alias = item.exp.trim();
+    const alias = aliasKey(item.exp) ?? "";
     const request = byAlias.get(alias);
     if (!request || seen.has(alias)) continue;
     seen.add(alias);

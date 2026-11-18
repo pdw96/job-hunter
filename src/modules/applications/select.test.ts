@@ -245,6 +245,20 @@ test("없는 별명은 버리고 별명을 실제 id와 버전으로 바꾼다",
   expect((await getQuestion(db, "u1", questionId))?.selection).toEqual(result.value);
 });
 
+test("별명이 'E1 (경험 이름)'처럼 조금 달라도 고른 것으로 읽는다", async () => {
+  const first = await addExperience();
+  const questionId = await addQuestion(await addPosting());
+  const ai = createFakeAi([
+    reply({ picks: [{ exp: "E1 (결제 시스템 개편)", overlap: "결제 API를 설계했다", role: "API를 설계했다" }] }),
+  ]);
+
+  const result = await selectForQuestion(db, ai, "u1", questionId, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.picks.map((p) => p.experienceId)).toEqual([first]);
+  expect(result.value.noMatch).toBe(false);
+});
+
 test("picks는 3개까지, passed에서 고른 경험은 빠지고 5개까지", async () => {
   const ids: string[] = [];
   for (let i = 0; i < 10; i++) ids.push(await addExperience({ name: `경험 ${i}`, startMonth: `2020-${String(i + 1).padStart(2, "0")}` }));
