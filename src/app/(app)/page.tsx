@@ -38,9 +38,12 @@ export default async function HomePage() {
               </Link>
             </div>
             <p className="text-sm text-foreground/70">{track.jobNames.join(", ")}</p>
-            <p className="text-sm">
+            <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
               <Link href="/experiences" className="underline">
                 경험 기록 {experienceCount}건
+              </Link>
+              <Link href={`/tracks/${track.id}/resume`} className="underline">
+                이력서 공통본
               </Link>
             </p>
           </li>

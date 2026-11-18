@@ -61,6 +61,11 @@ export function postingTextOf(posting: { rawText: string; companyNote: string | 
   return posting.companyNote ? `${posting.rawText}\n\n${posting.companyNote}` : posting.rawText;
 }
 
+// 4-2 분석의 요구 사항 글. 분석이 없으면 빈 배열
+export function requirementsOf(posting: { analysis: { requirements: { text: string }[] } | null }): string[] {
+  return posting.analysis?.requirements.map((r) => r.text) ?? [];
+}
+
 function buildMessage(input: SelectInput): string {
   const experiences = input.sources.map((s, i) => describeSource(`E${i + 1}`, s, false)).join("\n\n");
   const aliasOf = new Map(input.sources.map((s, i) => [s.id, `E${i + 1}`]));
@@ -77,7 +82,7 @@ function buildMessage(input: SelectInput): string {
 }
 
 // 문장의 숫자가 그 경험의 글(보낸 칸만), 문항, 공고에 있는지. 별명(E1)의 숫자는 보지 않는다
-function grounded(sentence: string, s: WritingSource, known: Set<string>): boolean {
+export function grounded(sentence: string, s: WritingSource, known: Set<string>): boolean {
   const own = [s.name, s.organization, s.role, s.startMonth, s.endMonth, s.situation, s.actions, s.result].flatMap(numbersIn);
   const allowed = new Set([...known, ...own]);
   return numbersIn(sentence.replace(/\bE\d+\b/g, "")).every((n) => allowed.has(n));
@@ -172,7 +177,7 @@ export async function selectForQuestion(
       prompt: question.prompt,
       charLimit: question.charLimit,
       postingText: postingTextOf(posting),
-      requirements: posting.analysis?.requirements.map((r) => r.text) ?? [],
+      requirements: requirementsOf(posting),
       sources,
       usedElsewhere,
     },

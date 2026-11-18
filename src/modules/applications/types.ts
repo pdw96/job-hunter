@@ -1,4 +1,5 @@
 // applications 모듈이 저장하는 JSON의 모양. 타입만 둔다
+import type { Kind } from "@/modules/experiences/options";
 
 // 근거로 삼은 경험과, 그때의 내용 버전
 export type SourceRef = { experienceId: string; contentVersion: number };
@@ -21,3 +22,19 @@ export type Draft = {
   shortage: string;
   writtenAt: string;
 };
+
+// 이력서. 항목마다 근거 경험이 하나다
+export type ResumeDetail = "full" | "summary";
+export type ResumeLine = { text: string; edited: boolean };
+export type ResumeHeading = { name: string; organization: string | null; role: string | null; period: string }; // period는 formatPeriod 결과
+export type ResumeEntry = SourceRef & {
+  kind: Kind;
+  heading: ResumeHeading;
+  detail: ResumeDetail;
+  emphasized: boolean;
+  lines: ResumeLine[];
+  writtenAt: string;
+};
+export type ResumeContent = { entries: ResumeEntry[]; commonVersion: number | null }; // 맞춤본을 만들 때의 공통본 version. 공통본은 null
+export type EmphasisPick = SourceRef & { why: string };
+export type ResumeSelection = { picks: EmphasisPick[]; noMatch: boolean; selectedAt: string };

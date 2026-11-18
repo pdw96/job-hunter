@@ -191,6 +191,27 @@ function applicationRevise(text: string) {
   return { text: `${section(text, "고칠 문단")} (고침)`, sources: ["E1"] };
 }
 
+// 이력서 줄 쓰기 흉내. 경험마다 "본인이 한 일" 첫 줄과(자세히면) "결과"를 줄로 쓴다
+function resumeWrite(text: string) {
+  const blocks = section(text, "경험 기록").split(/\n\n(?=E\d+\n)/).filter(Boolean);
+  return {
+    entries: blocks.map((block) => {
+      const alias = block.split("\n")[0].trim();
+      const field = (label: string) => {
+        const value = block.match(new RegExp(`^- ${label}: (.*)$`, "m"))?.[1] ?? "";
+        return value === "없음" ? "" : value;
+      };
+      const full = block.includes("- 분량: 자세히");
+      return { exp: alias, lines: [field("본인이 한 일"), full ? field("결과") : ""].filter(Boolean) };
+    }),
+  };
+}
+
+// 이력서 강조 고르기 흉내. 후보가 있으면 E1을 고른다
+function resumeEmphasis(text: string) {
+  return { picks: /^E1$/m.test(section(text, "경험 기록")) ? [{ exp: "E1", why: "공고의 담당 업무와 겹칩니다" }] : [] };
+}
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
@@ -214,7 +235,11 @@ export const ai: AiClient = {
                       ? applicationWrite(text)
                       : request.purpose === "application_revise"
                         ? applicationRevise(text)
-                        : extract(text);
+                        : request.purpose === "resume_write"
+                          ? resumeWrite(text)
+                          : request.purpose === "resume_emphasis"
+                            ? resumeEmphasis(text)
+                            : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };
     return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };

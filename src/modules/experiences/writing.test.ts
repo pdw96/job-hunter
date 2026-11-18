@@ -8,7 +8,7 @@ import type { SurveyInput } from "@/modules/tracks/survey";
 import type { ExperienceInput } from "./input";
 import { confirmExperience, createExperience, setTrackScope } from "./repo";
 import { experiences } from "./schema";
-import { listWritingSources } from "./writing";
+import { listResumeSources, listWritingSources } from "./writing";
 
 let db: Db;
 let t1: string;
@@ -131,4 +131,41 @@ test("증빙 메모 칸이 없다", async () => {
   await addConfirmedJob(job);
   const [s] = await listWritingSources(db, "u1", t1);
   expect(Object.keys(s)).not.toContain("evidenceNote");
+});
+
+test("listResumeSources는 사용과 요약만을 scope와 함께 돌려주고 제외는 뺀다", async () => {
+  const a = await addConfirmedJob(job);
+  const b = await addConfirmedJob({ ...job, name: "요약만", startMonth: "2022-01" });
+  const c = await addConfirmedJob({ ...job, name: "제외", startMonth: "2021-01" });
+  await setTrackScope(db, "u1", b, t1, "summary");
+  await setTrackScope(db, "u1", c, t1, "exclude");
+  const list = await listResumeSources(db, "u1", t1);
+  expect(list.map((s) => [s.id, s.scope])).toEqual([
+    [a, "use"], // 범위 행이 없으면 사용
+    [b, "summary"],
+  ]);
+});
+
+test("listResumeSources도 확인됨이 아니면 빠진다", async () => {
+  const confirmed = await addSchool();
+  await createExperience(db, "u1", { ...job, name: "미확인" });
+  const partial = await createExperience(db, "u1", { ...job, name: "부분" });
+  await confirmExperience(db, "u1", partial);
+  expect((await listResumeSources(db, "u1", t1)).map((s) => s.id)).toEqual([confirmed]);
+});
+
+test("listResumeSources는 남의 트랙이면 빈 배열이다", async () => {
+  await addConfirmedJob(job);
+  await addConfirmedJob({ ...job, name: "남의 것" }, "u2");
+  expect(await listResumeSources(db, "u1", t2)).toEqual([]);
+  expect(await listResumeSources(db, "u2", t1)).toEqual([]);
+});
+
+test("listWritingSources는 여전히 사용만 돌려준다", async () => {
+  const a = await addConfirmedJob(job);
+  const b = await addConfirmedJob({ ...job, name: "요약만" });
+  await setTrackScope(db, "u1", b, t1, "summary");
+  const list = await listWritingSources(db, "u1", t1);
+  expect(list.map((s) => s.id)).toEqual([a]);
+  expect("scope" in list[0]).toBe(false);
 });

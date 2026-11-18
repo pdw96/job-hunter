@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "@/modules/tracks/repo";
 import type { Metric } from "./input";
@@ -28,18 +28,34 @@ export type WritingSource = Pick<
   | "contentVersion"
 > & { metrics: Metric[] };
 
+export type ResumeSource = WritingSource & { scope: "use" | "summary" };
+
+// 이력서에 쓸 수 있는 경험. 자기소개서 쪽과 같은 거르기·순서에 "요약만"도 넣는다
+export async function listResumeSources(db: Db, userId: string, trackId: string): Promise<ResumeSource[]> {
+  return listSources(db, userId, trackId, ["use", "summary"]);
+}
+
 export async function listWritingSources(db: Db, userId: string, trackId: string): Promise<WritingSource[]> {
+  const sources = await listSources(db, userId, trackId, ["use"]);
+  return sources.map(({ scope, ...rest }) => {
+    void scope;
+    return rest;
+  });
+}
+
+async function listSources(db: Db, userId: string, trackId: string, scopes: ("use" | "summary")[]): Promise<ResumeSource[]> {
   if (!(await ownsTrack(db, userId, trackId))) return [];
+  const scopeOf = sql<"use" | "summary" | "exclude">`coalesce(${trackScopes.scope}, 'use')`;
   const rows = await db
-    .select({ experience: experiences })
+    .select({ experience: experiences, scope: scopeOf })
     .from(experiences)
     .leftJoin(trackScopes, and(eq(trackScopes.experienceId, experiences.id), eq(trackScopes.trackId, trackId)))
     // 범위를 정하지 않은 기록은 "사용"이다
-    .where(and(eq(experiences.userId, userId), sql`coalesce(${trackScopes.scope}, 'use') = 'use'`))
+    .where(and(eq(experiences.userId, userId), inArray(scopeOf, scopes)))
     .orderBy(sql`${experiences.startMonth} desc nulls last`, desc(experiences.createdAt));
 
-  const result: WritingSource[] = [];
-  for (const { experience: row } of rows) {
+  const result: ResumeSource[] = [];
+  for (const { experience: row, scope } of rows) {
     if (verificationState(row.kind, statuses(row.rubric), row.confirmedAt !== null) !== "confirmed") continue;
     result.push({
       id: row.id,
@@ -57,6 +73,7 @@ export async function listWritingSources(db: Db, userId: string, trackId: string
       bannedPhrases: row.bannedPhrases,
       contentVersion: row.contentVersion,
       metrics: row.rubric.metrics.status === "met" ? row.metrics : [],
+      scope: scope === "summary" ? "summary" : "use",
     });
   }
   return result;
