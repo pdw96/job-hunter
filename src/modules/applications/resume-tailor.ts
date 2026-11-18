@@ -95,11 +95,11 @@ export async function selectEmphasis(
   if (!base.ok) return base;
   const { posting, commonContent } = base;
 
-  // 후보: 공통본에 있고 지금 "사용"인 경험(공통본 순서)
+  // 후보: 공통본에 있고 지금 "사용"인 경험(공통본 순서). 학력·자격은 요건 충족만 보여 줄 뿐 자세히 쓸 내용이 없어 뺀다(직접 체크는 buildTailored가 받는다)
   const listed = new Map((await listResumeSources(db, userId, posting.trackId)).map((s) => [s.id, s]));
   const sources = commonContent.entries.flatMap((entry) => {
     const s = listed.get(entry.experienceId);
-    return s && s.scope === "use" ? [s] : [];
+    return s && s.scope === "use" && s.kind !== "school" && s.kind !== "certificate" ? [s] : [];
   });
 
   const selected = await emphasisText(
