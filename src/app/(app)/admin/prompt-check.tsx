@@ -26,7 +26,7 @@ export function PromptCheck() {
       <h2 className="text-lg font-semibold">AI 프롬프트 점검</h2>
       <p className="text-sm text-foreground/70">
         준비한 예시 기록 6개를 판정시키고, 예시 대화 2개를 정리시키고, 부풀려진 이력서 1편을 가져오게 해서 기대한
-        결과가 나오는지 봅니다. 실제 AI를 14번 부르므로 비용이 듭니다(1달러 미만). 1분쯤 걸릴 수 있습니다
+        결과가 나오는지 봅니다. 실제 AI를 16번 부르므로 비용이 듭니다(1달러 미만). 1분쯤 걸릴 수 있습니다
       </p>
       <button
         type="button"
