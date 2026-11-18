@@ -75,7 +75,8 @@ export const CHROME_ONLY = {
 비밀번호 찾기`,
 };
 
-// 요구 사항 맞대기 예시. FULL_POSTING의 요구 사항에 ①은 맞고 ②는 어느 것과도 맞지 않는다
+// 요구 사항 맞대기 예시. FULL_POSTING의 요구 사항에 ①은 맞고 ②는 어느 것과도 맞지 않는다.
+// 인재상 글에는 어떤 경험으로도 채울 수 없는 지원 자격(입사 시기, 병역)을 넣어, 뽑지 않는지 본다
 const SAMPLE_EXPERIENCE_BASE = { organization: null, role: null, endMonth: null, isOngoing: false, notDone: null, contentVersion: 0, state: "confirmed" } as const;
 export const MATCH_CANDIDATES: EvidenceCandidate[] = [
   {
@@ -103,7 +104,13 @@ export const MATCH_CANDIDATES: EvidenceCandidate[] = [
     result: "정산표 정리 시간이 줄었다",
   },
 ];
-export const MATCH_SAMPLE = { name: "요구 사항 맞대기", source: FULL_POSTING.source, jobNames: ["백엔드 개발자"], majorName: "정보통신" };
+export const MATCH_SAMPLE = {
+  name: "요구 사항 맞대기",
+  source: FULL_POSTING.source,
+  companyNote: "지원 자격: 2027년 1월 입사 가능한 자, 병역필 또는 면제자",
+  jobNames: ["백엔드 개발자"],
+  majorName: "정보통신",
+};
 
 function matchRows(value: TextAnalysis, row: Row): PostingCheckRow[] {
   const [kotlin, excel] = MATCH_CANDIDATES;
@@ -113,11 +120,17 @@ function matchRows(value: TextAnalysis, row: Row): PostingCheckRow[] {
   const usedBy = (id: string) => all.filter((r) => r.evidence.some((e) => e.experienceId === id)).map((r) => r.text);
   // 경력 연수는 코드가 설문의 총 경력으로 따로 점수를 매긴다. 띄어쓰기가 달라도 "3~5년"이 들어 있으면 그 요건으로 본다
   const yearsOnly = all.filter((r) => `${r.text} ${r.quote}`.replace(/\s+/g, "").includes("3~5년"));
+  // 입사 시기·병역은 경험으로 채울 수 없어 늘 부족한 점이 되므로 우대로도 뽑지 않는다
+  const conditions = all.filter((r) => /입사\s*가능|병역/.test(`${r.text} ${r.quote}`));
+  // 담당 업무는 입사 후 할 일이라 우대로 뽑는다(뽑지 않아도 된다)
+  const dutyRequired = all.filter((r) => r.kind === "required" && /주문·결제|API 개발 및 운영/.test(`${r.text} ${r.quote}`));
   return [
     row("Java·Kotlin 요구 사항의 근거로 ①을 짚는다", "①이 근거", show(javaKotlin.map((r) => (r.evidence.some((e) => e.experienceId === kotlin.id) ? "①" : "근거 없음"))), javaKotlin.some((r) => r.evidence.some((e) => e.experienceId === kotlin.id))),
     row("②를 어느 요구 사항의 근거로도 짚지 않는다", "없음", show(usedBy(excel.id)), usedBy(excel.id).length === 0),
     row("대용량 트래픽 우대는 부족한 점으로 남긴다", "근거 없음", highTraffic.length === 0 ? "요구 사항을 못 찾음" : show(highTraffic.map((r) => `근거 ${r.evidence.length}건`)), highTraffic.length > 0 && highTraffic.every((r) => r.evidence.length === 0)),
     row("경력 연수만 적힌 요건(경력 3~5년)은 요구 사항으로 뽑지 않는다", "없음", show(yearsOnly.map((r) => r.text)), yearsOnly.length === 0),
+    row("입사 가능 시기·병역 같은 조건은 요구 사항으로 뽑지 않는다", "없음", show(conditions.map((r) => r.text)), conditions.length === 0),
+    row("담당 업무(주문·결제 서비스 API 개발)는 필수로 뽑지 않는다", "없거나 우대", show(dutyRequired.map((r) => `필수: ${r.text}`)), dutyRequired.length === 0),
     row("인용한 구절이 모두 원문에 있다", "모두 true", `${all.filter((r) => r.quoteFound).length}/${all.length}`, all.length > 0 && all.every((r) => r.quoteFound)),
     row("분야를 same_job으로 본다", "same_job", value.field.level, value.field.level === "same_job"),
   ];
@@ -170,7 +183,7 @@ export async function runPostingCheck(db: Db, ai: AiClient, userId: string, now:
       db,
       ai,
       userId,
-      { rawText: MATCH_SAMPLE.source, companyNote: null, jobNames: MATCH_SAMPLE.jobNames, majorName: MATCH_SAMPLE.majorName, candidates: MATCH_CANDIDATES },
+      { rawText: MATCH_SAMPLE.source, companyNote: MATCH_SAMPLE.companyNote, jobNames: MATCH_SAMPLE.jobNames, majorName: MATCH_SAMPLE.majorName, candidates: MATCH_CANDIDATES },
       now,
     );
     return result.ok ? matchRows(result.value, row) : [row("AI 호출", "성공", `실패: ${result.reason}`, false)];
