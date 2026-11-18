@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/session";
 import { EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion";
 import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } from "@/modules/postings/options";
 import { listEvidenceCandidates } from "@/modules/experiences/evidence";
+import { listQuestions } from "@/modules/applications/repo";
 import { getPosting } from "@/modules/postings/repo";
 import { fieldStale, scorePosting, usableOf } from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
@@ -24,9 +25,10 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
   if (!posting) notFound();
 
   const today = todayInKorea();
-  const [track, candidates] = await Promise.all([
+  const [track, candidates, questions] = await Promise.all([
     getTrack(db, user.id, posting.trackId),
     listEvidenceCandidates(db, user.id, posting.trackId),
+    posting.status === "apply" ? listQuestions(db, user.id, posting.id) : Promise.resolve([]),
   ]);
   const reasons = track ? exclusionReasons(posting, track, today) : [];
   // 점수는 그릴 때마다 지금의 경험 후보로 계산한다(지웠거나 확인을 풀었거나 맞댄 뒤 고친 경험은 바로 빠진다)
@@ -87,6 +89,15 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         appliedScore={posting.status === "apply" ? posting.appliedScore : null}
         candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion }))}
       />
+
+      {posting.status === "apply" && (
+        <Link
+          href={`/postings/${posting.id}/application`}
+          className="inline-block rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background"
+        >
+          {questions.length > 0 ? `자소서 쓰기 · 문항 ${questions.length}개` : "자소서 쓰기"}
+        </Link>
+      )}
 
       <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
         {facts.map(([label, value]) => (
