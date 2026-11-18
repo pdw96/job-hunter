@@ -4,12 +4,15 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion";
 import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } from "@/modules/postings/options";
+import { listEvidenceCandidates } from "@/modules/experiences/evidence";
 import { getPosting } from "@/modules/postings/repo";
+import { fieldStale, scorePosting, usableOf } from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
 import { REGIONS } from "@/modules/tracks/options";
 import { getTrack } from "@/modules/tracks/repo";
 import { deadlineLabel } from "../deadline";
 import { PostingActions } from "../posting-actions";
+import { ScoreSection } from "./score-section";
 
 const regionLabel = (id: string) => REGIONS.find((region) => region.id === id)?.label ?? id;
 
@@ -21,8 +24,16 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
   if (!posting) notFound();
 
   const today = todayInKorea();
-  const track = await getTrack(db, user.id, posting.trackId);
+  const [track, candidates] = await Promise.all([
+    getTrack(db, user.id, posting.trackId),
+    listEvidenceCandidates(db, user.id, posting.trackId),
+  ]);
   const reasons = track ? exclusionReasons(posting, track, today) : [];
+  // 점수는 그릴 때마다 지금의 경험 후보로 계산한다(지웠거나 확인을 풀었거나 맞댄 뒤 고친 경험은 바로 빠진다)
+  const score =
+    track && posting.analysis
+      ? scorePosting({ posting, track, analysis: posting.analysis, usable: usableOf(candidates) })
+      : null;
 
   const facts: [string, string][] = [
     ["트랙", track?.name ?? ""],
@@ -66,6 +77,17 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         </section>
       )}
 
+      <ScoreSection
+        id={posting.id}
+        track={track ? { id: track.id, name: track.name } : null}
+        analysis={posting.analysis}
+        score={score}
+        fieldStale={track !== null && posting.analysis !== null && fieldStale(posting.analysis, track)}
+        // 관심으로 되돌리면 지원할 때의 점수는 남겨 두되 보여 주지 않는다
+        appliedScore={posting.status === "apply" ? posting.appliedScore : null}
+        candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion }))}
+      />
+
       <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
         {facts.map(([label, value]) => (
           <div key={label} className="contents">
@@ -85,7 +107,13 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         )}
       </dl>
 
-      <PostingActions id={posting.id} status={posting.status} hasReasons={reasons.length > 0} excludeOverride={posting.excludeOverride} />
+      <PostingActions
+        id={posting.id}
+        status={posting.status}
+        hasReasons={reasons.length > 0}
+        excludeOverride={posting.excludeOverride}
+        hasAnalysis={posting.analysis !== null}
+      />
 
       <section className="space-y-2">
         <h2 className="font-semibold">공고 원문</h2>

@@ -124,6 +124,42 @@ function posting(text: string) {
   };
 }
 
+// [label] 칸을 다음 칸 [next] 앞까지 읽는다. 공고 원문 안의 "[자격요건]" 같은 제목에서 끊기지 않게 다음 칸 이름을 정해 둔다
+function sectionUntil(text: string, label: string, next: string): string {
+  const start = text.indexOf(`[${label}]\n`);
+  if (start < 0) return "";
+  const from = start + label.length + 3;
+  const end = text.indexOf(`\n\n[${next}]\n`, from);
+  const value = text.slice(from, end < 0 ? undefined : end).trim();
+  return value === "없음" ? "" : value;
+}
+
+// 공고의 요구 사항 뽑기 흉내. "자격 요건"·"[우대사항]" 같은 줄(또는 그 아래 줄)을 요구 사항으로 보고,
+// 첫 경험(E1)이 있으면 첫 요구 사항의 근거로 짚는다
+function postingMatch(text: string) {
+  const source = [sectionUntil(text, "공고 원문", "인재상·회사 소개"), sectionUntil(text, "인재상·회사 소개", "경험 기록")].join("\n");
+  const requirements: { kind: "required" | "preferred"; text: string; quote: string; evidence: unknown[] }[] = [];
+  let kind: "required" | "preferred" | null = null;
+  for (const line of source.split("\n").map((l) => l.trim()).filter(Boolean)) {
+    const bullet = /^[-•·*]\s*/.test(line);
+    const labeled = line.match(/^([^:：]{1,15})[:：]\s*(.*)$/);
+    // "자격 요건", "[자격요건]", "우대 사항: …"처럼 짧은 줄이나 "이름: 값" 줄을 제목으로 본다
+    if (!bullet && (labeled || line.length <= 15)) {
+      const label = labeled?.[1] ?? line;
+      kind = /자격\s*요건|필수/.test(label) ? "required" : /우대/.test(label) ? "preferred" : null;
+      const rest = labeled?.[2].trim() ?? "";
+      if (kind && rest) requirements.push({ kind, text: rest, quote: rest, evidence: [] });
+    } else if (kind) {
+      const item = line.replace(/^[-•·*]\s*/, "");
+      requirements.push({ kind, text: item, quote: item, evidence: [] });
+    }
+  }
+  if (requirements[0] && /^E1$/m.test(section(text, "경험 기록"))) {
+    requirements[0].evidence = [{ exp: "E1", level: "full", why: "공고의 요구 사항과 경험에서 본인이 한 일이 겹칩니다." }];
+  }
+  return { field: { level: "same_job", reason: "공고의 직무가 지원 직무와 같습니다." }, requirements };
+}
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
@@ -139,7 +175,9 @@ export const ai: AiClient = {
               ? { text: "그림상사 품질관리 담당자 채용\n경력 2년 이상, 정규직\n근무지: 대전 유성구\n접수 마감: 2026-12-10" }
               : request.purpose === "posting"
                 ? posting(text)
-              : extract(text);
+                : request.purpose === "posting_match"
+                  ? postingMatch(text)
+                  : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };
     return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };

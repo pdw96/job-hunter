@@ -1,6 +1,7 @@
 import { boolean, date, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { user } from "../auth/schema";
 import { tracks } from "../tracks/schema";
+import type { AppliedScore, PostingAnalysis } from "./analysis";
 import type { CareerType, PostingEmploymentType, PostingStatus } from "./options";
 
 // postings 모듈: 사용자가 붙여 넣은 채용 공고. 트랙 하나에 속한다
@@ -29,6 +30,8 @@ export const postings = pgTable(
     companyNote: text("company_note"), // 사용자가 더 붙여 넣은 인재상·회사 소개
     status: text("status").$type<PostingStatus>().notNull().default("interest"),
     excludeOverride: boolean("exclude_override").notNull().default(false), // 제외 사유가 있어도 진행하기로 함
+    analysis: jsonb("analysis").$type<PostingAnalysis>(), // 요구 사항 분석. 원문이나 인재상 글이 바뀌면 지운다
+    appliedScore: jsonb("applied_score").$type<AppliedScore>(), // 지원으로 정할 때의 점수. 이후 기준이 바뀌어도 그대로
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

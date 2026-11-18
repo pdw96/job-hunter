@@ -2,15 +2,28 @@ import Link from "next/link";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { daysLeft, EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion";
+import { listEvidenceCandidates } from "@/modules/experiences/evidence";
+import type { PostingScore } from "@/modules/postings/analysis";
 import { POSTING_STATUS_LABELS } from "@/modules/postings/options";
-import { countPostings, listPostings } from "@/modules/postings/repo";
+import { countPostings, listPostings, sortByScore } from "@/modules/postings/repo";
+import { scorePosting, usableOf } from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
 import { getTrack, listTracks } from "@/modules/tracks/repo";
 import { deadlineLabel } from "./deadline";
 
-export default async function PostingsPage({ searchParams }: { searchParams: Promise<{ track?: string }> }) {
+const SORTS = [
+  { id: "deadline", label: "마감순" },
+  { id: "desire", label: "원하는 정도순" },
+  { id: "fit", label: "자격순" },
+] as const;
+type Sort = (typeof SORTS)[number]["id"];
+
+// 목록은 짧게 보이므로 매길 수 없는 점수는 "–"로 둔다("원하는 알 수 없음"처럼 어색해지지 않게)
+const scoreText = (value: number | null) => (value === null ? "–" : String(value));
+
+export default async function PostingsPage({ searchParams }: { searchParams: Promise<{ track?: string; sort?: string }> }) {
   const user = await requireUser();
-  const [{ track: wanted }, tracks, counts] = await Promise.all([searchParams, listTracks(db, user.id), countPostings(db, user.id)]);
+  const [{ track: wanted, sort: wantedSort }, tracks, counts] = await Promise.all([searchParams, listTracks(db, user.id), countPostings(db, user.id)]);
 
   if (tracks.length === 0) {
     return (
@@ -26,7 +39,21 @@ export default async function PostingsPage({ searchParams }: { searchParams: Pro
 
   const today = todayInKorea();
   const current = tracks.find((track) => track.id === wanted) ?? tracks[0];
-  const [track, postings] = await Promise.all([getTrack(db, user.id, current.id), listPostings(db, user.id, current.id, today)]);
+  const sort: Sort = SORTS.find((item) => item.id === wantedSort)?.id ?? "deadline";
+  // 경험 후보는 트랙마다 한 번만 읽고, 점수는 공고마다 지금의 후보로 계산한다
+  const [track, byDeadline, candidates] = await Promise.all([
+    getTrack(db, user.id, current.id),
+    listPostings(db, user.id, current.id, today),
+    listEvidenceCandidates(db, user.id, current.id),
+  ]);
+  const usable = usableOf(candidates);
+  const scores = new Map<string, PostingScore>();
+  if (track) {
+    for (const posting of byDeadline) {
+      if (posting.analysis) scores.set(posting.id, scorePosting({ posting, track, analysis: posting.analysis, usable }));
+    }
+  }
+  const postings = sort === "deadline" ? byDeadline : sortByScore(byDeadline, sort, scores, today);
 
   return (
     <div className="space-y-6">
@@ -57,6 +84,21 @@ export default async function PostingsPage({ searchParams }: { searchParams: Pro
         </nav>
       )}
 
+      {postings.length > 1 && (
+        <nav className="flex flex-wrap gap-3 text-sm" aria-label="정렬">
+          {SORTS.map((item) => (
+            <Link
+              key={item.id}
+              href={`/postings?track=${current.id}${item.id === "deadline" ? "" : `&sort=${item.id}`}`}
+              aria-current={item.id === sort ? "page" : undefined}
+              className={item.id === sort ? "font-semibold" : "text-foreground/60 underline"}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+      )}
+
       {postings.length === 0 ? (
         <p className="text-sm text-foreground/70">
           아직 넣은 공고가 없습니다. 채용 사이트에서 공고 글을 복사해 넣으면, 회사명과 마감일 같은 값을 뽑아 정리합니다
@@ -66,6 +108,7 @@ export default async function PostingsPage({ searchParams }: { searchParams: Pro
           {postings.map((posting) => {
             const reasons = track ? exclusionReasons(posting, track, today) : [];
             const left = daysLeft(posting.deadline, today);
+            const score = scores.get(posting.id);
             return (
               <li key={posting.id}>
                 <Link href={`/postings/${posting.id}`} className="block space-y-1 py-3">
@@ -76,7 +119,12 @@ export default async function PostingsPage({ searchParams }: { searchParams: Pro
                       {deadlineLabel(posting.deadline, posting.isRolling, today)}
                     </span>
                   </div>
-                  <div className="flex flex-wrap gap-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {score && (
+                      <span className="text-foreground/70">
+                        원하는 {scoreText(score.desire)} · 자격 {scoreText(score.fit)}
+                      </span>
+                    )}
                     {posting.status !== "interest" && (
                       <span className="rounded-full border border-foreground/20 px-2 py-0.5">
                         {POSTING_STATUS_LABELS[posting.status]}
