@@ -27,6 +27,9 @@ export type WriteInput = {
   sources: WritingSource[]; // 승인한 경험
 };
 
+// 글자(코드 포인트) 단위로 자른다. 이모지가 반으로 잘리지 않는다
+const cut = (text: string, max: number) => [...text].slice(0, max).join("");
+
 const PRESET_TEXT: Record<RevisePreset, string> = {
   shorter: "더 짧게",
   concrete: "더 구체적으로(기록에 있는 내용 안에서)",
@@ -57,7 +60,7 @@ function cleanParagraph(text: string, aliases: string[], sources: WritingSource[
     const id = byAlias.get(alias.trim());
     if (id) ids.add(id);
   }
-  return { text: text.trim().slice(0, APPLICATION_LIMITS.paragraph), sources: [...ids] };
+  return { text: cut(text.trim(), APPLICATION_LIMITS.paragraph), sources: [...ids] };
 }
 
 // 저장하지 않는다. 프롬프트 점검도 이것을 쓴다
@@ -89,7 +92,7 @@ export async function writeText(
     .filter((p) => p.text !== "")
     .slice(0, APPLICATION_LIMITS.paragraphs)
     .map((p) => ({ ...p, edited: false }));
-  return { ok: true, value: { paragraphs, shortage: result.value.shortage.trim().slice(0, APPLICATION_LIMITS.shortage) } };
+  return { ok: true, value: { paragraphs, shortage: cut(result.value.shortage.trim(), APPLICATION_LIMITS.shortage) } };
 }
 
 const sameRef = (a: SourceRef, b: SourceRef) => a.experienceId === b.experienceId && a.contentVersion === b.contentVersion;
@@ -172,7 +175,7 @@ export async function reviseParagraph(
   expected: Draft,
   now: Date = new Date(),
 ): Promise<{ ok: true; value: Draft } | { ok: false; reason: WriteFailure | "empty_request" }> {
-  const note = request.note.trim().slice(0, APPLICATION_LIMITS.note);
+  const note = cut(request.note.trim(), APPLICATION_LIMITS.note);
   if (!request.preset && note === "") return { ok: false, reason: "empty_request" };
 
   const question = await getQuestion(db, userId, questionId);
@@ -246,7 +249,7 @@ export async function editParagraph(
   expected: Draft,
   now: Date = new Date(),
 ): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "changed" | "too_long" }> {
-  void now;
+  void now; // 다른 함수와 서명을 맞추려고 남겨 둔다(저장 시각은 replaceDraft가 정한다)
   const trimmed = text.trim();
   if ([...trimmed].length > APPLICATION_LIMITS.paragraph) return { ok: false, reason: "too_long" };
 

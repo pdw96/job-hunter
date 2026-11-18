@@ -6,7 +6,7 @@ import { createFakeAi } from "@/modules/ai/fake-client";
 import { aiUsage } from "@/modules/ai/schema";
 import { user } from "@/modules/auth/schema";
 import type { ExperienceInput } from "@/modules/experiences/input";
-import { confirmExperience, createExperience, setTrackScope, updateExperience } from "@/modules/experiences/repo";
+import { confirmExperience, createExperience, setTrackScope, unconfirmExperience, updateExperience } from "@/modules/experiences/repo";
 import { experiences } from "@/modules/experiences/schema";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { validatePosting } from "@/modules/postings/input";
@@ -403,7 +403,7 @@ test("쓰는 사이 문항 글을 고치면 changed이고 저장하지 않는다
     },
   ]);
   const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
-  expect(result.ok).toBe(false);
+  expect(result).toEqual({ ok: false, reason: "changed" });
   expect((await getQuestion(db, "u1", questionId))?.draft).toBeNull();
 });
 
@@ -534,4 +534,23 @@ test("지원이 아니게 된 공고의 답도 직접 고칠 수 있다", async 
   const q = await getQuestion(db, "u1", questionId);
   await setStatus(db, "u1", q!.postingId, "hold");
   expect((await editParagraph(db, "u1", questionId, 0, "보류 뒤 수정", draft, now)).ok).toBe(true);
+});
+
+test("승인한 경험의 확인을 풀고 같은 경험으로 다시 쓰면 stale이고 AI를 부르지 않는다", async () => {
+  const { expId, questionId } = await written();
+  await unconfirmExperience(db, "u1", expId);
+  const ai = createFakeAi([writeReply()]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [expId], now)).toEqual({ ok: false, reason: "stale" });
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("1999자 뒤에 이모지가 오는 문단도 코드 포인트 2000자 안으로 저장된다", async () => {
+  const { expId, questionId } = await ready();
+  const ai = createFakeAi([writeReply({ paragraphs: [{ text: `${"가".repeat(1999)}😀뒤에 더 있는 글`, sources: ["E1"] }], shortage: `${"나".repeat(499)}😀더` })]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect([...result.value.paragraphs[0].text]).toHaveLength(2000);
+  expect(result.value.paragraphs[0].text.endsWith("😀")).toBe(true);
+  expect([...result.value.shortage]).toHaveLength(500);
 });
