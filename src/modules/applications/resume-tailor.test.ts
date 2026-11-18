@@ -182,6 +182,54 @@ test("강조 후보로는 공통본에 있는 사용 경험만 가고, 요약만
   expect((await db.select().from(aiUsage)).map((r) => r.purpose).sort()).toEqual(["resume_emphasis", "resume_write"]);
 });
 
+test("학력·자격 경험은 강조 후보로 AI에 보내지 않고, 직접 고르면 buildTailored는 받아 준다", async () => {
+  const a = await addExperience({ name: "경험A", startMonth: "2023-03" });
+  const school = await addExperience({ name: "한국대학교 졸업", kind: "school", startMonth: "2015-03" });
+  const cert = await addExperience({ name: "정보처리기사", kind: "certificate", startMonth: "2020-03" });
+  const made = await startCommonResume(
+    db,
+    createFakeAi([lineReply(["E1", ["A 공통1"]], ["E2", ["자격 공통1"]], ["E3", ["학력 공통1"]])]),
+    "u1",
+    trackId,
+    now,
+  );
+  if (!made.ok) throw new Error(made.reason);
+  const postingId = await addPosting();
+  const ai = createFakeAi([pickReply(["E1", "공고의 Java 경력과 경험A가 겹칩니다"])]);
+
+  const result = await selectEmphasis(db, ai, "u1", postingId, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain("- 이름: 경험A");
+  expect(sent).not.toContain("한국대학교 졸업");
+  expect(sent).not.toContain("정보처리기사");
+  expect(sent.match(/^E\d+$/gm)).toEqual(["E1"]);
+  expect(result.value.picks.map((p) => p.experienceId)).toEqual([a]);
+
+  // 직접 체크한 학력·자격은 그대로 강조로 받는다
+  const row = await getTailoredResume(db, "u1", postingId);
+  const built = await buildTailored(db, createFakeAi([lineReply(["E1", ["학력 맞춤"]], ["E2", ["자격 맞춤"]])]), "u1", postingId, [school, cert], row!.version, now);
+  if (!built.ok) throw new Error(built.reason);
+  const byId = new Map(built.value.entries.map((e) => [e.experienceId, e]));
+  expect(byId.get(school)?.emphasized).toBe(true);
+  expect(byId.get(cert)?.emphasized).toBe(true);
+});
+
+test("공통본에 학력·자격만 있으면 AI를 부르지 않고 noMatch", async () => {
+  await addExperience({ name: "한국대학교 졸업", kind: "school" });
+  const made = await startCommonResume(db, createFakeAi([lineReply(["E1", ["학력 공통1"]])]), "u1", trackId, now);
+  if (!made.ok) throw new Error(made.reason);
+  const postingId = await addPosting();
+  const ai = createFakeAi([]);
+
+  const result = await selectEmphasis(db, ai, "u1", postingId, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.noMatch).toBe(true);
+  expect(ai.requests.length).toBe(0);
+});
+
 test("후보가 없으면 AI를 부르지 않고 noMatch", async () => {
   const ai = createFakeAi([]);
   const result = await emphasisText(db, ai, "u1", { postingText: "공고", requirements: [], sources: [] }, now);
