@@ -8,7 +8,7 @@ import { RESUME_LIMITS } from "./options";
 import { RESUME_WRITE_SYSTEM } from "./prompts";
 import { cleanLines, buildEntry, detailFor, upsertEntries } from "./resume-entries";
 import { getCommonResume, getResume, insertCommonResume, saveResumeContent } from "./resume-repo";
-import { describeSource, postingTextOf } from "./select";
+import { describeSource, postingTextOf, requirementsOf } from "./select";
 import type { ResumeContent, ResumeDetail } from "./types";
 
 // 확인된 경험으로 이력서 줄을 쓴다. 머리(이름·소속·역할·기간)는 코드가 기록에서 만들고, AI는 줄만 쓴다.
@@ -50,7 +50,7 @@ export async function writeResumeLines(
 }
 
 // answered: AI가 답에 적은 경험 id (빠뜨린 경험과 가르려고 쓴다)
-async function writeLines(
+export async function writeLines(
   db: Db,
   ai: AiClient,
   userId: string,
@@ -166,7 +166,7 @@ export async function rewriteEntries(
   });
   const context: ResumePostingContext | null =
     posting && requests.some((r) => r.emphasize)
-      ? { text: postingTextOf(posting), requirements: posting.analysis?.requirements.map((r) => r.text) ?? [] }
+      ? { text: postingTextOf(posting), requirements: requirementsOf(posting) }
       : null;
 
   const written = await writeLines(db, ai, userId, { requests, posting: context }, now);

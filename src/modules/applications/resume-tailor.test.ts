@@ -258,6 +258,28 @@ test("고른 경험은 섹션 맨 위로 순서대로 오고 공고 문맥과 �
   expect(row?.content?.entries.map((e) => e.experienceId)).toEqual([c, b, a]);
 });
 
+test("AI가 답에서 뺀 경험은 공통본 항목(고친 줄 포함)을 그대로 두고 강조만 켜며 체크 순서를 지킨다", async () => {
+  const { a, b, c, commonId } = await commonWithThree();
+  const common = await getResume(db, "u1", commonId);
+  const edited = {
+    ...common!.content!,
+    entries: common!.content!.entries.map((e) => (e.experienceId === b ? { ...e, lines: [{ text: "내가 고친 줄", edited: true }] } : e)),
+  };
+  const saved = await saveResumeContent(db, "u1", commonId, edited, common!.version);
+  if (!saved.ok) throw new Error(saved.reason);
+  const postingId = await addPosting();
+  // 체크 순서 C, B. AI는 E1(C)만 답한다
+  const ai = createFakeAi([lineReply(["E1", ["C 맞춤"]])]);
+
+  const result = await buildTailored(db, ai, "u1", postingId, [c, b], null, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.entries.map((e) => e.experienceId)).toEqual([c, b, a]);
+  const byId = new Map(result.value.entries.map((e) => [e.experienceId, e]));
+  expect(byId.get(c)?.lines).toEqual([{ text: "C 맞춤", edited: false }]);
+  expect(byId.get(b)).toMatchObject({ emphasized: true, lines: [{ text: "내가 고친 줄", edited: true }] });
+});
+
 test("요약만 경험을 직접 올리면 자세히 분량으로 쓰이고, 쓸 수 없는 id는 버린다", async () => {
   const { b } = await commonWithThree({ b: "summary" });
   const excluded = await addExperience({ name: "제외 경험", startMonth: "2019-03" });

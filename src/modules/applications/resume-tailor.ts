@@ -8,8 +8,8 @@ import { RESUME_LIMITS } from "./options";
 import { RESUME_EMPHASIS_SYSTEM } from "./prompts";
 import { buildEntry, emphasize } from "./resume-entries";
 import { getCommonResume, getTailoredResume, saveTailoredContent, saveTailoredSelection } from "./resume-repo";
-import { writeResumeLines } from "./resume-write";
-import { describeSource, grounded, postingTextOf } from "./select";
+import { writeLines } from "./resume-write";
+import { describeSource, grounded, postingTextOf, requirementsOf } from "./select";
 import { cut } from "./text";
 import type { EmphasisPick, ResumeContent, ResumeSelection } from "./types";
 
@@ -106,7 +106,7 @@ export async function selectEmphasis(
     db,
     ai,
     userId,
-    { postingText: postingTextOf(posting), requirements: posting.analysis?.requirements.map((r) => r.text) ?? [], sources },
+    { postingText: postingTextOf(posting), requirements: requirementsOf(posting), sources },
     now,
   );
   if (!selected.ok) return selected;
@@ -145,19 +145,25 @@ export async function buildTailored(
     return saved.ok ? { ok: true, value: content } : saved;
   }
 
-  const written = await writeResumeLines(
+  const written = await writeLines(
     db,
     ai,
     userId,
     {
       requests: chosen.map((source) => ({ source, detail: "full" as const, emphasize: true })),
-      posting: { text: postingTextOf(posting), requirements: posting.analysis?.requirements.map((r) => r.text) ?? [] },
+      posting: { text: postingTextOf(posting), requirements: requirementsOf(posting) },
     },
     now,
   );
   if (!written.ok) return written;
 
-  const entries = chosen.map((s) => buildEntry(s, "full", true, written.value[s.id] ?? [], now));
+  // AI가 답에서 뺀 경험은 공통본 항목을 그대로 두고 강조만 켠다(줄을 비우지 않는다)
+  const inCommon = new Map(commonContent.entries.map((e) => [e.experienceId, e]));
+  const entries = chosen.map((s) => {
+    const kept = inCommon.get(s.id);
+    if (kept && !written.answered.has(s.id)) return { ...kept, emphasized: true };
+    return buildEntry(s, "full", true, written.value[s.id] ?? [], now);
+  });
   const content = emphasize(commonContent, entries, common.version);
   const saved = await saveTailoredContent(db, userId, postingId, trackId, content, expectedVersion);
   return saved.ok ? { ok: true, value: content } : saved;
