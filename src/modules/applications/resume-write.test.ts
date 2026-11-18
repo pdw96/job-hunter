@@ -396,3 +396,50 @@ test("writeResumeLines는 요청의 별명을 경험 id로 바꿔 돌려준다",
   const result = await writeResumeLines(db, ai, "u1", { requests: [{ source, detail: "full", emphasize: false }], posting: null }, now);
   expect(result).toEqual({ ok: true, value: { [id]: ["줄"] } });
 });
+
+test("새 항목은 40개까지만 받고(목록 순서대로) 있는 항목은 모두 다시 쓸 수 있다", async () => {
+  const { a, id, resume } = await commonWithTwo();
+  const fresh: string[] = [];
+  for (let i = 0; i < 40; i++) fresh.push(await addExperience({ name: `새${i}`, startMonth: `2024-${String((i % 12) + 1).padStart(2, "0")}` }));
+  const ai = createFakeAi([
+    (req: { messages: { text: string }[] }) => {
+      const sent = req.messages[0].text;
+      const count = (sent.match(/^E\d+$/gm) ?? []).length;
+      return { entries: Array.from({ length: count }, (_, i) => ({ exp: `E${i + 1}`, lines: ["줄"] })) };
+    },
+  ]);
+
+  const result = await rewriteEntries(db, ai, "u1", id, [...fresh.reverse(), a], resume.version, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.entries).toHaveLength(40);
+  const sent = ai.requests[0].messages[0].text;
+  expect((sent.match(/^E\d+$/gm) ?? []).length).toBe(39); // 있는 A 하나 + 새 38개
+  const listed = (await listResumeSources(db, "u1", trackId)).filter((s) => fresh.includes(s.id)).slice(0, 38).map((s) => s.id);
+  const stored = new Set(result.value.entries.map((e) => e.experienceId));
+  for (const f of listed) expect(stored.has(f)).toBe(true);
+
+  // 자리가 없으면 새 경험만 보낼 때 none_selected이고 AI를 부르지 않는다
+  const left = fresh.find((f) => !stored.has(f));
+  const again = createFakeAi([]);
+  expect(await rewriteEntries(db, again, "u1", id, [left!], (await getResume(db, "u1", id))!.version, now)).toEqual({ ok: false, reason: "none_selected" });
+  expect(again.requests.length).toBe(0);
+});
+
+test("AI가 다시 쓰는 기존 항목의 별명을 빠뜨리면 그 항목은 그대로 둔다", async () => {
+  const { a, b, id, resume } = await commonWithTwo();
+  const edited: ResumeContent = {
+    ...resume.content!,
+    entries: resume.content!.entries.map((e) => (e.experienceId === a ? { ...e, lines: [{ text: "내가 고친 줄", edited: true }] } : e)),
+  };
+  const saved = await saveResumeContent(db, "u1", id, edited, resume.version);
+  if (!saved.ok) throw new Error(saved.reason);
+  const ai = createFakeAi([reply(["E2", ["B 새 줄"]])]); // E1(A)을 빠뜨림
+
+  const result = await rewriteEntries(db, ai, "u1", id, [a, b], saved.version, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  const byId = new Map(result.value.entries.map((e) => [e.experienceId, e]));
+  expect(byId.get(a)?.lines).toEqual([{ text: "내가 고친 줄", edited: true }]);
+  expect(byId.get(b)?.lines).toEqual([{ text: "B 새 줄", edited: false }]);
+});

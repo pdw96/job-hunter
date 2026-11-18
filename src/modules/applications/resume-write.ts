@@ -45,7 +45,19 @@ export async function writeResumeLines(
   input: { requests: LineRequest[]; posting: ResumePostingContext | null },
   now: Date = new Date(),
 ): Promise<{ ok: true; value: Record<string, string[]> } | { ok: false; reason: "over_limit" | AiFailure }> {
-  if (input.requests.length === 0) return { ok: true, value: {} };
+  const result = await writeLines(db, ai, userId, input, now);
+  return result.ok ? { ok: true, value: result.value } : result;
+}
+
+// answered: AI가 답에 적은 경험 id (빠뜨린 경험과 가르려고 쓴다)
+async function writeLines(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  input: { requests: LineRequest[]; posting: ResumePostingContext | null },
+  now: Date = new Date(),
+): Promise<{ ok: true; value: Record<string, string[]>; answered: Set<string> } | { ok: false; reason: "over_limit" | AiFailure }> {
+  if (input.requests.length === 0) return { ok: true, value: {}, answered: new Set() };
 
   const result = await runAi(
     db,
@@ -77,8 +89,9 @@ export async function writeResumeLines(
     value[request.source.id] = cleanLines(item.lines, maxLines(request.detail));
   }
   if (matched === 0) return { ok: false, reason: "invalid" };
+  const answered = new Set(Object.keys(value));
   for (const { source } of input.requests) value[source.id] ??= [];
-  return { ok: true, value };
+  return { ok: true, value, answered };
 }
 
 // 트랙의 확인된 경험(사용·요약만)으로 공통본을 처음 만든다. 이미 있으면 exists
@@ -135,10 +148,16 @@ export async function rewriteEntries(
   // 화면이 보낸 id 중 지금 쓸 수 있는 경험만 받는다
   const listed = await listResumeSources(db, userId, resume.trackId);
   const byId = new Map(listed.map((s) => [s.id, s]));
-  const sources = [...new Set(experienceIds)].flatMap((id) => byId.get(id) ?? []);
+  const existing = new Map(content.entries.map((e) => [e.experienceId, e]));
+  // 있는 항목은 모두 다시 쓸 수 있고, 새 항목은 40개까지 남은 자리만큼만 받는다(목록 순서대로)
+  const wanted = new Set(experienceIds.filter((id) => byId.has(id)));
+  const room = Math.max(0, RESUME_LIMITS.entries - content.entries.length);
+  const sources = [
+    ...listed.filter((s) => wanted.has(s.id) && existing.has(s.id)),
+    ...listed.filter((s) => wanted.has(s.id) && !existing.has(s.id)).slice(0, room),
+  ];
   if (sources.length === 0) return { ok: false, reason: "none_selected" };
 
-  const existing = new Map(content.entries.map((e) => [e.experienceId, e]));
   const requests: LineRequest[] = sources.map((source) => {
     const entry = existing.get(source.id);
     // 공통본은 지금의 범위로, 맞춤본의 있는 항목은 그 항목의 분량으로 쓴다
@@ -150,10 +169,13 @@ export async function rewriteEntries(
       ? { text: postingTextOf(posting), requirements: posting.analysis?.requirements.map((r) => r.text) ?? [] }
       : null;
 
-  const written = await writeResumeLines(db, ai, userId, { requests, posting: context }, now);
-  if (!written.ok) return written;
+  const written = await writeLines(db, ai, userId, { requests, posting: context }, now);
+  if (!written.ok) return { ok: false, reason: written.reason };
 
-  const entries = requests.map((r) => buildEntry(r.source, r.detail, r.emphasize, written.value[r.source.id] ?? [], now));
+  // AI가 답에서 뺀 기존 항목은 그대로 둔다(줄을 비우지 않는다). 새 항목은 빈 줄로 넣는다
+  const entries = requests
+    .filter((r) => written.answered.has(r.source.id) || !existing.has(r.source.id))
+    .map((r) => buildEntry(r.source, r.detail, r.emphasize, written.value[r.source.id] ?? [], now));
   const next = upsertEntries(content, entries);
   const saved = await saveResumeContent(db, userId, resumeId, next, expectedVersion);
   return saved.ok ? { ok: true, value: next } : saved;
