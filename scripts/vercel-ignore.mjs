@@ -16,8 +16,10 @@ export function shouldSkipBuild(files) {
   return files.length > 0 && files.every((file) => IGNORABLE.some((pattern) => pattern.test(file)));
 }
 
-function changedFiles(previous) {
-  const out = execFileSync("git", ["diff", "--name-only", previous, "HEAD"], { encoding: "utf8" });
+// 지난 배포 커밋과 지금 사이에 바뀐 파일. 이름 바꾸기로 보면 옮기기 전 경로가 빠지므로(앱 파일을 docs/로 옮기면
+// 옮긴 경로만 보여 건너뛰게 된다) 이름 바꾸기를 지우기 + 더하기로 본다
+export function changedFiles(previous, cwd = process.cwd()) {
+  const out = execFileSync("git", ["diff", "--name-only", "--no-renames", previous, "HEAD"], { cwd, encoding: "utf8" });
   return out.split("\n").filter((line) => line.trim() !== "");
 }
 

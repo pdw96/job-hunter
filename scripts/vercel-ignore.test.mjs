@@ -1,5 +1,35 @@
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { shouldSkipBuild } from "./vercel-ignore.mjs";
+import { changedFiles, shouldSkipBuild } from "./vercel-ignore.mjs";
+
+describe("changedFiles", () => {
+  test("앱 파일을 docs/로 옮기면 옮기기 전 경로도 바뀐 파일로 센다", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vercel-ignore-"));
+    const git = (...args) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: dir, encoding: "utf8" }).trim();
+    try {
+      git("init", "-q");
+      mkdirSync(join(dir, "src"));
+      mkdirSync(join(dir, "docs"));
+      writeFileSync(join(dir, "src/page.tsx"), "export default function Page() { return null; }\n");
+      git("add", "-A");
+      git("commit", "-q", "-m", "first");
+      const previous = git("rev-parse", "HEAD");
+      renameSync(join(dir, "src/page.tsx"), join(dir, "docs/retired-page.tsx"));
+      git("add", "-A");
+      git("commit", "-q", "-m", "move");
+
+      const files = changedFiles(previous, dir);
+      expect(files).toContain("src/page.tsx");
+      expect(shouldSkipBuild(files)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("shouldSkipBuild", () => {
   test("문서, .claude, .github, 테스트만 바뀌면 건너뛴다", () => {
