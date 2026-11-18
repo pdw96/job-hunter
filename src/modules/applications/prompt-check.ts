@@ -55,7 +55,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
   const failed = (checks: string[], reason: string) => checks.map((check) => row(check, "AI 호출 성공", `실패: ${reason}`, false));
   const postingText = FULL_POSTING.source;
 
-  const selectChecks = ["①을 고른다", "②를 고르지 않는다", "추천 근거에 기록에 없는 숫자가 없다"];
+  const selectChecks = ["①을 고른다", "②를 고르지 않는다", "추천 근거가 비지 않는다(기록에 없는 숫자나 빈 답으로 지워지지 않음)"];
   const writeChecks = [
     "쓰면 안 되는 표현이 없다",
     "기록에 없는 숫자가 없다",
@@ -76,7 +76,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     if (!result.ok) return failed(selectChecks, result.reason);
     const { picks } = result.value;
     const picked = (id: string) => picks.some((pick) => pick.experienceId === id);
-    // 기록에 없는 숫자가 든 문장은 selectText가 비워 두므로, 비워진 칸이 있으면 지어낸 숫자가 있었다는 뜻이다
+    // 기록에 없는 숫자가 든 문장(과 빈 답)은 selectText가 비워 두므로, 비워진 칸이 있으면 근거를 제대로 쓰지 못한 것이다
     const blanked = picks.flatMap((pick) => {
       const name = SAMPLE_SOURCES.find((s) => s.id === pick.experienceId)?.name ?? pick.experienceId;
       return (["overlap", "role"] as const).filter((field) => pick[field] === "").map((field) => `${name} ${field}`);

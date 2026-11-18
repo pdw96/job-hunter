@@ -38,7 +38,7 @@ test("맞는 답이면 모든 줄이 통과한다", async () => {
   expect(ai.requests).toHaveLength(2);
 });
 
-test("쓰기에는 ①만 보내고 연락처 같은 값은 보내지 않는다", async () => {
+test("쓰기에는 ①의 내용만 보내고 ②와 내부 id는 보내지 않는다", async () => {
   const ai = answering();
   await runApplicationCheck(db, ai, "admin");
   const writeRequest = ai.requests.find((r) => r.purpose === "application_write");
@@ -105,6 +105,6 @@ test("추천 근거에 지어낸 숫자가 있어 비워지면 그 줄만 실패
   const bad = { ...select, picks: [{ ...select.picks[0], overlap: "응답 시간을 90% 줄인 경험이 공고와 겹친다" }] };
   const rows = await runApplicationCheck(db, answering(bad), "admin");
   const failedRows = rows.filter((row) => !row.pass);
-  expect(failedRows.map((row) => row.check)).toEqual(["추천 근거에 기록에 없는 숫자가 없다"]);
+  expect(failedRows.map((row) => row.check)).toEqual(["추천 근거가 비지 않는다(기록에 없는 숫자나 빈 답으로 지워지지 않음)"]);
   expect(failedRows[0].actual).toBe("비워짐: 주문 조회 API 개선 overlap");
 });
