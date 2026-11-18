@@ -9,7 +9,7 @@ import { validateQuestion } from "./input";
 import { addQuestions, deleteQuestion, getQuestion, updateQuestion } from "./repo";
 import { selectForQuestion } from "./select";
 import type { Draft } from "./types";
-import { approveAndWrite, editParagraph, type RevisePreset, reviseParagraph } from "./write";
+import { approveAndWrite, editParagraph, type RevisePreset, reviseParagraph, writeManually } from "./write";
 
 // 모든 액션은 requireUser()로 얻은 userId만 쓴다. 끝나면 자소서 화면을 다시 그리게 한다.
 // 화면에서 받은 값(문항 글, 경험 id, expected 답)은 검사하거나 서버가 읽은 값과 비교하는 데만 쓰고 그대로 저장하지 않는다.
@@ -26,6 +26,7 @@ const MESSAGES = {
   too_many: "문항은 공고마다 10개까지 넣을 수 있습니다",
   empty_request: "고칠 방향을 골라 주세요",
   too_long: "문단은 2000자까지 쓸 수 있습니다",
+  empty: "답을 적어 주세요",
 } as const;
 
 // 이 기능용 AI 실패 문구
@@ -151,6 +152,20 @@ export async function editParagraphAction(id: string, index: number, text: strin
   if (typeof id !== "string" || typeof text !== "string") return fail("not_found");
   const result = await editParagraph(db, user.id, id, index, text, expected);
   if (!result.ok) return fail(result.reason);
+  await refreshOf(user.id, id);
+  return { ok: true };
+}
+
+// 답을 직접 써서 처음 저장한다(AI를 부르지 않는다). 문단은 빈 줄로 나눈다
+export async function writeManuallyAction(id: string, text: string): Promise<Result> {
+  const user = await requireUser();
+  if (typeof id !== "string" || typeof text !== "string") return fail("not_found");
+  const result = await writeManually(db, user.id, id, text);
+  if (!result.ok) {
+    return result.reason === "too_long"
+      ? { ok: false, message: "문단은 10개, 문단마다 2000자까지 쓸 수 있습니다" }
+      : fail(result.reason);
+  }
   await refreshOf(user.id, id);
   return { ok: true };
 }

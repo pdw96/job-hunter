@@ -199,3 +199,13 @@ export async function replaceDraft(db: Db, userId: string, id: string, expected:
     .returning({ id: questions.id });
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
 }
+
+// 답이 아직 없을 때만 처음 쓴 답(직접 쓰기)을 저장한다. 그사이 답이 생겼으면 changed
+export async function createDraft(db: Db, userId: string, id: string, draft: Draft): Promise<Stale> {
+  const updated = await db
+    .update(questions)
+    .set({ draft, updatedAt: new Date() })
+    .where(and(mine(userId, id), isNull(questions.draft)))
+    .returning({ id: questions.id });
+  return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
+}

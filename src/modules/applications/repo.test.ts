@@ -11,6 +11,7 @@ import { APPLICATION_LIMITS } from "./options";
 import {
   addQuestions,
   approveSelection,
+  createDraft,
   deleteQuestion,
   getQuestion,
   listQuestions,
@@ -315,4 +316,15 @@ test("공고를 지우면 문항도 지워진다", async () => {
   const { postingId, id } = await oneQuestion();
   expect(await deletePosting(db, "u1", postingId)).toEqual({ ok: true });
   expect(await getQuestion(db, "u1", id)).toBeNull();
+});
+
+test("createDraft는 답이 없을 때만 저장하고, 있으면 changed, 남의 문항이면 not_found", async () => {
+  const { id } = await oneQuestion();
+  const d1 = draft(0, { basedOn: [], paragraphs: [{ text: "직접 쓴 글", sources: [], edited: true }] });
+  expect(await createDraft(db, "u2", id, d1)).toEqual({ ok: false, reason: "not_found" });
+  expect((await getQuestion(db, "u1", id))?.draft).toBeNull();
+  expect(await createDraft(db, "u1", "없는-문항", d1)).toEqual({ ok: false, reason: "not_found" });
+  expect(await createDraft(db, "u1", id, d1)).toEqual({ ok: true });
+  expect(await createDraft(db, "u1", id, draft(0, { shortage: "x" }))).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", id))?.draft).toEqual(d1);
 });

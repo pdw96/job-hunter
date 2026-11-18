@@ -5,7 +5,7 @@ import { listWritingSources, type WritingSource } from "@/modules/experiences/wr
 import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
-import { approveSelection, getQuestion, replaceDraft, saveDraft } from "./repo";
+import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
@@ -271,4 +271,40 @@ export async function editParagraph(
   const next: Draft = { ...stored, paragraphs };
   const saved = await replaceDraft(db, userId, questionId, expected, next);
   return saved.ok ? { ok: true, value: next } : saved;
+}
+
+// AI 없이 직접 쓴 답을 처음 저장한다(AI 한도와 상관없다). 빈 줄로 문단을 나누고 모든 문단은 직접 쓴 것(edited)이다.
+// 이미 답이 있으면 덮어쓰지 않고 changed
+export async function writeManually(
+  db: Db,
+  userId: string,
+  questionId: string,
+  text: string,
+  now: Date = new Date(),
+): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "not_apply" | "changed" | "empty" | "too_long" }> {
+  const parts = text
+    .trim()
+    .split(/\n[^\S\n]*\n\s*/u)
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+  if (parts.length === 0) return { ok: false, reason: "empty" };
+  if (parts.length > APPLICATION_LIMITS.paragraphs || parts.some((part) => [...part].length > APPLICATION_LIMITS.paragraph)) {
+    return { ok: false, reason: "too_long" };
+  }
+
+  const question = await getQuestion(db, userId, questionId);
+  if (!question) return { ok: false, reason: "not_found" };
+  const posting = await getPosting(db, userId, question.postingId);
+  if (!posting) return { ok: false, reason: "not_found" };
+  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+
+  const draft: Draft = {
+    questionVersion: question.version,
+    basedOn: question.selection?.approved ?? [],
+    paragraphs: parts.map((part) => ({ text: part, sources: [], edited: true })),
+    shortage: "",
+    writtenAt: now.toISOString(),
+  };
+  const saved = await createDraft(db, userId, questionId, draft);
+  return saved.ok ? { ok: true, value: draft } : saved;
 }

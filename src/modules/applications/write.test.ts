@@ -15,12 +15,12 @@ import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus } fr
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { listWritingSources } from "@/modules/experiences/writing";
-import { addQuestions, getQuestion, saveSelection, updateQuestion } from "./repo";
+import { addQuestions, approveSelection, getQuestion, saveSelection, updateQuestion } from "./repo";
 import { checkDraft } from "./check";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { selectForQuestion } from "./select";
 import type { Draft } from "./types";
-import { approveAndWrite, editParagraph, reviseParagraph, writeText } from "./write";
+import { approveAndWrite, editParagraph, reviseParagraph, writeManually, writeText } from "./write";
 
 let db: Db;
 let trackId: string;
@@ -575,4 +575,60 @@ test("직접 고치기: 지원이 아니면 not_apply이고 답은 그대로다"
   await setStatus(db, "u1", q!.postingId, "hold");
   expect(await editParagraph(db, "u1", questionId, 0, "고친 글", draft, now)).toEqual({ ok: false, reason: "not_apply" });
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
+});
+
+test("직접 쓰기: 빈 줄로 문단을 나눠 직접 쓴 문단으로 저장하고, 승인한 경험을 basedOn으로 하며 AI를 부르지 않는다", async () => {
+  const { expId, questionId } = await ready();
+  const selected = (await getQuestion(db, "u1", questionId))!.selection!;
+  await approveSelection(db, "u1", questionId, [{ experienceId: expId, contentVersion: 0 }], selected, now);
+  const ai = createFakeAi([]);
+
+  const result = await writeManually(db, "u1", questionId, "  첫 문단입니다.\n\n\n둘째 문단\n이어지는 줄\n \n셋째 문단  ", now);
+
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.value).toEqual({
+    questionVersion: 0,
+    basedOn: [{ experienceId: expId, contentVersion: 0 }],
+    paragraphs: [
+      { text: "첫 문단입니다.", sources: [], edited: true },
+      { text: "둘째 문단\n이어지는 줄", sources: [], edited: true },
+      { text: "셋째 문단", sources: [], edited: true },
+    ],
+    shortage: "",
+    writtenAt: now.toISOString(),
+  });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(result.value);
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("직접 쓰기: 고르기 전에도 쓸 수 있고 basedOn은 빈 배열이다", async () => {
+  const questionId = await addQuestion(await addPosting());
+  const result = await writeManually(db, "u1", questionId, "그냥 쓴 글", now);
+  expect(result.ok && result.value.basedOn).toEqual([]);
+});
+
+test("직접 쓰기: 이미 답이 있으면 changed이고 답을 덮어쓰지 않는다", async () => {
+  const { questionId, draft } = await written();
+  expect(await writeManually(db, "u1", questionId, "새로 쓴 글", now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
+});
+
+test("직접 쓰기: 지원이 아니면 not_apply, 없거나 남의 문항이면 not_found", async () => {
+  const questionId = await addQuestion(await addPosting());
+  expect(await writeManually(db, "u2", questionId, "글", now)).toEqual({ ok: false, reason: "not_found" });
+  expect(await writeManually(db, "u1", "없는-문항", "글", now)).toEqual({ ok: false, reason: "not_found" });
+  const q = await getQuestion(db, "u1", questionId);
+  await setStatus(db, "u1", q!.postingId, "hold");
+  expect(await writeManually(db, "u1", questionId, "글", now)).toEqual({ ok: false, reason: "not_apply" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toBeNull();
+});
+
+test("직접 쓰기: 빈 글은 empty, 문단 11개나 2001자 문단은 too_long이고 저장하지 않는다", async () => {
+  const questionId = await addQuestion(await addPosting());
+  expect(await writeManually(db, "u1", questionId, " \n\n  ", now)).toEqual({ ok: false, reason: "empty" });
+  const eleven = Array.from({ length: 11 }, (_, i) => `문단 ${i + 1}`).join("\n\n");
+  expect(await writeManually(db, "u1", questionId, eleven, now)).toEqual({ ok: false, reason: "too_long" });
+  expect(await writeManually(db, "u1", questionId, "가".repeat(2001), now)).toEqual({ ok: false, reason: "too_long" });
+  expect(await writeManually(db, "u1", questionId, `${"가".repeat(1999)}😀`, now)).toMatchObject({ ok: true });
 });

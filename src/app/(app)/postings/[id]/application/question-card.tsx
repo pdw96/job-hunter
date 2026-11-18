@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { approveAndWriteAction, deleteQuestionAction, selectAction, updateQuestionAction } from "@/modules/applications/actions";
+import { approveAndWriteAction, deleteQuestionAction, selectAction, updateQuestionAction, writeManuallyAction } from "@/modules/applications/actions";
+import { countChars } from "@/modules/applications/check";
 import { APPLICATION_LIMITS } from "@/modules/applications/options";
 import { StartInterview } from "../../../experiences/start-interview";
 import { DraftView, type DraftData } from "./draft-view";
@@ -248,6 +249,48 @@ function QuestionEditor({ question, onClose }: { question: QuestionView; onClose
   );
 }
 
+// 답이 아직 없을 때 AI 없이 직접 쓴다. 빈 줄로 문단을 나눈다
+function ManualWrite({ question }: { question: QuestionView }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const { message, pending, run } = useRun();
+  const count = countChars(text.trim(), question.countSpaces);
+  const over = question.charLimit !== null && count > question.charLimit;
+  const basis = question.countSpaces ? "공백 포함" : "공백 제외";
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className={small}>
+        직접 쓰기
+      </button>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={10}
+        aria-label="직접 쓴 답"
+        className="w-full rounded-lg border border-foreground/20 bg-transparent p-3 text-sm"
+      />
+      <p className="text-xs text-foreground/60">빈 줄로 문단을 나눕니다</p>
+      <p className={`text-sm ${over ? "font-medium text-red-600" : ""}`}>
+        {question.charLimit !== null ? `${count} / ${question.charLimit}자` : `${count}자`} ({basis})
+      </p>
+      <div className="flex gap-3">
+        <button type="button" disabled={pending || text.trim() === ""} onClick={() => run(() => writeManuallyAction(question.id, text))} className={primary}>
+          {pending ? "저장 중…" : "저장"}
+        </button>
+        <button type="button" disabled={pending} onClick={() => setOpen(false)} className={small}>
+          취소
+        </button>
+      </div>
+      <ErrorLine message={message} />
+    </div>
+  );
+}
+
 export function QuestionCard({
   question,
   track,
@@ -316,6 +359,7 @@ export function QuestionCard({
             )}
           </div>
           <ErrorLine message={select.message} />
+          {draft === null && <ManualWrite question={question} />}
           {selection && <Picker key={selection.selectedAt} question={question} selection={selection} track={track} hasDraft={draft !== null} />}
         </div>
       )}
