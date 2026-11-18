@@ -13,7 +13,7 @@ import type { Draft, Paragraph, SourceRef } from "./types";
 // AI에게는 경험의 실제 id 대신 E1, E2 같은 별명만 보내고, 답의 별명은 코드가 실제 id로 바꾼다.
 // 숫자·금지 표현은 저장 뒤 checkDraft가 표시한다(저장은 막지 않는다).
 
-export type WriteFailure = "not_found" | "not_apply" | "changed" | "stale" | "over_limit" | AiFailure;
+export type WriteFailure = "not_found" | "not_apply" | "changed" | "stale" | "over_limit" | "too_many_selected" | AiFailure;
 export type RevisePreset = "shorter" | "concrete" | "natural";
 
 const paragraphSchema = z.object({ text: z.string(), sources: z.array(z.string()) });
@@ -141,8 +141,9 @@ export async function approveAndWrite(
   });
   if (stale) return { ok: false, reason: "stale" };
 
-  const sources = requested.flatMap((id) => byId.get(id) ?? []).slice(0, APPLICATION_LIMITS.approved);
+  const sources = requested.flatMap((id) => byId.get(id) ?? []);
   if (sources.length === 0) return { ok: false, reason: "none_selected" };
+  if (sources.length > APPLICATION_LIMITS.approved) return { ok: false, reason: "too_many_selected" };
   const approved: SourceRef[] = sources.map((s) => ({ experienceId: s.id, contentVersion: s.contentVersion }));
 
   if (!selection.approved || !sameRefs(selection.approved, approved)) {
@@ -159,9 +160,9 @@ export async function approveAndWrite(
   );
   if (!written.ok) return written;
 
-  // 읽었을 때의 문항 글과 승인 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐으면 changed)
+  // 읽었을 때의 문항 글, 승인, 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 직접 고쳤으면 changed)
   const draft: Draft = { questionVersion: question.version, basedOn: approved, ...written.value, writtenAt: now.toISOString() };
-  const saved = await saveDraft(db, userId, questionId, draft, { version: question.version, approved });
+  const saved = await saveDraft(db, userId, questionId, draft, { version: question.version, approved, draft: question.draft });
   return saved.ok ? { ok: true, value: draft } : saved;
 }
 

@@ -22,6 +22,7 @@ const MESSAGES = {
   changed: "그사이 내용이 바뀌었습니다. 화면을 새로 고친 뒤 다시 해 주세요",
   stale: "고른 경험의 기록이 바뀌었습니다. 다시 고르기를 눌러 주세요",
   none_selected: "쓸 경험을 하나 이상 골라 주세요",
+  too_many_selected: "경험은 5개까지 골라 주세요",
   too_many: "문항은 공고마다 10개까지 넣을 수 있습니다",
   empty_request: "고칠 방향을 골라 주세요",
   too_long: "문단은 2000자까지 쓸 수 있습니다",

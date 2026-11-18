@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { approveAndWriteAction, deleteQuestionAction, selectAction, updateQuestionAction } from "@/modules/applications/actions";
+import { APPLICATION_LIMITS } from "@/modules/applications/options";
 import { StartInterview } from "../../../experiences/start-interview";
 import { DraftView, type DraftData } from "./draft-view";
 import { ErrorLine, useRun } from "./use-run";
@@ -45,10 +46,12 @@ const primary = "rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-bac
 function Candidate({
   item,
   checked,
+  full,
   onChange,
 }: {
   item: CandidateView;
   checked: boolean;
+  full: boolean; // 5개를 다 골랐다. 체크 안 된 것은 더 고르지 못한다
   onChange: (checked: boolean) => void;
 }) {
   const usable = item.name !== null;
@@ -58,7 +61,7 @@ function Candidate({
         <input
           type="checkbox"
           checked={usable && checked}
-          disabled={!usable}
+          disabled={!usable || (full && !checked)}
           onChange={(e) => onChange(e.target.checked)}
           className="mt-1"
         />
@@ -115,6 +118,8 @@ function Picker({
   const toggle = (id: string, on: boolean) => setChecked(on ? [...checked, id] : checked.filter((value) => value !== id));
   const usableChecked = [...selection.picks, ...selection.passed].filter((c) => c.name !== null && checked.includes(c.experienceId));
 
+  const full = usableChecked.length >= APPLICATION_LIMITS.approved;
+
   function write() {
     if (hasDraft && !confirm("지금 쓴 답을 지우고 다시 씁니다. 직접 고친 문단도 사라집니다. 다시 쓸까요?")) return;
     run(() => approveAndWriteAction(question.id, usableChecked.map((c) => c.experienceId)));
@@ -122,6 +127,7 @@ function Picker({
 
   const writeButton = (
     <div className="flex flex-wrap items-center gap-3">
+      {full && <span className="w-full text-xs text-foreground/60">{APPLICATION_LIMITS.approved}개까지 고를 수 있습니다</span>}
       <button type="button" disabled={pending || selection.approvedStale || usableChecked.length === 0} onClick={write} className={primary}>
         {pending ? "쓰는 중…" : hasDraft ? "다시 쓰기" : "이 경험으로 쓰기"}
       </button>
@@ -135,7 +141,7 @@ function Picker({
   const passedList = (
     <ul className="divide-y divide-foreground/10">
       {selection.passed.map((item) => (
-        <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} onChange={(on) => toggle(item.experienceId, on)} />
+        <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} full={full} onChange={(on) => toggle(item.experienceId, on)} />
       ))}
     </ul>
   );
@@ -168,7 +174,7 @@ function Picker({
       )}
       <ul className="divide-y divide-foreground/10 border-y border-foreground/10">
         {selection.picks.map((item) => (
-          <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} onChange={(on) => toggle(item.experienceId, on)} />
+          <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} full={full} onChange={(on) => toggle(item.experienceId, on)} />
         ))}
       </ul>
       {selection.passed.length > 0 && (

@@ -260,16 +260,22 @@ test("화면이 보낸 id 중 쓸 수 없는 경험(부분 확인, 남의 것, �
   expect(some.ok && some.value.basedOn).toEqual([{ experienceId: expId, contentVersion: 0 }]);
 });
 
-test("승인은 5개까지만 받고, 고르기 후보 밖의 경험도 쓸 수 있으면 받는다", async () => {
+test("쓸 수 있는 경험을 5개까지만 받고, 넘으면 too_many_selected이며 AI를 부르지 않는다. 고르기 후보 밖의 경험도 쓸 수 있으면 받는다", async () => {
   const ids: string[] = [];
-  for (let i = 0; i < 7; i++) ids.push(await addExperience({ name: `경험 ${i}`, startMonth: `2020-0${i + 1}` }));
+  for (let i = 0; i < 6; i++) ids.push(await addExperience({ name: `경험 ${i}`, startMonth: `2020-0${i + 1}` }));
   const questionId = await addQuestion(await addPosting());
   await selectForQuestion(db, createFakeAi([selectReply]), "u1", questionId, now);
   const ai = createFakeAi([writeReply()]);
 
-  const result = await approveAndWrite(db, ai, "u1", questionId, [...ids].reverse(), now);
+  // 같은 id 반복과 쓸 수 없는 id는 세지 않는다
+  const over = await approveAndWrite(db, ai, "u1", questionId, [...ids, ids[0], "없는-id"], now);
+  expect(over).toEqual({ ok: false, reason: "too_many_selected" });
+  expect(ai.requests).toHaveLength(0);
+  expect((await getQuestion(db, "u1", questionId))?.selection?.approved).toBeNull();
 
-  expect(result.ok && result.value.basedOn.map((r) => r.experienceId)).toEqual([...ids].reverse().slice(0, 5));
+  const five = [...ids].reverse().slice(0, 5);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [...five, five[0], "없는-id"], now);
+  expect(result.ok && result.value.basedOn.map((r) => r.experienceId)).toEqual(five);
 });
 
 test("고르기 전(selection 없음)이면 changed, 남의 문항은 not_found, 지원이 아니면 not_apply이고 AI를 부르지 않는다", async () => {
@@ -392,6 +398,21 @@ test("쓰는 사이 다시 고르면 changed이고 답을 저장하지 않는다
   const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
   expect(result).toEqual({ ok: false, reason: "changed" });
   expect((await getQuestion(db, "u1", questionId))?.draft).toBeNull();
+});
+
+test("다시 쓰는 사이 문단을 직접 고치면 changed이고 직접 고친 글이 남는다", async () => {
+  const { expId, questionId, draft } = await written();
+  const ai = createFakeAi([
+    async () => {
+      const edited = await editParagraph(db, "u1", questionId, 0, "직접 고친 글", draft, now);
+      expect(edited.ok).toBe(true);
+      return writeReply();
+    },
+  ]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result).toEqual({ ok: false, reason: "changed" });
+  const stored = (await getQuestion(db, "u1", questionId))?.draft;
+  expect(stored?.paragraphs[0]).toMatchObject({ text: "직접 고친 글", edited: true });
 });
 
 test("쓰는 사이 문항 글을 고치면 changed이고 저장하지 않는다", async () => {
