@@ -4,6 +4,7 @@ import type { CheckRow } from "@/modules/experiences/prompt-check";
 import type { ResumeSource } from "@/modules/experiences/writing";
 import { FULL_POSTING } from "@/modules/postings/prompt-check";
 import { SAMPLE_SOURCES } from "./prompt-check";
+import { cut } from "./text";
 import { checkResume } from "./resume-check";
 import { buildEntry, detailFor } from "./resume-entries";
 import { emphasisText } from "./resume-tailor";
@@ -71,8 +72,13 @@ export async function runResumeCheck(db: Db, ai: AiClient, userId: string, now: 
 
   // 강조 후보는 "사용"인 ①②만이다
   const emphasize = async (): Promise<CheckRow[]> => {
-    const result = await emphasisText(db, ai, userId, { postingText: FULL_POSTING.source, requirements: [], sources: [KOTLIN, CAFE] }, now);
-    if (!result.ok) return failed(emphasisChecks, result.reason);
+    let raw: unknown;
+    const result = await emphasisText(db, ai, userId, { postingText: FULL_POSTING.source, requirements: [], sources: [KOTLIN, CAFE] }, now, (value) => {
+      raw = value;
+    });
+    // 진단용 줄: 보이기만 하는 것이라 늘 통과한다(AI 호출을 더하지 않는다)
+    const diagnostic = () => row("AI가 보낸 답(진단용)", "-", raw === undefined ? "AI 호출 실패" : cut(JSON.stringify(raw), 600), true);
+    if (!result.ok) return [...failed(emphasisChecks, result.reason), diagnostic()];
     const { picks } = result.value;
     const picked = (id: string) => picks.some((pick) => pick.experienceId === id);
     // 지어낸 숫자가 든 이유는 emphasisText가 비우므로, 비어 있으면 근거를 제대로 쓰지 못한 것이다
@@ -80,10 +86,14 @@ export async function runResumeCheck(db: Db, ai: AiClient, userId: string, now: 
     const hasReason = kotlinPick !== undefined && kotlinPick.why !== "";
     // 진단용: ①을 못 골랐을 때 AI가 실제로 고른 것을 보인다
     const pickedNames = picks.map((pick) => [KOTLIN, CAFE].find((s) => s.id === pick.experienceId)?.name ?? pick.experienceId).join(", ") || "없음";
+    // AI가 항목을 줬는데 코드가 하나도 받지 못했으면(별명 불일치 등) 원래 값을 보인다
+    const rawPicks = (raw as { picks?: { exp?: unknown }[] } | undefined)?.picks ?? [];
+    const dropped = Array.isArray(rawPicks) && rawPicks.length > 0 && picks.length === 0 ? ` · AI가 고른 별명: ${rawPicks.map((p) => String(p?.exp)).join(", ")}` : "";
     return [
-      row(emphasisChecks[0], "강조함", picked(KOTLIN.id) ? "①을 강조함" : `강조하지 않음 · 고른 것: ${pickedNames}`, picked(KOTLIN.id)),
+      row(emphasisChecks[0], "강조함", picked(KOTLIN.id) ? "①을 강조함" : `강조하지 않음 · 고른 것: ${pickedNames}${dropped}`, picked(KOTLIN.id)),
       row(emphasisChecks[1], "강조하지 않음", picked(CAFE.id) ? "②를 강조함" : "강조하지 않음", !picked(CAFE.id)),
       row(emphasisChecks[2], "이유 있음", hasReason ? "이유 있음" : "비어 있음", hasReason),
+      diagnostic(),
     ];
   };
 

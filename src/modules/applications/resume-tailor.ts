@@ -36,6 +36,7 @@ export async function emphasisText(
   userId: string,
   input: EmphasisInput,
   now: Date = new Date(),
+  onRaw?: (raw: unknown) => void,
 ): Promise<{ ok: true; value: ResumeSelection } | { ok: false; reason: "over_limit" | AiFailure }> {
   const selectedAt = now.toISOString();
   // 후보가 없으면 AI를 부르지 않는다
@@ -56,6 +57,7 @@ export async function emphasisText(
     now,
   );
   if (!result.ok) return { ok: false, reason: result.reason };
+  onRaw?.(result.value);
 
   // 없는 별명과 중복은 버리고, 지어낸 숫자가 든 이유는 비운다
   const byAlias = new Map(input.sources.map((s, i) => [`E${i + 1}`, s]));
