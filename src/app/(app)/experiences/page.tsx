@@ -7,7 +7,7 @@ import { listEvidenceTodos } from "@/modules/experiences/judge";
 import { KIND_LABELS } from "@/modules/experiences/options";
 import { listExperiences } from "@/modules/experiences/repo";
 import { listTracks } from "@/modules/tracks/repo";
-import { formatPeriod } from "./period";
+import { formatPeriod } from "@/modules/experiences/period";
 import { StartInterview } from "./start-interview";
 import { StateBadge } from "./state-badge";
 

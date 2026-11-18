@@ -1,4 +1,4 @@
-import type { Kind } from "@/modules/experiences/options";
+import type { Kind } from "./options";
 
 const dot = (month: string) => month.replace("-", ".");
 
