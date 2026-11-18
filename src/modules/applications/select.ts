@@ -8,6 +8,7 @@ import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { SELECT_SYSTEM } from "./prompts";
 import { getQuestion, listQuestions, saveSelection } from "./repo";
+import { cut } from "./text";
 import type { PassedReason, PickReason, Selection } from "./types";
 
 // AI가 문항 하나에 쓸 경험을 고르고 그 까닭을 적는다. 글은 쓰지 않는다.
@@ -115,7 +116,7 @@ export async function selectText(
   const byAlias = new Map(input.sources.map((s, i) => [`E${i + 1}`, s]));
   const known = new Set([input.prompt, input.postingText].flatMap(numbersIn));
   const clean = (text: string, s: WritingSource) => {
-    const trimmed = text.trim().slice(0, APPLICATION_LIMITS.reason);
+    const trimmed = cut(text.trim(), APPLICATION_LIMITS.reason);
     return grounded(trimmed, s, known) ? trimmed : "";
   };
 

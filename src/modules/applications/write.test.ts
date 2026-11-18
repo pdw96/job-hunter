@@ -540,6 +540,27 @@ test("직접 고친 글이 비면 그 문단을 지운다", async () => {
   expect(result.ok && result.value.paragraphs).toEqual([draft.paragraphs[1]]);
 });
 
+test("다시 쓴 답의 문단이 모두 비면 invalid이고 있던 답을 지우지 않는다", async () => {
+  const { expId, questionId, draft } = await written();
+  const ai = createFakeAi([writeReply({ paragraphs: [{ text: "  ", sources: ["E1"] }] })]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result).toEqual({ ok: false, reason: "invalid" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
+  const none = await approveAndWrite(db, createFakeAi([writeReply({ paragraphs: [] })]), "u1", questionId, [expId], now);
+  expect(none).toEqual({ ok: false, reason: "invalid" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
+});
+
+test("마지막 문단을 지워 답이 비어도 직접 쓰기로 다시 쓸 수 있다", async () => {
+  const { questionId, draft } = await written({});
+  const one = await editParagraph(db, "u1", questionId, 1, "", draft, now);
+  if (!one.ok) throw new Error(one.reason);
+  const empty = await editParagraph(db, "u1", questionId, 0, "", one.value, now);
+  expect(empty.ok && empty.value.paragraphs).toEqual([]);
+  const result = await writeManually(db, "u1", questionId, "새로 쓴 글", now);
+  expect(result.ok && result.value.paragraphs.map((p) => p.text)).toEqual(["새로 쓴 글"]);
+});
+
 test("직접 고치기: 2000자를 넘으면 too_long, 지금 답이 다르면 changed, 범위 밖이면 changed, 남의 문항은 not_found", async () => {
   const { questionId, draft } = await written();
   expect(await editParagraph(db, "u1", questionId, 0, "가".repeat(2001), draft, now)).toEqual({ ok: false, reason: "too_long" });

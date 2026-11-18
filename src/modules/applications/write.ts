@@ -7,6 +7,7 @@ import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
+import { cut } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
 // 승인한 경험만으로 답을 쓰고, 문단 하나를 AI로 고치거나 직접 고친다.
@@ -26,9 +27,6 @@ export type WriteInput = {
   postingText: string;
   sources: WritingSource[]; // 승인한 경험
 };
-
-// 글자(코드 포인트) 단위로 자른다. 이모지가 반으로 잘리지 않는다
-const cut = (text: string, max: number) => [...text].slice(0, max).join("");
 
 const PRESET_TEXT: Record<RevisePreset, string> = {
   shorter: "더 짧게",
@@ -92,6 +90,7 @@ export async function writeText(
     .filter((p) => p.text !== "")
     .slice(0, APPLICATION_LIMITS.paragraphs)
     .map((p) => ({ ...p, edited: false }));
+  if (paragraphs.length === 0) return { ok: false, reason: "invalid" };
   return { ok: true, value: { paragraphs, shortage: cut(result.value.shortage.trim(), APPLICATION_LIMITS.shortage) } };
 }
 

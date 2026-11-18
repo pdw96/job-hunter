@@ -304,6 +304,7 @@ export function QuestionCard({
   const select = useRun();
   const remove = useRun();
   const { selection, draft } = question;
+  const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
 
   return (
     <section className="space-y-4 rounded-lg border border-foreground/20 p-4" aria-label={`${question.number}번 문항`}>
@@ -359,12 +360,12 @@ export function QuestionCard({
             )}
           </div>
           <ErrorLine message={select.message} />
-          {draft === null && <ManualWrite question={question} />}
-          {selection && <Picker key={selection.selectedAt} question={question} selection={selection} track={track} hasDraft={draft !== null} />}
+          {empty && <ManualWrite question={question} />}
+          {selection && <Picker key={selection.selectedAt} question={question} selection={selection} track={track} hasDraft={!empty} />}
         </div>
       )}
 
-      {draft && <DraftView questionId={question.id} data={draft} canRevise={canAct} />}
+      {draft && !empty && <DraftView questionId={question.id} data={draft} canRevise={canAct} />}
     </section>
   );
 }

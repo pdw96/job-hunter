@@ -318,6 +318,15 @@ test("공고를 지우면 문항도 지워진다", async () => {
   expect(await getQuestion(db, "u1", id)).toBeNull();
 });
 
+test("createDraft는 문단이 하나도 없는 답 위에는 저장하고, 문단이 있는 답 위에는 changed", async () => {
+  const { id } = await oneQuestion();
+  expect(await createDraft(db, "u1", id, draft(0, { paragraphs: [] }))).toEqual({ ok: true });
+  const d2 = draft(0, { basedOn: [], paragraphs: [{ text: "직접 쓴 글", sources: [], edited: true }] });
+  expect(await createDraft(db, "u1", id, d2)).toEqual({ ok: true });
+  expect(await createDraft(db, "u1", id, draft(0, { shortage: "x" }))).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", id))?.draft).toEqual(d2);
+});
+
 test("createDraft는 답이 없을 때만 저장하고, 있으면 changed, 남의 문항이면 not_found", async () => {
   const { id } = await oneQuestion();
   const d1 = draft(0, { basedOn: [], paragraphs: [{ text: "직접 쓴 글", sources: [], edited: true }] });

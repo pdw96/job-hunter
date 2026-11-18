@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
@@ -200,12 +200,12 @@ export async function replaceDraft(db: Db, userId: string, id: string, expected:
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
 }
 
-// 답이 아직 없을 때만 처음 쓴 답(직접 쓰기)을 저장한다. 그사이 답이 생겼으면 changed
+// 답이 없거나 문단이 하나도 없을 때만 처음 쓴 답(직접 쓰기)을 저장한다. 그사이 답이 생겼으면 changed
 export async function createDraft(db: Db, userId: string, id: string, draft: Draft): Promise<Stale> {
   const updated = await db
     .update(questions)
     .set({ draft, updatedAt: new Date() })
-    .where(and(mine(userId, id), isNull(questions.draft)))
+    .where(and(mine(userId, id), or(isNull(questions.draft), sql`${questions.draft}->'paragraphs' = '[]'::jsonb`)))
     .returning({ id: questions.id });
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
 }

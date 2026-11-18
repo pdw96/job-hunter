@@ -320,6 +320,21 @@ test("overlap·role·whyNot은 다듬어서 300자까지 자른다", async () =>
   expect(result.value.passed[0].whyNot).toBe("다".repeat(300));
 });
 
+test("300자 경계에서 이모지가 반으로 잘리지 않아 저장이 실패하지 않는다", async () => {
+  await addExperience();
+  const questionId = await addQuestion(await addPosting());
+  const overlap = `${"가".repeat(299)}😀더`;
+  const ai = createFakeAi([reply({ picks: [{ exp: "E1", overlap, role: "API를 설계했다" }] })]);
+
+  const result = await selectForQuestion(db, ai, "u1", questionId, now);
+
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect([...result.value.picks[0].overlap]).toHaveLength(300);
+  expect(result.value.picks[0].overlap).toBe(`${"가".repeat(299)}😀`);
+  expect((await getQuestion(db, "u1", questionId))?.selection?.picks[0].overlap).toBe(`${"가".repeat(299)}😀`);
+});
+
 test("고른 것이 하나도 없으면 noMatch", async () => {
   await addExperience();
   const questionId = await addQuestion(await addPosting());
