@@ -55,6 +55,11 @@ export function describeSource(alias: string, s: WritingSource, withMetrics: boo
   return [alias, ...lines.map(([label, value]) => `- ${label}: ${orNone(value)}`)].join("\n");
 }
 
+// 공고 원문에 인재상·회사 소개를 붙인 글. 쓰기·부분 수정도 같은 글을 쓴다
+export function postingTextOf(posting: { rawText: string; companyNote: string | null }): string {
+  return posting.companyNote ? `${posting.rawText}\n\n${posting.companyNote}` : posting.rawText;
+}
+
 function buildMessage(input: SelectInput): string {
   const experiences = input.sources.map((s, i) => describeSource(`E${i + 1}`, s, false)).join("\n\n");
   const aliasOf = new Map(input.sources.map((s, i) => [s.id, `E${i + 1}`]));
@@ -165,7 +170,7 @@ export async function selectForQuestion(
     {
       prompt: question.prompt,
       charLimit: question.charLimit,
-      postingText: posting.companyNote ? `${posting.rawText}\n\n${posting.companyNote}` : posting.rawText,
+      postingText: postingTextOf(posting),
       requirements: posting.analysis?.requirements.map((r) => r.text) ?? [],
       sources,
       usedElsewhere,
