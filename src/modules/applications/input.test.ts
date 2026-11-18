@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectLimit, splitQuestions, validateQuestion } from "./input";
+import { detectCountSpaces, detectLimit, splitQuestions, validateQuestion } from "./input";
 
 describe("splitQuestions", () => {
   it("번호 붙은 세 문항을 나눈다", () => {
@@ -90,5 +90,15 @@ describe("validateQuestion", () => {
     for (const charLimit of [49, 10001, 1.5, "abc", "100.5"]) {
       expect(validateQuestion({ prompt: "a", charLimit })).toEqual({ ok: false, errors: { charLimit: message } });
     }
+  });
+});
+
+describe("detectCountSpaces", () => {
+  it("공백 제외 표기를 찾으면 false, 공백 포함 표기는 true, 없으면 null", () => {
+    for (const text of ["500자 (공백 제외)", "공백제외 700자", "공백 없이 800자", "띄어쓰기 제외 500자"]) {
+      expect(detectCountSpaces(text)).toBe(false);
+    }
+    expect(detectCountSpaces("500자 (공백 포함)")).toBe(true);
+    expect(detectCountSpaces("지원 동기 (500자 이내)")).toBeNull();
   });
 });

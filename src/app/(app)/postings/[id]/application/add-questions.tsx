@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { detectLimit, splitQuestions } from "@/modules/applications/input";
+import { detectCountSpaces, detectLimit, splitQuestions } from "@/modules/applications/input";
 import { addQuestionsAction } from "@/modules/applications/actions";
 import { ErrorLine, useRun } from "./use-run";
 
@@ -9,25 +9,29 @@ import { ErrorLine, useRun } from "./use-run";
 export function AddQuestions({ postingId }: { postingId: string }) {
   const [text, setText] = useState("");
   const [limits, setLimits] = useState<Record<number, string>>({});
-  const [countSpaces, setCountSpaces] = useState(true);
+  const [bases, setBases] = useState<Record<number, boolean>>({});
+  const [countSpaces, setCountSpaces] = useState(true); // 문항 글에 기준이 적혀 있지 않을 때의 기본
   const { message, pending, run } = useRun();
 
   const items = useMemo(
-    () => splitQuestions(text).map((prompt) => ({ prompt, detected: detectLimit(prompt) })),
+    () => splitQuestions(text).map((prompt) => ({ prompt, detected: detectLimit(prompt), basis: detectCountSpaces(prompt) })),
     [text],
   );
   const limitOf = (index: number) => limits[index] ?? (items[index].detected === null ? "" : String(items[index].detected));
+
+  const basisOf = (index: number) => bases[index] ?? items[index].basis ?? countSpaces;
 
   function add() {
     run(
       () =>
         addQuestionsAction(
           postingId,
-          items.map((item, index) => ({ prompt: item.prompt, charLimit: limitOf(index) === "" ? null : limitOf(index), countSpaces })),
+          items.map((item, index) => ({ prompt: item.prompt, charLimit: limitOf(index) === "" ? null : limitOf(index), countSpaces: basisOf(index) })),
         ),
       () => {
         setText("");
         setLimits({});
+        setBases({});
       },
     );
   }
@@ -40,6 +44,7 @@ export function AddQuestions({ postingId }: { postingId: string }) {
         onChange={(e) => {
           setText(e.target.value);
           setLimits({});
+          setBases({});
         }}
         rows={5}
         placeholder="문항을 붙여 넣으세요. 여러 개면 번호를 붙여 한 번에"
@@ -65,6 +70,15 @@ export function AddQuestions({ postingId }: { postingId: string }) {
                   className="w-24 rounded-lg border border-foreground/20 bg-transparent px-2 py-1 text-sm"
                 />
                 자
+                <select
+                  value={basisOf(index) ? "with" : "without"}
+                  onChange={(e) => setBases({ ...bases, [index]: e.target.value === "with" })}
+                  aria-label={`${index + 1}번 글자 수 기준`}
+                  className="rounded-lg border border-foreground/20 bg-transparent px-2 py-1 text-sm"
+                >
+                  <option value="with">공백 포함</option>
+                  <option value="without">공백 제외</option>
+                </select>
               </label>
             </li>
           ))}
@@ -74,7 +88,7 @@ export function AddQuestions({ postingId }: { postingId: string }) {
         <select
           value={countSpaces ? "with" : "without"}
           onChange={(e) => setCountSpaces(e.target.value === "with")}
-          aria-label="글자 수 기준"
+          aria-label="기본 글자 수 기준"
           className="rounded-lg border border-foreground/20 bg-transparent px-2 py-2 text-sm"
         >
           <option value="with">공백 포함</option>

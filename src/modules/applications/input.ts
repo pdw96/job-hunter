@@ -54,3 +54,10 @@ export function validateQuestion(raw: unknown): { ok: true; value: QuestionInput
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true, value: { prompt, charLimit, countSpaces } };
 }
+
+// 문항 글에 적힌 글자 수 기준. 공백 제외 표기면 false, 공백 포함 표기면 true, 적혀 있지 않으면 null
+export function detectCountSpaces(prompt: string): boolean | null {
+  if (/공백\s*제외|공백\s*없이|띄어쓰기\s*제외/.test(prompt)) return false;
+  if (/공백\s*포함|띄어쓰기\s*포함/.test(prompt)) return true;
+  return null;
+}

@@ -239,7 +239,7 @@ export async function reviseParagraph(
   return saved.ok ? { ok: true, value: next } : saved;
 }
 
-// 직접 고친 문단은 edited가 되고(sources는 남긴다), 글이 비면 그 문단을 지운다. AI를 부르지 않으므로 공고 상태는 보지 않는다
+// 직접 고친 문단은 edited가 되고(sources는 남긴다), 글이 비면 그 문단을 지운다. 지원이 아닌 공고의 답은 읽기만 한다
 export async function editParagraph(
   db: Db,
   userId: string,
@@ -248,13 +248,16 @@ export async function editParagraph(
   text: string,
   expected: Draft,
   now: Date = new Date(),
-): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "changed" | "too_long" }> {
+): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "not_apply" | "changed" | "too_long" }> {
   void now; // 다른 함수와 서명을 맞추려고 남겨 둔다(저장 시각은 replaceDraft가 정한다)
   const trimmed = text.trim();
   if ([...trimmed].length > APPLICATION_LIMITS.paragraph) return { ok: false, reason: "too_long" };
 
   const question = await getQuestion(db, userId, questionId);
   if (!question) return { ok: false, reason: "not_found" };
+  const posting = await getPosting(db, userId, question.postingId);
+  if (!posting) return { ok: false, reason: "not_found" };
+  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
   const stored = question.draft;
   if (!stored || !sameJson(stored, expected) || !Number.isInteger(index) || index < 0 || index >= stored.paragraphs.length) {
     return { ok: false, reason: "changed" };

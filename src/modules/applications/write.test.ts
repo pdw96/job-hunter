@@ -529,13 +529,6 @@ test("직접 고치기: 2000자를 넘으면 too_long, 지금 답이 다르면 c
   expect(await editParagraph(db, "u2", questionId, 0, "남의 것", current, now)).toEqual({ ok: false, reason: "not_found" });
 });
 
-test("지원이 아니게 된 공고의 답도 직접 고칠 수 있다", async () => {
-  const { questionId, draft } = await written();
-  const q = await getQuestion(db, "u1", questionId);
-  await setStatus(db, "u1", q!.postingId, "hold");
-  expect((await editParagraph(db, "u1", questionId, 0, "보류 뒤 수정", draft, now)).ok).toBe(true);
-});
-
 test("승인한 경험의 확인을 풀고 같은 경험으로 다시 쓰면 stale이고 AI를 부르지 않는다", async () => {
   const { expId, questionId } = await written();
   await unconfirmExperience(db, "u1", expId);
@@ -553,4 +546,12 @@ test("1999자 뒤에 이모지가 오는 문단도 코드 포인트 2000자 안�
   expect([...result.value.paragraphs[0].text]).toHaveLength(2000);
   expect(result.value.paragraphs[0].text.endsWith("😀")).toBe(true);
   expect([...result.value.shortage]).toHaveLength(500);
+});
+
+test("직접 고치기: 지원이 아니면 not_apply이고 답은 그대로다", async () => {
+  const { questionId, draft } = await written();
+  const q = await getQuestion(db, "u1", questionId);
+  await setStatus(db, "u1", q!.postingId, "hold");
+  expect(await editParagraph(db, "u1", questionId, 0, "고친 글", draft, now)).toEqual({ ok: false, reason: "not_apply" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
 });

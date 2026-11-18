@@ -28,7 +28,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
   const [track, candidates, questions] = await Promise.all([
     getTrack(db, user.id, posting.trackId),
     listEvidenceCandidates(db, user.id, posting.trackId),
-    posting.status === "apply" ? listQuestions(db, user.id, posting.id) : Promise.resolve([]),
+    listQuestions(db, user.id, posting.id),
   ]);
   const reasons = track ? exclusionReasons(posting, track, today) : [];
   // 점수는 그릴 때마다 지금의 경험 후보로 계산한다(지웠거나 확인을 풀었거나 맞댄 뒤 고친 경험은 바로 빠진다)
@@ -90,13 +90,19 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion }))}
       />
 
-      {posting.status === "apply" && (
+      {posting.status === "apply" ? (
         <Link
           href={`/postings/${posting.id}/application`}
           className="inline-block rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background"
         >
           {questions.length > 0 ? `자소서 쓰기 · 문항 ${questions.length}개` : "자소서 쓰기"}
         </Link>
+      ) : (
+        questions.length > 0 && (
+          <Link href={`/postings/${posting.id}/application`} className="inline-block text-sm underline">
+            자소서 보기 · 문항 {questions.length}개
+          </Link>
+        )
       )}
 
       <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
