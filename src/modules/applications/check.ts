@@ -25,7 +25,7 @@ export type DraftCheck = {
 const squash = (text: string) => text.replace(/\s+/g, "").toLowerCase();
 
 // 경험의 글 칸과 수치에서 나온 숫자. 기간은 연도와 월로 나눠 본다
-function knownNumbers(source: WritingSource): string[] {
+export function knownNumbers(source: WritingSource): string[] {
   return [
     source.name,
     source.organization,
