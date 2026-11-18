@@ -31,7 +31,7 @@ beforeEach(async () => {
 test("맞는 답이면 모든 줄이 통과한다", async () => {
   const ai = answering();
   const rows = await runResumeCheck(db, ai, "admin");
-  expect(rows).toHaveLength(8);
+  expect(rows).toHaveLength(9);
   expect(failedChecks(rows)).toEqual([]);
   expect(ai.requests).toHaveLength(2);
 });
@@ -101,7 +101,7 @@ test("강조의 이유가 비면 그 줄만 실패한다", async () => {
 
 test("쓰기 호출이 실패하면 쓰기 5줄만 실패로 나온다", async () => {
   const rows = await runResumeCheck(db, answering({ fail: "refused" }), "admin");
-  expect(rows).toHaveLength(8);
+  expect(rows).toHaveLength(9);
   const bad = rows.filter((row) => !row.pass);
   expect(bad).toHaveLength(5);
   expect(bad.every((row) => row.actual === "실패: refused")).toBe(true);
@@ -109,7 +109,7 @@ test("쓰기 호출이 실패하면 쓰기 5줄만 실패로 나온다", async (
 
 test("강조 호출이 실패하면 강조 3줄만 실패로 나온다", async () => {
   const rows = await runResumeCheck(db, answering(write, { fail: "invalid" }), "admin");
-  expect(rows).toHaveLength(8);
+  expect(rows).toHaveLength(9);
   const bad = rows.filter((row) => !row.pass);
   expect(bad).toHaveLength(3);
   expect(bad.every((row) => row.actual === "실패: invalid")).toBe(true);
@@ -118,4 +118,17 @@ test("강조 호출이 실패하면 강조 3줄만 실패로 나온다", async (
 test("①을 강조하지 않았으면 AI가 고른 것을 보여 준다", async () => {
   const rows = await runResumeCheck(db, answering(write, { picks: [] }), "admin");
   expect(rows.find((r) => r.check === "①을 강조한다")?.actual).toBe("강조하지 않음 · 고른 것: 없음");
+});
+
+test("AI가 보낸 원래 답을 진단용 줄로 보이고, 늘 통과한다", async () => {
+  const rows = await runResumeCheck(db, answering(), "admin");
+  const diag = rows.find((r) => r.check === "AI가 보낸 답(진단용)");
+  expect(diag?.pass).toBe(true);
+  expect(diag?.actual).toContain(JSON.stringify(emphasis).slice(0, 40));
+});
+
+test("AI가 모르는 별명만 골랐으면 그 별명을 보여 준다", async () => {
+  const rows = await runResumeCheck(db, answering(write, { picks: [{ exp: "X9", why: "a" }] }), "admin");
+  expect(rows.find((r) => r.check === "①을 강조한다")?.actual).toContain("AI가 고른 별명: X9");
+  expect(rows.find((r) => r.check === "AI가 보낸 답(진단용)")?.actual).toContain("X9");
 });

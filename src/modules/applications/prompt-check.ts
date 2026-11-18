@@ -3,6 +3,7 @@ import type { AiClient } from "@/modules/ai/client";
 import type { CheckRow } from "@/modules/experiences/prompt-check";
 import type { WritingSource } from "@/modules/experiences/writing";
 import { FULL_POSTING } from "@/modules/postings/prompt-check";
+import { cut } from "./text";
 import { answerText, checkDraft, countChars } from "./check";
 import { selectText } from "./select";
 import type { Draft } from "./types";
@@ -66,14 +67,20 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
   ];
 
   const select = async (): Promise<CheckRow[]> => {
+    let raw: unknown;
     const result = await selectText(
       db,
       ai,
       userId,
       { prompt: PROMPT, charLimit: CHAR_LIMIT, postingText, requirements: [], sources: SAMPLE_SOURCES, usedElsewhere: [] },
       now,
+      (value) => {
+        raw = value;
+      },
     );
-    if (!result.ok) return failed(selectChecks, result.reason);
+    // 진단용 줄: 보이기만 하는 것이라 늘 통과한다(AI 호출을 더하지 않는다)
+    const diagnostic = () => row("AI가 보낸 답(진단용)", "-", raw === undefined ? "AI 호출 실패" : cut(JSON.stringify(raw), 600), true);
+    if (!result.ok) return [...failed(selectChecks, result.reason), diagnostic()];
     const { picks } = result.value;
     const picked = (id: string) => picks.some((pick) => pick.experienceId === id);
     // 기록에 없는 숫자가 든 문장(과 빈 답)은 selectText가 비워 두므로, 비워진 칸이 있으면 근거를 제대로 쓰지 못한 것이다
@@ -85,11 +92,15 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     const nameOf = (id: string) => SAMPLE_SOURCES.find((s) => s.id === id)?.name ?? id;
     const pickedNames = picks.map((pick) => nameOf(pick.experienceId)).join(", ") || "없음";
     const passedNames = result.value.passed.map((p) => `${nameOf(p.experienceId)}(${p.whyNot || "이유 없음"})`).join(", ") || "없음";
-    const notPicked = `고르지 않음 · 고른 것: ${pickedNames} · 밀린 것: ${passedNames}`;
+    // AI가 항목을 줬는데 코드가 하나도 받지 못했으면(별명 불일치 등) 원래 값을 보인다
+    const rawPicks = (raw as { picks?: { exp?: unknown }[] } | undefined)?.picks ?? [];
+    const dropped = Array.isArray(rawPicks) && rawPicks.length > 0 && picks.length === 0 ? ` · AI가 고른 별명: ${rawPicks.map((p) => String(p?.exp)).join(", ")}` : "";
+    const notPicked = `고르지 않음 · 고른 것: ${pickedNames} · 밀린 것: ${passedNames}${dropped}`;
     return [
       row(selectChecks[0], "고름", picked(KOTLIN.id) ? "①을 고름" : notPicked, picked(KOTLIN.id)),
       row(selectChecks[1], "고르지 않음", picked(CAFE.id) ? "②를 고름" : "고르지 않음", !picked(CAFE.id)),
       row(selectChecks[2], "비워진 칸 없음", blanked.length === 0 ? "없음" : `비워짐: ${blanked.join(", ")}`, blanked.length === 0),
+      diagnostic(),
     ];
   };
 

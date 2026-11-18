@@ -95,6 +95,7 @@ export async function selectText(
   userId: string,
   input: SelectInput,
   now: Date = new Date(),
+  onRaw?: (raw: unknown) => void,
 ): Promise<{ ok: true; value: SelectValue } | { ok: false; reason: "over_limit" | AiFailure }> {
   const selectedAt = now.toISOString();
   const base = { approved: null, approvedAt: null, selectedAt };
@@ -116,6 +117,7 @@ export async function selectText(
     now,
   );
   if (!result.ok) return { ok: false, reason: result.reason };
+  onRaw?.(result.value);
 
   // AI가 준 값도 코드가 검사한다. 없는 경험과 중복은 버리고, 지어낸 숫자가 든 문장은 비운다
   const byAlias = new Map(input.sources.map((s, i) => [`E${i + 1}`, s]));
