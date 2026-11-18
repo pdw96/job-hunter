@@ -207,6 +207,11 @@ function resumeWrite(text: string) {
   };
 }
 
+// 이력서 강조 고르기 흉내. 후보가 있으면 E1을 고른다
+function resumeEmphasis(text: string) {
+  return { picks: /^E1$/m.test(section(text, "경험 기록")) ? [{ exp: "E1", why: "공고의 담당 업무와 겹칩니다" }] : [] };
+}
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
@@ -232,7 +237,9 @@ export const ai: AiClient = {
                         ? applicationRevise(text)
                         : request.purpose === "resume_write"
                           ? resumeWrite(text)
-                          : extract(text);
+                          : request.purpose === "resume_emphasis"
+                            ? resumeEmphasis(text)
+                            : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };
     return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };

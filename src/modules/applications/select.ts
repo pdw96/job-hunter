@@ -77,7 +77,7 @@ function buildMessage(input: SelectInput): string {
 }
 
 // 문장의 숫자가 그 경험의 글(보낸 칸만), 문항, 공고에 있는지. 별명(E1)의 숫자는 보지 않는다
-function grounded(sentence: string, s: WritingSource, known: Set<string>): boolean {
+export function grounded(sentence: string, s: WritingSource, known: Set<string>): boolean {
   const own = [s.name, s.organization, s.role, s.startMonth, s.endMonth, s.situation, s.actions, s.result].flatMap(numbersIn);
   const allowed = new Set([...known, ...own]);
   return numbersIn(sentence.replace(/\bE\d+\b/g, "")).every((n) => allowed.has(n));
