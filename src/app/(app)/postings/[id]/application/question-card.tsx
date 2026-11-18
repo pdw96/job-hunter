@@ -72,7 +72,7 @@ function Candidate({
               </span>
             )}
           </span>
-          {item.overlap !== undefined && (
+          {item.overlap !== undefined && item.overlap !== "" && (
             <span className="block break-words text-foreground/80">
               <span className="text-foreground/60">겹치는 점 </span>
               {item.overlap}
@@ -120,11 +120,41 @@ function Picker({
     run(() => approveAndWriteAction(question.id, usableChecked.map((c) => c.experienceId)));
   }
 
+  const writeButton = (
+    <div className="flex flex-wrap items-center gap-3">
+      <button type="button" disabled={pending || selection.approvedStale || usableChecked.length === 0} onClick={write} className={primary}>
+        {pending ? "쓰는 중…" : hasDraft ? "다시 쓰기" : "이 경험으로 쓰기"}
+      </button>
+      {pending && (
+        <span role="status" className="text-sm text-foreground/60">
+          1분쯤 걸릴 수 있습니다
+        </span>
+      )}
+    </div>
+  );
+  const passedList = (
+    <ul className="divide-y divide-foreground/10">
+      {selection.passed.map((item) => (
+        <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} onChange={(on) => toggle(item.experienceId, on)} />
+      ))}
+    </ul>
+  );
+
   if (selection.noMatch) {
     return (
-      <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
-        <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
-        <StartInterview tracks={[track]} />
+      <div className="space-y-3">
+        <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
+          <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
+          <StartInterview tracks={[track]} />
+        </div>
+        {selection.passed.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-sm text-foreground/70">그래도 쓰고 싶은 경험이 있으면 직접 고를 수 있습니다</p>
+            {passedList}
+            {writeButton}
+            <ErrorLine message={message} />
+          </div>
+        )}
       </div>
     );
   }
@@ -133,7 +163,7 @@ function Picker({
     <div className="space-y-3">
       {selection.approvedStale && (
         <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
-          고른 경험의 기록이 바뀌었습니다. 경험 고르기를 다시 눌러 주세요
+          고른 경험의 기록이 바뀌었습니다. 다시 고르기를 눌러 주세요
         </p>
       )}
       <ul className="divide-y divide-foreground/10 border-y border-foreground/10">
@@ -144,23 +174,10 @@ function Picker({
       {selection.passed.length > 0 && (
         <details className="text-sm">
           <summary className="cursor-pointer text-foreground/70">다른 후보 {selection.passed.length}개</summary>
-          <ul className="divide-y divide-foreground/10">
-            {selection.passed.map((item) => (
-              <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} onChange={(on) => toggle(item.experienceId, on)} />
-            ))}
-          </ul>
+          {passedList}
         </details>
       )}
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" disabled={pending || usableChecked.length === 0} onClick={write} className={primary}>
-          {pending ? "쓰는 중…" : hasDraft ? "다시 쓰기" : "이 경험으로 쓰기"}
-        </button>
-        {pending && (
-          <span role="status" className="text-sm text-foreground/60">
-            1분쯤 걸릴 수 있습니다
-          </span>
-        )}
-      </div>
+      {writeButton}
       <ErrorLine message={message} />
     </div>
   );

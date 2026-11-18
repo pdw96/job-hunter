@@ -192,7 +192,7 @@ export function DraftView({ questionId, data, canRevise }: { questionId: string;
         {length.limit !== null ? `${length.count} / ${length.limit}자` : `${length.count}자`} ({basis})
       </p>
       {data.draft.shortage && <p className="text-sm text-amber-700 dark:text-amber-400">기록이 모자란 점: {data.draft.shortage}</p>}
-      {data.check.questionChanged && <p className="text-sm text-amber-700 dark:text-amber-400">문항을 고친 뒤 쓴 답입니다. 다시 쓰기를 권합니다</p>}
+      {data.check.questionChanged && <p className="text-sm text-amber-700 dark:text-amber-400">문항을 고친 뒤 쓴 답입니다. 경험을 다시 고른 뒤 다시 써 주세요</p>}
       <div className="flex items-center gap-3">
         <button type="button" onClick={copy} className="rounded-lg border border-foreground/20 px-3 py-1.5 text-sm">
           복사

@@ -20,7 +20,6 @@ export type Question = QuestionInput & {
   updatedAt: Date;
 };
 
-type NotFound = { ok: false; reason: "not_found" };
 type Stale = { ok: true } | { ok: false; reason: "not_found" | "changed" };
 
 const mine = (userId: string, id: string) => and(eq(questions.id, id), eq(questions.userId, userId));
@@ -92,13 +91,24 @@ export async function getQuestion(db: Db, userId: string, id: string): Promise<Q
   return row ? toQuestion(row) : null;
 }
 
+// 문항의 공고가 지원일 때만 문항을 고치거나 지울 수 있다
+async function guardApply(db: Db, userId: string, id: string): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" }> {
+  const question = await getQuestion(db, userId, id);
+  if (!question) return { ok: false, reason: "not_found" };
+  const posting = await getPosting(db, userId, question.postingId);
+  if (!posting) return { ok: false, reason: "not_found" };
+  return posting.status === "apply" ? { ok: true } : { ok: false, reason: "not_apply" };
+}
+
 // 문항 글이 바뀌면 version을 올리고 고르기 결과를 지운다(쓴 답은 남긴다). 제한·기준만 바뀌면 둘 다 그대로
 export async function updateQuestion(
   db: Db,
   userId: string,
   id: string,
   input: QuestionInput,
-): Promise<{ ok: true } | NotFound> {
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" }> {
+  const guard = await guardApply(db, userId, id);
+  if (!guard.ok) return guard;
   const changed = sql`${questions.prompt} <> ${input.prompt}`;
   const updated = await db
     .update(questions)
@@ -115,7 +125,13 @@ export async function updateQuestion(
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
 }
 
-export async function deleteQuestion(db: Db, userId: string, id: string): Promise<{ ok: true } | NotFound> {
+export async function deleteQuestion(
+  db: Db,
+  userId: string,
+  id: string,
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" }> {
+  const guard = await guardApply(db, userId, id);
+  if (!guard.ok) return guard;
   const deleted = await db.delete(questions).where(mine(userId, id)).returning({ id: questions.id });
   return deleted.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
 }

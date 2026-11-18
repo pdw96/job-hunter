@@ -261,6 +261,14 @@ test("지원에서 보류로 바꿔도 listQuestions는 문항을 돌려준다",
   expect(await addQuestions(db, "u1", postingId, [q("더")])).toEqual({ ok: false, reason: "not_apply" });
 });
 
+test("지원이 아닌 공고의 문항은 고치거나 지우지 못한다", async () => {
+  const { postingId, id } = await oneQuestion();
+  expect(await setStatus(db, "u1", postingId, "hold")).toEqual({ ok: true });
+  expect(await updateQuestion(db, "u1", id, q("바꿈"))).toEqual({ ok: false, reason: "not_apply" });
+  expect(await deleteQuestion(db, "u1", id)).toEqual({ ok: false, reason: "not_apply" });
+  expect(await getQuestion(db, "u1", id)).toMatchObject({ prompt: "지원 동기를 쓰세요", version: 0 });
+});
+
 test("다른 사용자의 문항은 읽히지도 고쳐지지도 않는다", async () => {
   const { postingId, id } = await oneQuestion();
   const first = selection(0);
