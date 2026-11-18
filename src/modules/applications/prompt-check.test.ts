@@ -85,9 +85,26 @@ test("근거 없는 문단이 있으면 그 줄이 실패한다", async () => {
   expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["모든 문단에 근거가 있다"]);
 });
 
-test("AI 호출이 실패하면 그 단계의 줄이 실패로 나온다", async () => {
+test("고르기 호출이 실패하면 고르기 3줄만 실패로 나온다", async () => {
   const rows = await runApplicationCheck(db, answering({ fail: "invalid" }), "admin");
   expect(rows).toHaveLength(9);
   expect(rows.filter((row) => !row.pass)).toHaveLength(3);
   expect(rows.filter((row) => !row.pass).every((row) => row.actual === "실패: invalid")).toBe(true);
+});
+
+test("쓰기 호출이 실패하면 쓰기 6줄만 실패로 나오고 고르기 줄은 그대로다", async () => {
+  const rows = await runApplicationCheck(db, answering(select, { fail: "refused" }), "admin");
+  expect(rows).toHaveLength(9);
+  const bad = rows.filter((row) => !row.pass);
+  expect(bad).toHaveLength(6);
+  expect(bad.every((row) => row.actual === "실패: refused")).toBe(true);
+  expect(rows.slice(0, 3).every((row) => row.pass)).toBe(true);
+});
+
+test("추천 근거에 지어낸 숫자가 있어 비워지면 그 줄만 실패한다", async () => {
+  const bad = { ...select, picks: [{ ...select.picks[0], overlap: "응답 시간을 90% 줄인 경험이 공고와 겹친다" }] };
+  const rows = await runApplicationCheck(db, answering(bad), "admin");
+  const failedRows = rows.filter((row) => !row.pass);
+  expect(failedRows.map((row) => row.check)).toEqual(["추천 근거에 기록에 없는 숫자가 없다"]);
+  expect(failedRows[0].actual).toBe("비워짐: 주문 조회 API 개선 overlap");
 });

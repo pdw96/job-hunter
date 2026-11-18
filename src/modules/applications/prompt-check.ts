@@ -1,7 +1,6 @@
 import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
 import type { CheckRow } from "@/modules/experiences/prompt-check";
-import { numbersIn } from "@/modules/experiences/grounding";
 import type { WritingSource } from "@/modules/experiences/writing";
 import { FULL_POSTING } from "@/modules/postings/prompt-check";
 import { answerText, checkDraft, countChars } from "./check";
@@ -77,13 +76,15 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     if (!result.ok) return failed(selectChecks, result.reason);
     const { picks } = result.value;
     const picked = (id: string) => picks.some((pick) => pick.experienceId === id);
-    // 추천 근거의 숫자는 그 경험의 글, 문항, 공고에 있는 것만 허용한다
-    const allowed = new Set([PROMPT, postingText, ...SAMPLE_SOURCES.flatMap((s) => [s.name, s.organization, s.role, s.startMonth, s.endMonth, s.situation, s.actions, s.result])].flatMap((text) => (text ? numbersIn(text) : [])));
-    const stray = picks.flatMap((pick) => numbersIn(`${pick.overlap} ${pick.role}`.replace(/\bE\d+\b/g, "")).filter((n) => !allowed.has(n)));
+    // 기록에 없는 숫자가 든 문장은 selectText가 비워 두므로, 비워진 칸이 있으면 지어낸 숫자가 있었다는 뜻이다
+    const blanked = picks.flatMap((pick) => {
+      const name = SAMPLE_SOURCES.find((s) => s.id === pick.experienceId)?.name ?? pick.experienceId;
+      return (["overlap", "role"] as const).filter((field) => pick[field] === "").map((field) => `${name} ${field}`);
+    });
     return [
       row(selectChecks[0], "고름", picked(KOTLIN.id) ? "①을 고름" : "고르지 않음", picked(KOTLIN.id)),
       row(selectChecks[1], "고르지 않음", picked(CAFE.id) ? "②를 고름" : "고르지 않음", !picked(CAFE.id)),
-      row(selectChecks[2], "없음", stray.join(", ") || "없음", stray.length === 0),
+      row(selectChecks[2], "비워진 칸 없음", blanked.length === 0 ? "없음" : `비워짐: ${blanked.join(", ")}`, blanked.length === 0),
     ];
   };
 
