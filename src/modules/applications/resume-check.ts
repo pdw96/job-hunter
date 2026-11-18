@@ -6,7 +6,7 @@ import type { ResumeContent } from "./types";
 
 // 이력서를 코드로 검사한다. 표시할 뿐 저장과 복사는 막지 않는다. 화면과 DB를 모르는 순수 함수
 
-export type EntryCheck = { unavailable: boolean; stale: boolean; scopeChanged: boolean; banned: string[]; ungrounded: string[] };
+export type EntryCheck = { unavailable: boolean; empty: boolean; stale: boolean; scopeChanged: boolean; banned: string[]; ungrounded: string[] };
 export type ResumeCheck = { entries: EntryCheck[]; missing: string[]; commonChanged: boolean };
 
 const squash = (text: string) => text.replace(/\s+/g, "").toLowerCase();
@@ -18,7 +18,7 @@ export function checkResume(content: ResumeContent, sources: ResumeSource[], cur
 
   const entries = content.entries.map((entry): EntryCheck => {
     const current = byId.get(entry.experienceId);
-    if (!current) return { unavailable: true, stale: false, scopeChanged: false, banned: [], ungrounded: [] };
+    if (!current) return { unavailable: true, empty: false, stale: false, scopeChanged: false, banned: [], ungrounded: [] };
 
     const squashed = squash(entry.lines.map((line) => line.text).join("\n"));
     const banned = [...new Set(current.bannedPhrases)].filter((phrase) => squash(phrase) !== "" && squashed.includes(squash(phrase)));
@@ -30,6 +30,7 @@ export function checkResume(content: ResumeContent, sources: ResumeSource[], cur
 
     return {
       unavailable: false,
+      empty: entry.detail === "full" && entry.kind !== "school" && entry.kind !== "certificate" && entry.lines.length === 0,
       stale: entry.contentVersion !== current.contentVersion,
       scopeChanged: isCommon && entry.detail !== detailFor(current.scope),
       banned,

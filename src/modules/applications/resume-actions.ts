@@ -17,12 +17,13 @@ import { rewriteEntries, startCommonResume } from "./resume-write";
 type Result = { ok: true } | { ok: false; message: string };
 
 const MESSAGES = {
-  not_found: "이력서를 찾을 수 없습니다",
+  not_found: "찾을 수 없습니다. 화면을 새로 고쳐 주세요",
   exists: "이미 공통본이 있습니다. 화면을 새로 고쳐 주세요",
   no_sources: "이 트랙에 쓸 수 있는 확인된 기록이 없습니다",
   no_common: "트랙의 이력서 공통본을 먼저 만들어 주세요",
   not_apply: "지원으로 고른 공고에서만 쓸 수 있습니다",
   changed: "그사이 내용이 바뀌었습니다. 화면을 새로 고친 뒤 다시 해 주세요",
+  full: "이력서 항목은 40개까지입니다. 항목을 빼고 넣어 주세요",
   none_selected: "다시 쓸 수 있는 경험이 없습니다. 경험이 확인됐는지, 트랙에서 제외되지 않았는지 보세요",
   too_many_selected: "강조할 경험은 5개까지 골라 주세요",
   too_many_lines: "줄은 8개까지 쓸 수 있습니다",
@@ -39,10 +40,13 @@ const AI_MESSAGES: Record<"over_limit" | AiFailure, string> = {
   unavailable: "AI 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요",
 };
 
-const messageOf = (reason: string) =>
-  (MESSAGES as Record<string, string>)[reason] ?? (AI_MESSAGES as Record<string, string>)[reason] ?? AI_MESSAGES.unavailable;
+type Reason = keyof typeof MESSAGES | keyof typeof AI_MESSAGES;
 
-const fail = (reason: string): Result => ({ ok: false, message: messageOf(reason) });
+// 새 사유가 생기면 여기서 컴파일 오류가 나도록 모든 사유를 키로 받는다
+const fail = (reason: Reason): Result => ({
+  ok: false,
+  message: reason in MESSAGES ? MESSAGES[reason as keyof typeof MESSAGES] : AI_MESSAGES[reason as keyof typeof AI_MESSAGES],
+});
 
 const MAX_IDS = 100;
 const text = z.string().max(2000);

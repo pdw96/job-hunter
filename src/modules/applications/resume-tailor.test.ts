@@ -14,7 +14,7 @@ import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus } fr
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { RESUME_EMPHASIS_SYSTEM } from "./prompts";
-import { getCommonResume, getResume, getTailoredResume, saveResumeContent } from "./resume-repo";
+import { getCommonResume, getResume, getTailoredResume, saveResumeContent, saveTailoredContent } from "./resume-repo";
 import { startCommonResume } from "./resume-write";
 import { buildTailored, emphasisText, selectEmphasis } from "./resume-tailor";
 import { listResumeSources } from "@/modules/experiences/writing";
@@ -377,4 +377,29 @@ test("사용량이 resume_emphasis·resume_write로 기록된다", async () => {
   if (!built.ok) throw new Error(built.reason);
 
   expect((await db.select().from(aiUsage)).map((r) => r.purpose).sort()).toEqual(["resume_emphasis", "resume_write", "resume_write"]);
+});
+
+test("AI가 쓰는 사이 다른 탭에서 맞춤본을 고치면 changed이고 고친 내용이 남는다", async () => {
+  const { a } = await commonWithThree();
+  const postingId = await addPosting();
+  const first = await buildTailored(db, createFakeAi([lineReply(["E1", ["A 맞춤"]])]), "u1", postingId, [a], null, now);
+  if (!first.ok) throw new Error(first.reason);
+  const row = await getTailoredResume(db, "u1", postingId);
+  const other = {
+    ...row!.content!,
+    entries: row!.content!.entries.map((e) => (e.experienceId === a ? { ...e, lines: [{ text: "다른 탭에서 고침", edited: true }] } : e)),
+  };
+  const ai = createFakeAi([
+    async () => {
+      const saved = await saveTailoredContent(db, "u1", postingId, trackId, other, row!.version);
+      expect(saved.ok).toBe(true);
+      return lineReply(["E1", ["AI가 쓴 줄"]]);
+    },
+  ]);
+
+  const result = await buildTailored(db, ai, "u1", postingId, [a], row!.version, now);
+
+  expect(result).toEqual({ ok: false, reason: "changed" });
+  const stored = await getTailoredResume(db, "u1", postingId);
+  expect(stored?.content?.entries.find((e) => e.experienceId === a)?.lines).toEqual([{ text: "다른 탭에서 고침", edited: true }]);
 });

@@ -66,7 +66,7 @@ describe("checkResume 금지 표현", () => {
 describe("checkResume 쓸 수 없음·바뀜", () => {
   it("경험이 목록에 없으면 unavailable이고 나머지는 비운다", () => {
     const out = first(content([entry({ lines: [{ text: "처리량 40% 개선", edited: false }] })]), []);
-    expect(out).toEqual({ unavailable: true, stale: false, scopeChanged: false, banned: [], ungrounded: [] });
+    expect(out).toEqual({ unavailable: true, empty: false, stale: false, scopeChanged: false, banned: [], ungrounded: [] });
   });
   it("버전이 다르면 stale", () => {
     expect(first(content([entry()]), [source({ contentVersion: 2 })]).stale).toBe(true);
@@ -88,5 +88,20 @@ describe("checkResume 빠진 것", () => {
     expect(checkResume(content([entry()], 2), [source()], 3).commonChanged).toBe(true);
     expect(checkResume(content([entry()], 2), [source()], 2).commonChanged).toBe(false);
     expect(checkResume(content([entry()]), [source()], null).commonChanged).toBe(false);
+  });
+});
+
+describe("checkResume 빈 줄", () => {
+  it("자세히 항목에 줄이 없으면 empty", () => {
+    expect(first(content([entry({ lines: [] })]), [source()]).empty).toBe(true);
+  });
+  it("줄이 있으면 아니다", () => {
+    expect(first(content([entry()]), [source()]).empty).toBe(false);
+  });
+  it("요약 항목, 학력·자격, 쓸 수 없는 항목은 아니다", () => {
+    expect(first(content([entry({ lines: [], detail: "summary" })]), [source()]).empty).toBe(false);
+    expect(first(content([entry({ lines: [], kind: "school" })]), [source({ kind: "school" })]).empty).toBe(false);
+    expect(first(content([entry({ lines: [], kind: "certificate" })]), [source({ kind: "certificate" })]).empty).toBe(false);
+    expect(first(content([entry({ lines: [] })]), []).empty).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { editResumeAction, rewriteEntriesAction } from "@/modules/applications/resume-actions";
 import { RESUME_LIMITS } from "@/modules/applications/options";
 import type { EntryCheck } from "@/modules/applications/resume-check";
+import { parseLines } from "@/modules/applications/resume-entries";
 import { ErrorLine, useRun } from "../postings/[id]/application/use-run";
 import type { EditorData, EntryView } from "./editor-data";
 
@@ -12,11 +13,13 @@ import type { EditorData, EntryView } from "./editor-data";
 const small = "text-sm underline disabled:opacity-50";
 const primary = "rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-background disabled:opacity-50";
 const WAIT = "1분쯤 걸릴 수 있습니다";
+const FULL = "이력서 항목은 40개까지입니다. 항목을 빼고 넣어 주세요";
 const OVERWRITE = "직접 고친 줄이 덮어써집니다. 다시 쓸까요?";
 
 function problems(check: EntryCheck): string[] {
   if (check.unavailable) return ["이 경험은 지금 쓸 수 없습니다(확인 풀림, 제외, 지움). 빼 주세요"];
   const lines: string[] = [];
+  if (check.empty) lines.push("줄이 없습니다. 다시 쓰기로 채워 주세요");
   if (check.stale) lines.push("경험 기록이 바뀌었습니다. 다시 쓰기를 권합니다");
   if (check.scopeChanged) lines.push("트랙의 사용 범위가 바뀌었습니다. 다시 쓰기를 권합니다");
   if (check.banned.length > 0) lines.push(`쓰면 안 되는 표현: ${check.banned.join(", ")}`);
@@ -26,7 +29,7 @@ function problems(check: EntryCheck): string[] {
 
 // 화면에서 먼저 줄 수와 길이를 본다. 서버도 같은 한도로 다시 본다
 function linesProblem(text: string): string | null {
-  const lines = text.split(/\r?\n/u).map((line) => line.trim()).filter((line) => line !== "");
+  const lines = parseLines(text);
   if (lines.length > RESUME_LIMITS.editLines) return `줄은 ${RESUME_LIMITS.editLines}개까지 쓸 수 있습니다`;
   if (lines.some((line) => [...line].length > RESUME_LIMITS.line)) return `한 줄은 ${RESUME_LIMITS.line}자까지 쓸 수 있습니다`;
   return null;
@@ -53,7 +56,7 @@ function EntryCard({
   const rewrite = useRun();
   const pending = edit.pending || rewrite.pending;
   const lines = problems(check);
-  const recommend = !check.unavailable && (check.stale || check.scopeChanged);
+  const recommend = !check.unavailable && (check.stale || check.scopeChanged || check.empty);
   const heading = [entry.heading.name, entry.heading.organization, entry.heading.role, entry.heading.period].filter(Boolean).join(" · ");
 
   function save() {
@@ -239,26 +242,30 @@ export function ResumeEditor({
           <p className="text-sm">
             넣을 수 있는 경험 {data.missing.length}개: {data.missing.map((item) => item.name).join(", ")}
           </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={add.pending}
-              onClick={() => add.run(() => rewriteEntriesAction(data.resumeId, data.missing.map((item) => item.id), data.version))}
-              className={primary}
-            >
-              {add.pending ? "넣는 중…" : "넣기"}
-            </button>
-            {add.pending && (
-              <span role="status" className="text-sm text-foreground/60">
-                {WAIT}
-              </span>
-            )}
-          </div>
+          {data.full ? (
+            <p className="text-sm text-red-600">{FULL}</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={add.pending}
+                onClick={() => add.run(() => rewriteEntriesAction(data.resumeId, data.missing.map((item) => item.id), data.version))}
+                className={primary}
+              >
+                {add.pending ? "넣는 중…" : "넣기"}
+              </button>
+              {add.pending && (
+                <span role="status" className="text-sm text-foreground/60">
+                  {WAIT}
+                </span>
+              )}
+            </div>
+          )}
           <ErrorLine message={add.message} />
         </div>
       )}
       {data.commonChanged && (
-        <p className="text-sm text-amber-700 dark:text-amber-400">공통본을 고친 뒤입니다. 다시 만들면 고친 공통본에서 출발합니다</p>
+        <p className="text-sm text-amber-700 dark:text-amber-400">공통본을 고친 뒤입니다{readOnly ? "" : ". 다시 만들면 고친 공통본에서 출발합니다"}</p>
       )}
       <CopyButton text={data.copyText} />
 

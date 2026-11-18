@@ -218,3 +218,10 @@ test("공고를 지우면 맞춤본이, 트랙을 지우면 공통본이 지워�
   await db.delete(tracks).where(eq(tracks.id, trackId));
   expect(await getResume(db, "u1", commonId)).toBeNull();
 });
+
+test("공고가 지워진 뒤 맞춤본을 저장하면 not_found이다", async () => {
+  const postingId = await addPosting();
+  await deletePosting(db, "u1", postingId);
+  expect(await saveTailoredSelection(db, "u1", postingId, trackId, selection())).toEqual({ ok: false, reason: "not_found" });
+  expect(await saveTailoredContent(db, "u1", postingId, trackId, content("줄", 0), null)).toEqual({ ok: false, reason: "not_found" });
+});

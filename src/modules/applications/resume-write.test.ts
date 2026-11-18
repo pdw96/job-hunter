@@ -419,10 +419,10 @@ test("새 항목은 40개까지만 받고(목록 순서대로) 있는 항목은 
   const stored = new Set(result.value.entries.map((e) => e.experienceId));
   for (const f of listed) expect(stored.has(f)).toBe(true);
 
-  // 자리가 없으면 새 경험만 보낼 때 none_selected이고 AI를 부르지 않는다
+  // 자리가 없으면 새 경험만 보낼 때 full이고 AI를 부르지 않는다
   const left = fresh.find((f) => !stored.has(f));
   const again = createFakeAi([]);
-  expect(await rewriteEntries(db, again, "u1", id, [left!], (await getResume(db, "u1", id))!.version, now)).toEqual({ ok: false, reason: "none_selected" });
+  expect(await rewriteEntries(db, again, "u1", id, [left!], (await getResume(db, "u1", id))!.version, now)).toEqual({ ok: false, reason: "full" });
   expect(again.requests.length).toBe(0);
 });
 

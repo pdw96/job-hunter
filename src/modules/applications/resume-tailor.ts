@@ -110,8 +110,8 @@ export async function selectEmphasis(
     now,
   );
   if (!selected.ok) return selected;
-  await saveTailoredSelection(db, userId, postingId, posting.trackId, selected.value);
-  return selected;
+  const saved = await saveTailoredSelection(db, userId, postingId, posting.trackId, selected.value);
+  return saved.ok ? selected : saved;
 }
 
 export async function buildTailored(

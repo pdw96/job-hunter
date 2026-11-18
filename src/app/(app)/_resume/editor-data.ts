@@ -1,5 +1,6 @@
 import type { Resume } from "@/modules/applications/resume-repo";
 import { checkResume, type EntryCheck } from "@/modules/applications/resume-check";
+import { RESUME_LIMITS } from "@/modules/applications/options";
 import { resumeText, sections } from "@/modules/applications/resume-entries";
 import type { ResumeEntry } from "@/modules/applications/types";
 import type { ResumeSource } from "@/modules/experiences/writing";
@@ -14,6 +15,7 @@ export type EditorData = {
   sections: SectionView[];
   missing: { id: string; name: string }[]; // 넣을 수 있는데 이력서에 없는 경험
   commonChanged: boolean;
+  full: boolean; // 이미 항목이 한도(40개)까지 찼다
   copyText: string;
 };
 
@@ -35,6 +37,7 @@ export function editorData(resume: Resume, sources: ResumeSource[], currentCommo
     })),
     missing: check.missing.map((id) => ({ id, name: names.get(id) ?? "" })),
     commonChanged: check.commonChanged,
+    full: content.entries.length >= RESUME_LIMITS.entries,
     copyText: resumeText(content),
   };
 }

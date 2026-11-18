@@ -19,7 +19,7 @@ const resumeSchema = z.object({ entries: z.array(z.object({ exp: z.string(), lin
 
 export type LineRequest = { source: ResumeSource; detail: ResumeDetail; emphasize: boolean };
 export type ResumePostingContext = { text: string; requirements: string[] };
-type RewriteFailure = "not_found" | "not_apply" | "changed" | "none_selected" | "over_limit" | AiFailure;
+type RewriteFailure = "not_found" | "not_apply" | "changed" | "none_selected" | "full" | "over_limit" | AiFailure;
 
 const DETAIL_TEXT: Record<ResumeDetail, string> = { full: "자세히(2~4줄)", summary: "요약(1~2줄)" };
 const maxLines = (detail: ResumeDetail) => (detail === "full" ? RESUME_LIMITS.fullLines : RESUME_LIMITS.summaryLines);
@@ -152,11 +152,9 @@ export async function rewriteEntries(
   // 있는 항목은 모두 다시 쓸 수 있고, 새 항목은 40개까지 남은 자리만큼만 받는다(목록 순서대로)
   const wanted = new Set(experienceIds.filter((id) => byId.has(id)));
   const room = Math.max(0, RESUME_LIMITS.entries - content.entries.length);
-  const sources = [
-    ...listed.filter((s) => wanted.has(s.id) && existing.has(s.id)),
-    ...listed.filter((s) => wanted.has(s.id) && !existing.has(s.id)).slice(0, room),
-  ];
-  if (sources.length === 0) return { ok: false, reason: "none_selected" };
+  const fresh = listed.filter((s) => wanted.has(s.id) && !existing.has(s.id));
+  const sources = [...listed.filter((s) => wanted.has(s.id) && existing.has(s.id)), ...fresh.slice(0, room)];
+  if (sources.length === 0) return { ok: false, reason: fresh.length > 0 ? "full" : "none_selected" };
 
   const requests: LineRequest[] = sources.map((source) => {
     const entry = existing.get(source.id);
