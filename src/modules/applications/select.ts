@@ -8,7 +8,7 @@ import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { SELECT_SYSTEM } from "./prompts";
 import { getQuestion, listQuestions, saveSelection } from "./repo";
-import { cut } from "./text";
+import { aliasKey, cut } from "./text";
 import type { PassedReason, PickReason, Selection } from "./types";
 
 // AI가 문항 하나에 쓸 경험을 고르고 그 까닭을 적는다. 글은 쓰지 않는다.
@@ -128,7 +128,7 @@ export async function selectText(
   const picks: PickReason[] = [];
   const picked = new Set<string>();
   for (const item of result.value.picks) {
-    const s = byAlias.get(item.exp.trim());
+    const s = byAlias.get(aliasKey(item.exp) ?? "");
     if (!s || picked.has(s.id) || picks.length >= APPLICATION_LIMITS.picks) continue;
     picked.add(s.id);
     picks.push({ experienceId: s.id, contentVersion: s.contentVersion, overlap: clean(item.overlap, s), role: clean(item.role, s) });
@@ -137,7 +137,7 @@ export async function selectText(
   const passed: PassedReason[] = [];
   const seen = new Set<string>();
   for (const item of result.value.passed) {
-    const s = byAlias.get(item.exp.trim());
+    const s = byAlias.get(aliasKey(item.exp) ?? "");
     if (!s || picked.has(s.id) || seen.has(s.id) || passed.length >= APPLICATION_LIMITS.passed) continue;
     seen.add(s.id);
     passed.push({ experienceId: s.id, contentVersion: s.contentVersion, whyNot: clean(item.whyNot, s) });

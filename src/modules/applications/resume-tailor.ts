@@ -10,7 +10,7 @@ import { buildEntry, emphasize } from "./resume-entries";
 import { getCommonResume, getTailoredResume, saveTailoredContent, saveTailoredSelection } from "./resume-repo";
 import { writeLines } from "./resume-write";
 import { describeSource, grounded, postingTextOf, requirementsOf } from "./select";
-import { cut } from "./text";
+import { aliasKey, cut } from "./text";
 import type { EmphasisPick, ResumeContent, ResumeSelection } from "./types";
 
 // 공고에 맞춰 강조할 경험을 고르고(AI는 고르기만), 고른 경험을 공통본에서 맨 위로 올려 다시 쓴 맞춤본을 만든다.
@@ -63,7 +63,7 @@ export async function emphasisText(
   const picks: EmphasisPick[] = [];
   const picked = new Set<string>();
   for (const item of result.value.picks) {
-    const s = byAlias.get(item.exp.trim());
+    const s = byAlias.get(aliasKey(item.exp) ?? "");
     if (!s || picked.has(s.id) || picks.length >= RESUME_LIMITS.emphasis) continue;
     picked.add(s.id);
     const why = cut(item.why.trim(), RESUME_LIMITS.reason);

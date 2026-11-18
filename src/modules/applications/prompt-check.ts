@@ -81,8 +81,13 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       const name = SAMPLE_SOURCES.find((s) => s.id === pick.experienceId)?.name ?? pick.experienceId;
       return (["overlap", "role"] as const).filter((field) => pick[field] === "").map((field) => `${name} ${field}`);
     });
+    // 진단용: ①을 못 골랐을 때 AI가 실제로 무엇을 골랐고 무엇을 밀어냈는지 보인다
+    const nameOf = (id: string) => SAMPLE_SOURCES.find((s) => s.id === id)?.name ?? id;
+    const pickedNames = picks.map((pick) => nameOf(pick.experienceId)).join(", ") || "없음";
+    const passedNames = result.value.passed.map((p) => `${nameOf(p.experienceId)}(${p.whyNot || "이유 없음"})`).join(", ") || "없음";
+    const notPicked = `고르지 않음 · 고른 것: ${pickedNames} · 밀린 것: ${passedNames}`;
     return [
-      row(selectChecks[0], "고름", picked(KOTLIN.id) ? "①을 고름" : "고르지 않음", picked(KOTLIN.id)),
+      row(selectChecks[0], "고름", picked(KOTLIN.id) ? "①을 고름" : notPicked, picked(KOTLIN.id)),
       row(selectChecks[1], "고르지 않음", picked(CAFE.id) ? "②를 고름" : "고르지 않음", !picked(CAFE.id)),
       row(selectChecks[2], "비워진 칸 없음", blanked.length === 0 ? "없음" : `비워짐: ${blanked.join(", ")}`, blanked.length === 0),
     ];

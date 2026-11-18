@@ -237,6 +237,17 @@ test("후보가 없으면 AI를 부르지 않고 noMatch", async () => {
   expect(ai.requests.length).toBe(0);
 });
 
+test("별명이 'E1 (경험 이름)'처럼 조금 달라도 강조로 읽는다", async () => {
+  await addExperience({ name: "경험0", startMonth: "2023-01" });
+  const sources = await listResumeSources(db, "u1", trackId);
+  const ai = createFakeAi([pickReply(["E1 (경험0)", "공고의 3년 경력과 겹칩니다"])]);
+
+  const result = await emphasisText(db, ai, "u1", { postingText: "Java 3년 이상", requirements: [], sources }, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.picks.map((p) => p.experienceId)).toEqual([sources[0].id]);
+});
+
 test("why에 기록에 없는 숫자가 있으면 비우고, 없는 별명·중복은 버리고, picks는 5개까지", async () => {
   for (let i = 0; i < 7; i++) await addExperience({ name: `경험${i}`, startMonth: `2023-0${i + 1}` });
   const sources = await listResumeSources(db, "u1", trackId);
