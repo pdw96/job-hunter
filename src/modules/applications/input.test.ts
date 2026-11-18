@@ -26,6 +26,16 @@ describe("splitQuestions", () => {
     expect(splitQuestions("1. 성과\n1.5배 성장한 경험\n2023년 일")).toEqual(["성과\n1.5배 성장한 경험\n2023년 일"]);
   });
 
+  it("1번, 1번 문항, [1], [문항 1], 【문항1】, ①②③ 표기를 나눈다", () => {
+    expect(splitQuestions("1번 지원 동기\n2번. 포부\n3번 문항 협업\n4번 문항: 갈등")).toEqual(["지원 동기", "포부", "협업", "갈등"]);
+    expect(splitQuestions("[1] 지원 동기\n[문항 2] 포부\n【문항3】 협업\n【4】갈등")).toEqual(["지원 동기", "포부", "협업", "갈등"]);
+    expect(splitQuestions("① 지원 동기\n② 포부\n⑩ 협업")).toEqual(["지원 동기", "포부", "협업"]);
+  });
+
+  it("1번째, 1.5배, 2023년은 번호가 아니다", () => {
+    expect(splitQuestions("1. 성과\n1번째 경험\n1.5배\n2023년 일")).toEqual(["성과\n1번째 경험\n1.5배\n2023년 일"]);
+  });
+
   it("빈 글은 빈 목록", () => {
     expect(splitQuestions("  \n ")).toEqual([]);
   });

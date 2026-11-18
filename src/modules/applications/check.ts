@@ -69,9 +69,10 @@ export function checkDraft(
 
     const known = new Set([
       ...promptNumbers,
+      // 승인한(basedOn) 경험의 숫자만 근거로 친다
       ...paragraph.sources.flatMap((id) => {
         const current = byId.get(id);
-        return current ? knownNumbers(current) : [];
+        return current && approved.has(id) ? knownNumbers(current) : [];
       }),
     ]);
     const ungrounded = [...new Set(numbersIn(paragraph.text).filter((n) => !known.has(n)))];

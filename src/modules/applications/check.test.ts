@@ -86,6 +86,12 @@ describe("숫자 검사", () => {
     expect(checkDraft(d, question, [source(), other]).paragraphs[0].ungrounded).toEqual(["99"]);
   });
 
+  it("승인하지 않은 경험의 숫자는 근거로 치지 않는다", () => {
+    const other = source({ id: "e2", situation: "사용자 99명" });
+    const d = draft([paragraph({ text: "99명이 썼다", sources: ["e1", "e2"] })]);
+    expect(checkDraft(d, question, [source(), other]).paragraphs[0].ungrounded).toEqual(["99"]);
+  });
+
   it("직접 수정한 문단은 숫자·근거 검사를 하지 않는다", () => {
     const p = paragraph({ text: "40% 개선했다", sources: [], edited: true });
     const result = checkDraft(draft([p]), question, [source()]);
