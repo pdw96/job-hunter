@@ -160,6 +160,37 @@ function postingMatch(text: string) {
   return { field: { level: "same_job", reason: "공고의 직무가 지원 직무와 같습니다." }, requirements };
 }
 
+// 문항에 쓸 경험 고르기 흉내. E1을 고르고, E2가 있으면 밀린 것으로 둔다
+function applicationSelect(text: string) {
+  const experiences = section(text, "경험 기록");
+  const first = experiences.split(/\n\n(?=E\d+\n)/)[0] ?? "";
+  const actions = first.match(/^- 본인이 한 일: (.*)$/m)?.[1] ?? "";
+  const hasSecond = /^E2$/m.test(experiences);
+  return {
+    picks: /^E1$/m.test(experiences)
+      ? [{ exp: "E1", overlap: "문항의 경험 요구와 겹칩니다", role: actions.split("\n")[0] === "없음" ? "" : actions.split("\n")[0] }]
+      : [],
+    passed: hasSecond ? [{ exp: "E2", whyNot: "문항과 겹치는 정도가 더 낮습니다" }] : [],
+  };
+}
+
+// 답 쓰기 흉내. E1의 "본인이 한 일"과 "결과"로 두 문단을 쓴다
+function applicationWrite(text: string) {
+  const experiences = section(text, "경험 기록");
+  const first = experiences.split(/\n\n(?=E\d+\n)/)[0] ?? "";
+  const field = (label: string) => {
+    const value = first.match(new RegExp(`^- ${label}: (.*)$`, "m"))?.[1] ?? "";
+    return value === "없음" ? "" : value;
+  };
+  const paragraphs = [field("본인이 한 일"), field("결과")].filter(Boolean).map((line) => ({ text: line, sources: ["E1"] }));
+  return { paragraphs, shortage: "" };
+}
+
+// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다
+function applicationRevise(text: string) {
+  return { text: `${section(text, "고칠 문단")} (고침)`, sources: ["E1"] };
+}
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
@@ -177,7 +208,13 @@ export const ai: AiClient = {
                 ? posting(text)
                 : request.purpose === "posting_match"
                   ? postingMatch(text)
-                  : extract(text);
+                  : request.purpose === "application_select"
+                    ? applicationSelect(text)
+                    : request.purpose === "application_write"
+                      ? applicationWrite(text)
+                      : request.purpose === "application_revise"
+                        ? applicationRevise(text)
+                        : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };
     return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };

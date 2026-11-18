@@ -7,7 +7,7 @@ import { checkBudget, recordUsage } from "./usage";
 // Claude API를 부르는 곳은 AiClient 구현 하나뿐이다. 다른 모듈은 이 인터페이스를 인자로 받는다.
 // 테스트와 로컬 미리보기는 정해진 답을 돌려주는 가짜 구현을 쓴다.
 
-export type AiPurpose = "judge" | "interview" | "extract" | "import" | "posting" | "posting_image" | "posting_match";
+export type AiPurpose = "judge" | "interview" | "extract" | "import" | "posting" | "posting_image" | "posting_match" | "application_select" | "application_write" | "application_revise";
 export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export type AiImage = { mediaType: (typeof IMAGE_TYPES)[number]; data: string }; // data는 base64
 // images는 글과 함께 보여 줄 그림(사용자 메시지에만 쓴다)

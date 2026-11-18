@@ -18,6 +18,7 @@ import {
 } from "./interview";
 import { approvePhrase, dismissPhrase, judgeExperience } from "./judge";
 import { RUBRIC_ITEMS, type RubricItem, SCOPES, type Scope } from "./options";
+import { runApplicationCheck } from "@/modules/applications/prompt-check";
 import { runPostingCheck } from "@/modules/postings/prompt-check";
 import { type CheckRow, runPromptCheck } from "./prompt-check";
 import {
@@ -187,14 +188,18 @@ export async function draftInterviewAction(
     : { ok: false, message: aiMessage(result.reason) };
 }
 
-// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 8번, 비용 발생)
+// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 16번, 비용 발생)
 export async function runPromptCheckAction(): Promise<
   { ok: true; rows: CheckRow[] } | { ok: false; message: string }
 > {
   const admin = await requireAdmin();
-  // 공고에서 값을 뽑는 프롬프트도 함께 점검한다
-  const [rows, postingRows] = await Promise.all([runPromptCheck(db, ai, admin.id), runPostingCheck(db, ai, admin.id)]);
-  return { ok: true, rows: [...rows, ...postingRows] };
+  // 공고에서 값을 뽑는 프롬프트와 자소서 고르기·쓰기도 함께 점검한다
+  const [rows, postingRows, applicationRows] = await Promise.all([
+    runPromptCheck(db, ai, admin.id),
+    runPostingCheck(db, ai, admin.id),
+    runApplicationCheck(db, ai, admin.id),
+  ]);
+  return { ok: true, rows: [...rows, ...postingRows, ...applicationRows] };
 }
 
 const IMPORT_MESSAGES: Record<string, string> = {
