@@ -311,6 +311,13 @@ test("없는 별명의 근거는 버리고 같은 별명은 한 번만 쓴다. �
   ]);
 });
 
+test("문단의 근거에 별명 대신 경험 이름이 있어도 실제 id로 바꾼다", async () => {
+  const { expId, questionId } = await ready();
+  const ai = createFakeAi([writeReply({ paragraphs: [{ text: "첫 문단", sources: ["결제 시스템 개편", ' "결제 시스템 개편" ', "없는 경험"] }] })]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result.ok && result.value.paragraphs.map((p) => [p.text, p.sources])).toEqual([["첫 문단", [expId]]]);
+});
+
 test("빈 문단은 버리고 문단은 10개까지, 문단은 2000자까지, shortage는 500자까지", async () => {
   const { expId, questionId } = await ready();
   const paragraphs = [

@@ -9,7 +9,7 @@ import { RESUME_WRITE_SYSTEM } from "./prompts";
 import { cleanLines, buildEntry, detailFor, upsertEntries } from "./resume-entries";
 import { getCommonResume, getResume, insertCommonResume, saveResumeContent } from "./resume-repo";
 import { describeSource, postingTextOf, requirementsOf } from "./select";
-import { aliasKey } from "./text";
+import { resolveAlias } from "./text";
 import type { ResumeContent, ResumeDetail } from "./types";
 
 // 확인된 경험으로 이력서 줄을 쓴다. 머리(이름·소속·역할·기간)는 코드가 기록에서 만들고, AI는 줄만 쓴다.
@@ -77,15 +77,14 @@ export async function writeLines(
   if (!result.ok) return { ok: false, reason: result.reason };
 
   // 요청에 없는 별명은 버리고, 같은 별명은 처음 것만 쓴다. 빠뜨린 경험은 빈 줄이다
-  const byAlias = new Map(input.requests.map((r, i) => [`E${i + 1}`, r]));
+  const named = input.requests.map((r) => ({ name: r.source.name, request: r }));
   const value: Record<string, string[]> = {};
   let matched = 0;
   const seen = new Set<string>();
   for (const item of result.value.entries) {
-    const alias = aliasKey(item.exp) ?? "";
-    const request = byAlias.get(alias);
-    if (!request || seen.has(alias)) continue;
-    seen.add(alias);
+    const request = resolveAlias(item.exp, named)?.request;
+    if (!request || seen.has(request.source.id)) continue;
+    seen.add(request.source.id);
     matched += 1;
     value[request.source.id] = cleanLines(item.lines, maxLines(request.detail));
   }
