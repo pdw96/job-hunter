@@ -7,14 +7,17 @@ import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } 
 import { listEvidenceCandidates } from "@/modules/experiences/evidence";
 import { listQuestions } from "@/modules/applications/repo";
 import { getTailoredResume } from "@/modules/applications/resume-repo";
+import { isLocked, listSubmissions } from "@/modules/applications/submission-repo";
+import { submitPreview } from "@/modules/applications/submit";
 import { getPosting } from "@/modules/postings/repo";
 import { fieldStale, scorePosting, usableOf } from "@/modules/postings/score";
-import { todayInKorea } from "@/modules/postings/today";
+import { koreaDate, koreaMonthDay, todayInKorea } from "@/modules/postings/today";
 import { REGIONS } from "@/modules/tracks/options";
 import { getTrack } from "@/modules/tracks/repo";
 import { deadlineLabel } from "../deadline";
 import { PostingActions } from "../posting-actions";
 import { ScoreSection } from "./score-section";
+import { SubmitPanel } from "./submit-panel";
 
 const regionLabel = (id: string) => REGIONS.find((region) => region.id === id)?.label ?? id;
 
@@ -26,12 +29,16 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
   if (!posting) notFound();
 
   const today = todayInKorea();
-  const [track, candidates, questions, tailored] = await Promise.all([
+  const [track, candidates, questions, tailored, submissions] = await Promise.all([
     getTrack(db, user.id, posting.trackId),
     listEvidenceCandidates(db, user.id, posting.trackId),
     listQuestions(db, user.id, posting.id),
     getTailoredResume(db, user.id, posting.id),
+    listSubmissions(db, user.id, posting.id),
   ]);
+  const latest = submissions.at(-1) ?? null;
+  const locked = isLocked(latest);
+  const preview = posting.status === "apply" && !locked ? await submitPreview(db, user.id, posting) : null;
   const reasons = track ? exclusionReasons(posting, track, today) : [];
   // 점수는 그릴 때마다 지금의 경험 후보로 계산한다(지웠거나 확인을 풀었거나 맞댄 뒤 고친 경험은 바로 빠진다)
   const score =
@@ -98,13 +105,13 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
             href={`/postings/${posting.id}/application`}
             className="inline-block rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background"
           >
-            {questions.length > 0 ? `자소서 쓰기 · 문항 ${questions.length}개` : "자소서 쓰기"}
+            {locked ? "자소서 보기" : questions.length > 0 ? `자소서 쓰기 · 문항 ${questions.length}개` : "자소서 쓰기"}
           </Link>
           <Link
             href={`/postings/${posting.id}/resume`}
             className="inline-block rounded-lg border border-foreground/20 px-4 py-2 text-sm font-medium"
           >
-            이력서 맞춤본
+            {locked ? "이력서 맞춤본 보기" : "이력서 맞춤본"}
           </Link>
         </div>
       ) : (
@@ -123,6 +130,19 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
           </div>
         )
       )}
+
+      <SubmitPanel
+        postingId={posting.id}
+        lastNumber={latest?.number ?? 0}
+        locked={locked}
+        isApply={posting.status === "apply"}
+        preview={preview}
+        submissions={submissions.map((item) => ({
+          number: item.number,
+          dateLabel: koreaDate(item.submittedAt),
+          shortLabel: koreaMonthDay(item.submittedAt),
+        }))}
+      />
 
       <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
         {facts.map(([label, value]) => (
@@ -149,6 +169,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         hasReasons={reasons.length > 0}
         excludeOverride={posting.excludeOverride}
         hasAnalysis={posting.analysis !== null}
+        submissionCount={submissions.length}
       />
 
       <section className="space-y-2">

@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { getCommonResume, getTailoredResume } from "@/modules/applications/resume-repo";
+import { isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import { listResumeSources } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
+import { koreaDate } from "@/modules/postings/today";
 import { editorData } from "../../../_resume/editor-data";
 import { ResumeEditor } from "../../../_resume/resume-editor";
 import { type EmphasisSelectionView, EmphasisPicker, type OtherView } from "./emphasis-picker";
@@ -17,12 +19,14 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
   const posting = await getPosting(db, user.id, id);
   if (!posting) notFound();
 
-  const [common, tailored, sources] = await Promise.all([
+  const [common, tailored, sources, latest] = await Promise.all([
     getCommonResume(db, user.id, posting.trackId),
     getTailoredResume(db, user.id, posting.id),
     listResumeSources(db, user.id, posting.trackId),
+    latestSubmission(db, user.id, posting.id),
   ]);
-  const canAct = posting.status === "apply";
+  const locked = isLocked(latest);
+  const canAct = posting.status === "apply" && !locked;
   const hasCommon = common?.content != null;
   const byId = new Map(sources.map((source) => [source.id, source]));
 
@@ -58,7 +62,18 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
         </p>
       </div>
 
-      {!canAct && <p className="rounded-lg bg-foreground/5 p-3 text-sm">지원으로 고른 공고에서만 맞춤본을 만들고 고칠 수 있습니다</p>}
+      {locked && latest && (
+        <div className="space-y-1 rounded-lg bg-foreground/5 p-3 text-sm">
+          <p>
+            제출 {latest.number}({koreaDate(latest.submittedAt)})을 얼린 뒤라 고칠 수 없습니다. 고치려면 공고 화면에서 새 버전 만들기를 눌러 주세요
+          </p>
+          <Link href={`/postings/${posting.id}`} className="underline">
+            공고 화면으로
+          </Link>
+        </div>
+      )}
+
+      {!canAct && !locked && <p className="rounded-lg bg-foreground/5 p-3 text-sm">지원으로 고른 공고에서만 맞춤본을 만들고 고칠 수 있습니다</p>}
 
       {canAct && !hasCommon && (
         <div className="space-y-2 rounded-lg bg-foreground/5 p-3">

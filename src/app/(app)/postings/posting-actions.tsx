@@ -61,12 +61,14 @@ export function PostingActions({
   hasReasons,
   excludeOverride,
   hasAnalysis,
+  submissionCount,
 }: {
   id: string;
   status: PostingStatus;
   hasReasons: boolean;
   excludeOverride: boolean;
   hasAnalysis: boolean;
+  submissionCount: number;
 }) {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -125,7 +127,7 @@ export function PostingActions({
           type="button"
           disabled={pending}
           onClick={() => {
-            if (window.confirm("이 공고를 지울까요?")) run(() => deletePostingAction(id));
+            if (window.confirm(submissionCount > 0 ? `이 공고를 지울까요? 제출본 ${submissionCount}개도 함께 지워집니다` : "이 공고를 지울까요?")) run(() => deletePostingAction(id));
           }}
           className="text-sm text-red-600 underline disabled:opacity-50"
         >
