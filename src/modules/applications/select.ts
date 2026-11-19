@@ -8,7 +8,7 @@ import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { SELECT_SYSTEM } from "./prompts";
 import { getQuestion, listQuestions, saveSelection } from "./repo";
-import { editBlock, editBlockNow } from "./submission-repo";
+import { editBlock, withEditLock } from "./submission-repo";
 import { cut, resolveAlias } from "./text";
 import type { PassedReason, PickReason, Selection } from "./types";
 
@@ -187,11 +187,9 @@ export async function selectForQuestion(
     now,
   );
   if (!selected.ok) return selected;
-  const late = await editBlockNow(db, userId, posting.id);
-  if (late) return { ok: false, reason: late };
 
-  // 읽었을 때의 문항 글 그대로일 때만 저장한다(그사이 고쳤으면 changed)
+  // 읽었을 때의 문항 글 그대로일 때만 저장한다(그사이 고쳤으면 changed). 제출 확인과 저장은 공고 잠금 안에서 한다
   const value: Selection = { questionVersion: question.version, ...selected.value };
-  const saved = await saveSelection(db, userId, questionId, value);
+  const saved = await withEditLock(db, userId, posting.id, (tx) => saveSelection(tx, userId, questionId, value));
   return saved.ok ? { ok: true, value } : saved;
 }

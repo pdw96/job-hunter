@@ -7,7 +7,7 @@ import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
-import { editBlock, editBlockNow } from "./submission-repo";
+import { editBlock, withEditLock } from "./submission-repo";
 import { cut, resolveAlias } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
@@ -159,13 +159,12 @@ export async function approveAndWrite(
     now,
   );
   if (!written.ok) return written;
-  // AI가 쓰는 사이 제출했으면 저장하지 않는다
-  const late = await editBlockNow(db, userId, posting.id);
-  if (late) return { ok: false, reason: late };
-
-  // 읽었을 때의 문항 글, 승인, 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 직접 고쳤으면 changed)
+  // 읽었을 때의 문항 글, 승인, 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 직접 고쳤으면 changed).
+  // AI가 쓰는 사이 제출했으면 저장하지 않는다: 확인과 저장을 공고 잠금 안에서 한다
   const draft: Draft = { questionVersion: question.version, basedOn: approved, ...written.value, writtenAt: now.toISOString() };
-  const saved = await saveDraft(db, userId, questionId, draft, { version: question.version, approved, draft: question.draft });
+  const saved = await withEditLock(db, userId, posting.id, (tx) =>
+    saveDraft(tx, userId, questionId, draft, { version: question.version, approved, draft: question.draft }),
+  );
   return saved.ok ? { ok: true, value: draft } : saved;
 }
 
@@ -234,16 +233,13 @@ export async function reviseParagraph(
   );
   if (!result.ok) return { ok: false, reason: result.reason };
 
-  const late = await editBlockNow(db, userId, posting.id);
-  if (late) return { ok: false, reason: late };
-
   const cleaned = cleanParagraph(result.value.text, result.value.sources, sources);
   if (cleaned.text === "") return { ok: false, reason: "invalid" };
   const next: Draft = {
     ...stored,
     paragraphs: stored.paragraphs.map((p, i) => (i === index ? { ...cleaned, edited: false } : p)),
   };
-  const saved = await replaceDraft(db, userId, questionId, expected, next);
+  const saved = await withEditLock(db, userId, posting.id, (tx) => replaceDraft(tx, userId, questionId, expected, next));
   return saved.ok ? { ok: true, value: next } : saved;
 }
 
@@ -277,7 +273,7 @@ export async function editParagraph(
       ? stored.paragraphs.filter((_, i) => i !== index)
       : stored.paragraphs.map((p, i) => (i === index ? { ...p, text: trimmed, edited: true } : p));
   const next: Draft = { ...stored, paragraphs };
-  const saved = await replaceDraft(db, userId, questionId, expected, next);
+  const saved = await withEditLock(db, userId, posting.id, (tx) => replaceDraft(tx, userId, questionId, expected, next));
   return saved.ok ? { ok: true, value: next } : saved;
 }
 
@@ -314,6 +310,6 @@ export async function writeManually(
     shortage: "",
     writtenAt: now.toISOString(),
   };
-  const saved = await createDraft(db, userId, questionId, draft);
+  const saved = await withEditLock(db, userId, posting.id, (tx) => createDraft(tx, userId, questionId, draft));
   return saved.ok ? { ok: true, value: draft } : saved;
 }

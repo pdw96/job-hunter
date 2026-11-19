@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import type { PostingStatus } from "@/modules/postings/options";
 import { getPosting } from "@/modules/postings/repo";
@@ -65,10 +65,27 @@ export async function editBlock(
   return isLocked(await latestSubmission(db, userId, posting.id)) ? "submitted" : null;
 }
 
-// AI가 도는 사이 상태가 바뀌었을 수 있어, 저장 직전에 공고를 다시 읽고 같은 검사를 한다. 공고가 사라졌으면 null(저장이 알아서 실패한다)
-export async function editBlockNow(db: Db, userId: string, postingId: string): Promise<"not_apply" | "submitted" | null> {
-  const posting = await getPosting(db, userId, postingId);
-  return posting ? editBlock(db, userId, posting) : null;
+// 같은 공고의 제출과 자소서·맞춤본 저장을 한 줄로 세운다. Postgres advisory lock(트랜잭션 끝에 풀림). 다른 모듈의 테이블을 건드리지 않는다
+export async function withPostingLock<T>(db: Db, postingId: string, fn: (tx: Db) => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"applications_posting:" + postingId}, 0))`);
+    return fn(tx as unknown as Db);
+  });
+}
+
+// 잠금 안에서 공고를 다시 읽어 editBlock으로 확인하고, 고칠 수 있을 때만 fn(tx)로 저장한다(확인과 저장이 제출과 겹치지 않는다).
+// AI 호출은 이 밖에서 끝낸다. 공고가 사라졌으면(null) 저장이 알아서 실패하게 fn을 그대로 부른다
+export async function withEditLock<T>(
+  db: Db,
+  userId: string,
+  postingId: string,
+  fn: (tx: Db) => Promise<T>,
+): Promise<T | { ok: false; reason: "not_apply" | "submitted" }> {
+  return withPostingLock(db, postingId, async (tx) => {
+    const posting = await getPosting(tx, userId, postingId);
+    const block = posting ? await editBlock(tx, userId, posting) : null;
+    return block ? { ok: false as const, reason: block } : fn(tx);
+  });
 }
 
 // 마지막 번호가 expectedNumber(없으면 0)이고 잠기지 않았을 때만 expectedNumber + 1로 넣는다.

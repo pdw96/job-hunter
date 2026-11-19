@@ -6,7 +6,7 @@ import { createPosting, deletePosting } from "@/modules/postings/repo";
 import { validatePosting } from "@/modules/postings/input";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
-import { getSubmission, insertSubmission, isLocked, latestSubmission, listSubmissions, reopenSubmission } from "./submission-repo";
+import { getSubmission, insertSubmission, isLocked, latestSubmission, listSubmissions, reopenSubmission, withPostingLock } from "./submission-repo";
 import type { SubmissionContent } from "./types";
 
 let db: Db;
@@ -128,4 +128,22 @@ test("공고를 지우면 제출본도 없어지고 더는 넣지 못한다", as
   expect(await deletePosting(db, "u1", postingId)).toEqual({ ok: true });
   expect(await listSubmissions(db, "u1", postingId)).toEqual([]);
   expect(await insertSubmission(db, "u1", postingId, 0, submitted(), now)).toEqual({ ok: false, reason: "not_found" });
+});
+
+test("withPostingLock은 같은 공고의 두 작업을 겹치지 않게 한 줄로 세운다", async () => {
+  const postingId = await addPosting();
+  const log: string[] = [];
+  const run = (name: string) =>
+    withPostingLock(db, postingId, async () => {
+      log.push(`${name}-start`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      log.push(`${name}-end`);
+      return name;
+    });
+  const results = await Promise.all([run("a"), run("b")]);
+  expect(results).toEqual(["a", "b"]);
+  expect([
+    ["a-start", "a-end", "b-start", "b-end"],
+    ["b-start", "b-end", "a-start", "a-end"],
+  ]).toContainEqual(log);
 });

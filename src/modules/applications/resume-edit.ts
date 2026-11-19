@@ -1,7 +1,7 @@
 import type { Db } from "@/db/types";
 import { getPosting } from "@/modules/postings/repo";
 import { RESUME_LIMITS } from "./options";
-import { editBlock } from "./submission-repo";
+import { editBlock, withEditLock } from "./submission-repo";
 import { moveEntry, parseLines, removeEntry, replaceLines } from "./resume-entries";
 import { getResume, saveResumeContent } from "./resume-repo";
 import type { ResumeContent } from "./types";
@@ -49,6 +49,8 @@ export async function editResume(
     next = removeEntry(content, edit.experienceId);
   }
 
-  const saved = await saveResumeContent(db, userId, resumeId, next, expectedVersion);
+  // 맞춤본은 제출 확인과 저장을 공고 잠금 안에서 한다. 공통본은 잠금 없이 저장한다
+  const save = (tx: Db) => saveResumeContent(tx, userId, resumeId, next, expectedVersion);
+  const saved = resume.postingId ? await withEditLock(db, userId, resume.postingId, save) : await save(db);
   return saved.ok ? { ok: true, value: next } : saved;
 }

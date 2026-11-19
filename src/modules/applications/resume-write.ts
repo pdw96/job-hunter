@@ -3,7 +3,7 @@ import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listResumeSources, type ResumeSource } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
-import { editBlock, editBlockNow } from "./submission-repo";
+import { editBlock, withEditLock } from "./submission-repo";
 import { ownsTrack } from "@/modules/tracks/repo";
 import { RESUME_LIMITS } from "./options";
 import { RESUME_WRITE_SYSTEM } from "./prompts";
@@ -171,16 +171,14 @@ export async function rewriteEntries(
 
   const written = await writeLines(db, ai, userId, { requests, posting: context }, now);
   if (!written.ok) return { ok: false, reason: written.reason };
-  if (posting) {
-    const late = await editBlockNow(db, userId, posting.id);
-    if (late) return { ok: false, reason: late };
-  }
 
   // AI가 답에서 뺀 기존 항목은 그대로 둔다(줄을 비우지 않는다). 새 항목은 빈 줄로 넣는다
   const entries = requests
     .filter((r) => written.answered.has(r.source.id) || !existing.has(r.source.id))
     .map((r) => buildEntry(r.source, r.detail, r.emphasize, written.value[r.source.id] ?? [], now));
   const next = upsertEntries(content, entries);
-  const saved = await saveResumeContent(db, userId, resumeId, next, expectedVersion);
+  // 맞춤본은 제출 확인과 저장을 공고 잠금 안에서 한다. 공통본은 잠금 없이 저장한다
+  const save = (tx: Db) => saveResumeContent(tx, userId, resumeId, next, expectedVersion);
+  const saved = posting ? await withEditLock(db, userId, posting.id, save) : await save(db);
   return saved.ok ? { ok: true, value: next } : saved;
 }

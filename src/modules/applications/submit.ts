@@ -6,7 +6,7 @@ import { checkDraft } from "./check";
 import { listQuestions, type Question } from "./repo";
 import { checkResume } from "./resume-check";
 import { getCommonResume, getTailoredResume } from "./resume-repo";
-import { insertSubmission, reopenSubmission } from "./submission-repo";
+import { insertSubmission, reopenSubmission, withPostingLock } from "./submission-repo";
 import type { SubmissionContent, SubmittedResume } from "./types";
 
 // 제출본 얼리기. 공고의 원문, 이력서, 자소서 답을 그 순간의 복사본으로 저장한다. 연락처는 담지 않는다
@@ -69,14 +69,17 @@ export async function submitPosting(
   if (!posting) return { ok: false, reason: "not_found" };
   if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
 
-  const [questions, picked, experiences] = await Promise.all([
-    listQuestions(db, userId, postingId),
-    pickResume(db, userId, posting),
-    listExperiences(db, userId),
-  ]);
-  const names = new Map(experiences.map((experience) => [experience.id, experience.name]));
-  const resume = picked ? { from: picked.from, content: picked.content } : null;
-  return insertSubmission(db, userId, postingId, expectedNumber, freeze(posting, questions, resume, names), now);
+  // 읽기와 넣기를 잠금 안에서 한다: 그 사이에 끼어드는 저장이 없어야 제출본에 최신 답이 얼려진다
+  return withPostingLock(db, postingId, async (tx) => {
+    const [questions, picked, experiences] = await Promise.all([
+      listQuestions(tx, userId, postingId),
+      pickResume(tx, userId, posting),
+      listExperiences(tx, userId),
+    ]);
+    const names = new Map(experiences.map((experience) => [experience.id, experience.name]));
+    const resume = picked ? { from: picked.from, content: picked.content } : null;
+    return insertSubmission(tx, userId, postingId, expectedNumber, freeze(posting, questions, resume, names), now);
+  });
 }
 
 export async function reopenPosting(
@@ -87,7 +90,7 @@ export async function reopenPosting(
   now: Date = new Date(),
 ): Promise<{ ok: true } | { ok: false; reason: "not_found" | "changed" }> {
   if (!(await getPosting(db, userId, postingId))) return { ok: false, reason: "not_found" };
-  return reopenSubmission(db, userId, postingId, expectedNumber, now);
+  return withPostingLock(db, postingId, (tx) => reopenSubmission(tx, userId, postingId, expectedNumber, now));
 }
 
 const numbers = (list: number[]) => `${list.join(", ")}번`;
