@@ -8,7 +8,7 @@ import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { SELECT_SYSTEM } from "./prompts";
 import { getQuestion, listQuestions, saveSelection } from "./repo";
-import { aliasKey, cut } from "./text";
+import { cut, resolveAlias } from "./text";
 import type { PassedReason, PickReason, Selection } from "./types";
 
 // AI가 문항 하나에 쓸 경험을 고르고 그 까닭을 적는다. 글은 쓰지 않는다.
@@ -120,7 +120,6 @@ export async function selectText(
   onRaw?.(result.value);
 
   // AI가 준 값도 코드가 검사한다. 없는 경험과 중복은 버리고, 지어낸 숫자가 든 문장은 비운다
-  const byAlias = new Map(input.sources.map((s, i) => [`E${i + 1}`, s]));
   const known = new Set([input.prompt, input.postingText].flatMap(numbersIn));
   const clean = (text: string, s: WritingSource) => {
     const trimmed = cut(text.trim(), APPLICATION_LIMITS.reason);
@@ -130,7 +129,7 @@ export async function selectText(
   const picks: PickReason[] = [];
   const picked = new Set<string>();
   for (const item of result.value.picks) {
-    const s = byAlias.get(aliasKey(item.exp) ?? "");
+    const s = resolveAlias(item.exp, input.sources);
     if (!s || picked.has(s.id) || picks.length >= APPLICATION_LIMITS.picks) continue;
     picked.add(s.id);
     picks.push({ experienceId: s.id, contentVersion: s.contentVersion, overlap: clean(item.overlap, s), role: clean(item.role, s) });
@@ -139,7 +138,7 @@ export async function selectText(
   const passed: PassedReason[] = [];
   const seen = new Set<string>();
   for (const item of result.value.passed) {
-    const s = byAlias.get(aliasKey(item.exp) ?? "");
+    const s = resolveAlias(item.exp, input.sources);
     if (!s || picked.has(s.id) || seen.has(s.id) || passed.length >= APPLICATION_LIMITS.passed) continue;
     seen.add(s.id);
     passed.push({ experienceId: s.id, contentVersion: s.contentVersion, whyNot: clean(item.whyNot, s) });

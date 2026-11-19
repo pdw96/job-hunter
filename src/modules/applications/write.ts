@@ -7,7 +7,7 @@ import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
-import { aliasKey, cut } from "./text";
+import { cut, resolveAlias } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
 // 승인한 경험만으로 답을 쓰고, 문단 하나를 AI로 고치거나 직접 고친다.
@@ -52,11 +52,10 @@ const render = (sections: [string, string][]) => sections.map(([label, value]) =
 // AI가 준 문단을 검사한다. 승인 경험에 없는 별명은 버리고(같은 별명은 한 번), 글은 다듬고 2000자로 자른다.
 // 근거가 없는 문단은 남긴다(checkDraft가 "근거 없음"으로 표시한다)
 function cleanParagraph(text: string, aliases: string[], sources: WritingSource[]): { text: string; sources: string[] } {
-  const byAlias = new Map(sources.map((s, i) => [`E${i + 1}`, s.id]));
   const ids = new Set<string>();
   for (const alias of aliases) {
-    const id = byAlias.get(aliasKey(alias) ?? "");
-    if (id) ids.add(id);
+    const s = resolveAlias(alias, sources);
+    if (s) ids.add(s.id);
   }
   return { text: cut(text.trim(), APPLICATION_LIMITS.paragraph), sources: [...ids] };
 }

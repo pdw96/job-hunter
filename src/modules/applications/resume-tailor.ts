@@ -10,7 +10,7 @@ import { buildEntry, emphasize } from "./resume-entries";
 import { getCommonResume, getTailoredResume, saveTailoredContent, saveTailoredSelection } from "./resume-repo";
 import { writeLines } from "./resume-write";
 import { describeSource, grounded, postingTextOf, requirementsOf } from "./select";
-import { aliasKey, cut } from "./text";
+import { cut, resolveAlias } from "./text";
 import type { EmphasisPick, ResumeContent, ResumeSelection } from "./types";
 
 // 공고에 맞춰 강조할 경험을 고르고(AI는 고르기만), 고른 경험을 공통본에서 맨 위로 올려 다시 쓴 맞춤본을 만든다.
@@ -60,12 +60,11 @@ export async function emphasisText(
   onRaw?.(result.value);
 
   // 없는 별명과 중복은 버리고, 지어낸 숫자가 든 이유는 비운다
-  const byAlias = new Map(input.sources.map((s, i) => [`E${i + 1}`, s]));
   const known = new Set(numbersIn(input.postingText));
   const picks: EmphasisPick[] = [];
   const picked = new Set<string>();
   for (const item of result.value.picks) {
-    const s = byAlias.get(aliasKey(item.exp) ?? "");
+    const s = resolveAlias(item.exp, input.sources);
     if (!s || picked.has(s.id) || picks.length >= RESUME_LIMITS.emphasis) continue;
     picked.add(s.id);
     const why = cut(item.why.trim(), RESUME_LIMITS.reason);

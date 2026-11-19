@@ -259,6 +259,27 @@ test("별명이 'E1 (경험 이름)'처럼 조금 달라도 고른 것으로 읽
   expect(result.value.noMatch).toBe(false);
 });
 
+test("AI가 별명 대신 경험 이름을 적어도 고른 것으로 읽는다(picks와 passed)", async () => {
+  const first = await addExperience();
+  const second = await addExperience({ name: "사내 교육 이수", startMonth: "2021-01", endMonth: "2021-02" });
+  await updateExperience(db, "u1", second, { ...job, name: "사내 교육 이수", startMonth: "2021-01", endMonth: "2021-02", result: "이수했다" });
+  await markConfirmed(second);
+  const questionId = await addQuestion(await addPosting());
+  const ai = createFakeAi([
+    reply({
+      picks: [{ exp: "결제 시스템 개편", overlap: "결제 API를 설계했다", role: "API를 설계했다" }],
+      passed: [{ exp: ' "사내 교육 이수" ', whyNot: "관계가 적다" }],
+    }),
+  ]);
+
+  const result = await selectForQuestion(db, ai, "u1", questionId, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.picks.map((p) => p.experienceId)).toEqual([first]);
+  expect(result.value.passed.map((p) => p.experienceId)).toEqual([second]);
+  expect(result.value.noMatch).toBe(false);
+});
+
 test("picks는 3개까지, passed에서 고른 경험은 빠지고 5개까지", async () => {
   const ids: string[] = [];
   for (let i = 0; i < 10; i++) ids.push(await addExperience({ name: `경험 ${i}`, startMonth: `2020-${String(i + 1).padStart(2, "0")}` }));
