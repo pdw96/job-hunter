@@ -4,6 +4,7 @@ import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { numbersIn } from "@/modules/experiences/grounding";
 import { listResumeSources, type ResumeSource } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
+import { editBlock } from "./submission-repo";
 import { RESUME_LIMITS } from "./options";
 import { RESUME_EMPHASIS_SYSTEM } from "./prompts";
 import { buildEntry, emphasize } from "./resume-entries";
@@ -73,13 +74,14 @@ export async function emphasisText(
   return { ok: true, value: { picks, noMatch: picks.length === 0, selectedAt } };
 }
 
-type Failure = "not_found" | "not_apply" | "no_common";
+type Failure = "not_found" | "not_apply" | "submitted" | "no_common";
 
 // 공고가 내 것이고 지원인지, 공통본이 있는지 본다. 맞춤본 저장은 늘 공고의 트랙으로 한다
 async function loadBase(db: Db, userId: string, postingId: string) {
   const posting = await getPosting(db, userId, postingId);
   if (!posting) return { ok: false as const, reason: "not_found" as Failure };
-  if (posting.status !== "apply") return { ok: false as const, reason: "not_apply" as Failure };
+  const block = await editBlock(db, userId, posting);
+  if (block) return { ok: false as const, reason: block as Failure };
   const common = await getCommonResume(db, userId, posting.trackId);
   if (!common?.content) return { ok: false as const, reason: "no_common" as Failure };
   return { ok: true as const, posting, common, commonContent: common.content };

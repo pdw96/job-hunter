@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "@/db/types";
+import type { PostingStatus } from "@/modules/postings/options";
 import { getPosting } from "@/modules/postings/repo";
 import { hasPgCode } from "./db-errors";
 import { submissions } from "./schema";
@@ -53,6 +54,16 @@ export async function latestSubmission(db: Db, userId: string, postingId: string
 }
 
 export const isLocked = (latest: SubmissionSummary | null): boolean => latest !== null && latest.reopenedAt === null;
+
+// 공고에서 자소서·맞춤본을 고칠 수 없는 까닭. 고칠 수 있으면 null. 지원이 아니면 not_apply, 제출해서 잠겼으면 submitted
+export async function editBlock(
+  db: Db,
+  userId: string,
+  posting: { id: string; status: PostingStatus },
+): Promise<"not_apply" | "submitted" | null> {
+  if (posting.status !== "apply") return "not_apply";
+  return isLocked(await latestSubmission(db, userId, posting.id)) ? "submitted" : null;
+}
 
 // 마지막 번호가 expectedNumber(없으면 0)이고 잠기지 않았을 때만 expectedNumber + 1로 넣는다.
 // 동시에 넣어 고유 색인을 어기면(23505) changed, 그 사이 공고가 지워져 외래 키를 어기면(23503) not_found

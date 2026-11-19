@@ -16,6 +16,7 @@ import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { listWritingSources } from "@/modules/experiences/writing";
 import { addQuestions, approveSelection, getQuestion, updateQuestion } from "./repo";
+import { submitPosting } from "./submit";
 import { describeSource, selectForQuestion, selectText, type SelectInput } from "./select";
 import { SELECT_SYSTEM } from "./prompts";
 
@@ -474,4 +475,14 @@ test("selectText는 저장하지 않고 입력 그대로 고른다", async () =>
   const input: SelectInput = { prompt: "문항", charLimit: null, postingText: "공고", requirements: [], sources, usedElsewhere: [] };
   const result = await selectText(db, createFakeAi([reply()]), "u1", input, now);
   expect(result.ok && result.value.picks.map((p) => p.experienceId)).toEqual([sources[0].id]);
+});
+
+test("제출한 공고의 문항은 submitted이고 AI를 부르지 않는다", async () => {
+  await addExperience();
+  const postingId = await addPosting();
+  const questionId = await addQuestion(postingId);
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+  const ai = createFakeAi([]);
+  expect(await selectForQuestion(db, ai, "u1", questionId, now)).toEqual({ ok: false, reason: "submitted" });
+  expect(ai.requests).toHaveLength(0);
 });

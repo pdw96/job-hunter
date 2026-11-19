@@ -4,6 +4,7 @@ import type { Db } from "@/db/types";
 import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { questions } from "./schema";
+import { editBlock } from "./submission-repo";
 import type { Draft, Selection, SourceRef } from "./types";
 
 // 자소서 문항, 고른 경험, 쓴 답의 저장과 조회. 모든 함수가 userId로 소유자를 확인한다.
@@ -43,10 +44,11 @@ export async function addQuestions(
   userId: string,
   postingId: string,
   inputs: QuestionInput[],
-): Promise<{ ok: true; ids: string[] } | { ok: false; reason: "not_found" | "not_apply" | "too_many" }> {
+): Promise<{ ok: true; ids: string[] } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "too_many" }> {
   const posting = await getPosting(db, userId, postingId);
   if (!posting) return { ok: false, reason: "not_found" };
-  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+  const block = await editBlock(db, userId, posting);
+  if (block) return { ok: false, reason: block };
 
   return db.transaction(async (tx) => {
     const [{ value }] = await tx
@@ -91,13 +93,14 @@ export async function getQuestion(db: Db, userId: string, id: string): Promise<Q
   return row ? toQuestion(row) : null;
 }
 
-// 문항의 공고가 지원일 때만 문항을 고치거나 지울 수 있다
-async function guardApply(db: Db, userId: string, id: string): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" }> {
+// 문항의 공고가 지원이고 제출해 잠기지 않았을 때만 문항을 고치거나 지울 수 있다
+async function guardApply(db: Db, userId: string, id: string): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" }> {
   const question = await getQuestion(db, userId, id);
   if (!question) return { ok: false, reason: "not_found" };
   const posting = await getPosting(db, userId, question.postingId);
   if (!posting) return { ok: false, reason: "not_found" };
-  return posting.status === "apply" ? { ok: true } : { ok: false, reason: "not_apply" };
+  const block = await editBlock(db, userId, posting);
+  return block ? { ok: false, reason: block } : { ok: true };
 }
 
 // 문항 글이 바뀌면 version을 올리고 고르기 결과를 지운다(쓴 답은 남긴다). 제한·기준만 바뀌면 둘 다 그대로
@@ -106,7 +109,7 @@ export async function updateQuestion(
   userId: string,
   id: string,
   input: QuestionInput,
-): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" }> {
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" }> {
   const guard = await guardApply(db, userId, id);
   if (!guard.ok) return guard;
   const changed = sql`${questions.prompt} <> ${input.prompt}`;
@@ -129,7 +132,7 @@ export async function deleteQuestion(
   db: Db,
   userId: string,
   id: string,
-): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" }> {
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" }> {
   const guard = await guardApply(db, userId, id);
   if (!guard.ok) return guard;
   const deleted = await db.delete(questions).where(mine(userId, id)).returning({ id: questions.id });

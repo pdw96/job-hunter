@@ -15,6 +15,7 @@ import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { RESUME_EMPHASIS_SYSTEM } from "./prompts";
 import { getCommonResume, getResume, getTailoredResume, saveResumeContent, saveTailoredContent } from "./resume-repo";
+import { submitPosting } from "./submit";
 import { startCommonResume } from "./resume-write";
 import { buildTailored, emphasisText, selectEmphasis } from "./resume-tailor";
 import { listResumeSources } from "@/modules/experiences/writing";
@@ -472,4 +473,16 @@ test("AI가 쓰는 사이 다른 탭에서 맞춤본을 고치면 changed이고 
   expect(result).toEqual({ ok: false, reason: "changed" });
   const stored = await getTailoredResume(db, "u1", postingId);
   expect(stored?.content?.entries.find((e) => e.experienceId === a)?.lines).toEqual([{ text: "다른 탭에서 고침", edited: true }]);
+});
+
+test("제출한 공고는 강조 고르기와 맞춤본 만들기가 submitted이고 AI를 부르지 않는다", async () => {
+  const { a } = await commonWithThree();
+  const postingId = await addPosting();
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+  const ai = createFakeAi([]);
+
+  expect(await selectEmphasis(db, ai, "u1", postingId, now)).toEqual({ ok: false, reason: "submitted" });
+  expect(await buildTailored(db, ai, "u1", postingId, [a], null, now)).toEqual({ ok: false, reason: "submitted" });
+  expect(ai.requests).toHaveLength(0);
+  expect(await getTailoredResume(db, "u1", postingId)).toBeNull();
 });

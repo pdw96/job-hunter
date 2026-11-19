@@ -3,6 +3,7 @@ import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listResumeSources, type ResumeSource } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
+import { editBlock } from "./submission-repo";
 import { ownsTrack } from "@/modules/tracks/repo";
 import { RESUME_LIMITS } from "./options";
 import { RESUME_WRITE_SYSTEM } from "./prompts";
@@ -20,7 +21,7 @@ const resumeSchema = z.object({ entries: z.array(z.object({ exp: z.string(), lin
 
 export type LineRequest = { source: ResumeSource; detail: ResumeDetail; emphasize: boolean };
 export type ResumePostingContext = { text: string; requirements: string[] };
-type RewriteFailure = "not_found" | "not_apply" | "changed" | "none_selected" | "full" | "over_limit" | AiFailure;
+type RewriteFailure = "not_found" | "not_apply" | "submitted" | "changed" | "none_selected" | "full" | "over_limit" | AiFailure;
 
 const DETAIL_TEXT: Record<ResumeDetail, string> = { full: "자세히(2~4줄)", summary: "요약(1~2줄)" };
 const maxLines = (detail: ResumeDetail) => (detail === "full" ? RESUME_LIMITS.fullLines : RESUME_LIMITS.summaryLines);
@@ -140,7 +141,8 @@ export async function rewriteEntries(
   const posting = resume.postingId ? await getPosting(db, userId, resume.postingId) : null;
   if (resume.postingId) {
     if (!posting) return { ok: false, reason: "not_found" };
-    if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+    const block = await editBlock(db, userId, posting);
+    if (block) return { ok: false, reason: block };
   }
   const content = resume.content;
   if (!content || resume.version !== expectedVersion) return { ok: false, reason: "changed" };

@@ -21,6 +21,7 @@ import {
   updateQuestion,
   type QuestionInput,
 } from "./repo";
+import { reopenPosting, submitPosting } from "./submit";
 import type { Draft, Selection } from "./types";
 
 let db: Db;
@@ -336,4 +337,18 @@ test("createDraft는 답이 없을 때만 저장하고, 있으면 changed, 남�
   expect(await createDraft(db, "u1", id, d1)).toEqual({ ok: true });
   expect(await createDraft(db, "u1", id, draft(0, { shortage: "x" }))).toEqual({ ok: false, reason: "changed" });
   expect((await getQuestion(db, "u1", id))?.draft).toEqual(d1);
+});
+
+test("제출한 공고에는 문항을 더하거나 고치거나 지우지 못하고, 새 버전을 만들면 다시 된다", async () => {
+  const { postingId, id } = await oneQuestion();
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+  expect(await addQuestions(db, "u1", postingId, [q("더")])).toEqual({ ok: false, reason: "submitted" });
+  expect(await updateQuestion(db, "u1", id, q("바꿈"))).toEqual({ ok: false, reason: "submitted" });
+  expect(await deleteQuestion(db, "u1", id)).toEqual({ ok: false, reason: "submitted" });
+  expect(await listQuestions(db, "u1", postingId)).toHaveLength(1);
+
+  expect(await reopenPosting(db, "u1", postingId, 1)).toEqual({ ok: true });
+  expect((await addQuestions(db, "u1", postingId, [q("더")])).ok).toBe(true);
+  expect(await updateQuestion(db, "u1", id, q("바꿈"))).toEqual({ ok: true });
+  expect(await deleteQuestion(db, "u1", id)).toEqual({ ok: true });
 });

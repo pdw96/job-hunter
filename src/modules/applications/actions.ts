@@ -19,6 +19,7 @@ type Result = { ok: true } | { ok: false; message: string };
 const MESSAGES = {
   not_found: "문항을 찾을 수 없습니다",
   not_apply: "지원으로 고른 공고에서만 쓸 수 있습니다",
+  submitted: "제출한 뒤에는 고칠 수 없습니다. 공고 화면에서 새 버전 만들기를 누른 뒤 고쳐 주세요",
   changed: "그사이 내용이 바뀌었습니다. 화면을 새로 고친 뒤 다시 해 주세요",
   stale: "고른 경험의 기록이 바뀌었습니다. 다시 고르기를 눌러 주세요",
   none_selected: "쓸 경험을 하나 이상 골라 주세요",

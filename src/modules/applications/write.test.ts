@@ -16,6 +16,7 @@ import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { listWritingSources } from "@/modules/experiences/writing";
 import { addQuestions, approveSelection, getQuestion, saveSelection, updateQuestion } from "./repo";
+import { reopenPosting, submitPosting } from "./submit";
 import { checkDraft } from "./check";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { selectForQuestion } from "./select";
@@ -659,4 +660,35 @@ test("직접 쓰기: 빈 글은 empty, 문단 11개나 2001자 문단은 too_lon
   expect(await writeManually(db, "u1", questionId, eleven, now)).toEqual({ ok: false, reason: "too_long" });
   expect(await writeManually(db, "u1", questionId, "가".repeat(2001), now)).toEqual({ ok: false, reason: "too_long" });
   expect(await writeManually(db, "u1", questionId, `${"가".repeat(1999)}😀`, now)).toMatchObject({ ok: true });
+});
+
+test("제출한 공고의 문항은 쓰기·부분 수정·직접 고치기·직접 쓰기 모두 submitted이고 AI를 부르지 않는다", async () => {
+  // 고르기만 한 문항(쓰기), 답이 있는 문항(수정·고치기), 답이 없는 문항(직접 쓰기)
+  const { expId, questionId } = await ready();
+  const q = await getQuestion(db, "u1", questionId);
+  const postingId = q!.postingId;
+  const emptyId = await addQuestion(postingId, "다른 문항");
+  const ai = createFakeAi([writeReply(), reviseReply]);
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+
+  expect(await approveAndWrite(db, ai, "u1", questionId, [expId], now)).toEqual({ ok: false, reason: "submitted" });
+  expect(await writeManually(db, "u1", emptyId, "글", now)).toEqual({ ok: false, reason: "submitted" });
+  expect((await getQuestion(db, "u1", emptyId))?.draft).toBeNull();
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("제출한 공고의 답은 부분 수정·직접 고치기가 submitted이고, 새 버전을 만들면 다시 고친다", async () => {
+  const { questionId, draft } = await written();
+  const q = await getQuestion(db, "u1", questionId);
+  const postingId = q!.postingId;
+  const ai = createFakeAi([reviseReply]);
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, draft, now)).toEqual({ ok: false, reason: "submitted" });
+  expect(await editParagraph(db, "u1", questionId, 0, "고친 글", draft, now)).toEqual({ ok: false, reason: "submitted" });
+  expect(ai.requests).toHaveLength(0);
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
+
+  expect(await reopenPosting(db, "u1", postingId, 1)).toEqual({ ok: true });
+  expect((await editParagraph(db, "u1", questionId, 0, "고친 글", draft, now)).ok).toBe(true);
 });

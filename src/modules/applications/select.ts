@@ -8,6 +8,7 @@ import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { SELECT_SYSTEM } from "./prompts";
 import { getQuestion, listQuestions, saveSelection } from "./repo";
+import { editBlock } from "./submission-repo";
 import { cut, resolveAlias } from "./text";
 import type { PassedReason, PickReason, Selection } from "./types";
 
@@ -154,13 +155,14 @@ export async function selectForQuestion(
   questionId: string,
   now: Date = new Date(),
 ): Promise<
-  { ok: true; value: Selection } | { ok: false; reason: "not_found" | "not_apply" | "changed" | "over_limit" | AiFailure }
+  { ok: true; value: Selection } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "changed" | "over_limit" | AiFailure }
 > {
   const question = await getQuestion(db, userId, questionId);
   if (!question) return { ok: false, reason: "not_found" };
   const posting = await getPosting(db, userId, question.postingId);
   if (!posting) return { ok: false, reason: "not_found" };
-  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+  const block = await editBlock(db, userId, posting);
+  if (block) return { ok: false, reason: block };
 
   const [sources, questions] = await Promise.all([
     listWritingSources(db, userId, posting.trackId),
