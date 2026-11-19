@@ -3,9 +3,9 @@ import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex }
 import { user } from "../auth/schema";
 import { postings } from "../postings/schema";
 import { tracks } from "../tracks/schema";
-import type { Draft, ResumeContent, ResumeSelection, Selection } from "./types";
+import type { Draft, ResumeContent, ResumeSelection, Selection, SubmissionContent } from "./types";
 
-// applications 모듈: 공고별 자기소개서 문항, 고른 경험, 쓴 답, 이력서 공통본·맞춤본
+// applications 모듈: 공고별 자기소개서 문항, 고른 경험, 쓴 답, 이력서 공통본·맞춤본, 제출본
 
 export const questions = pgTable(
   "applications_questions",
@@ -51,5 +51,27 @@ export const resumes = pgTable(
   (t) => [
     uniqueIndex("applications_resumes_common_idx").on(t.userId, t.trackId).where(sql`${t.postingId} is null`),
     uniqueIndex("applications_resumes_tailored_idx").on(t.postingId).where(sql`${t.postingId} is not null`),
+  ],
+);
+
+// 제출본. 공고마다 번호(1, 2, …)로 쌓는다. 마지막 제출본의 reopened_at이 비어 있으면 잠긴 상태다
+export const submissions = pgTable(
+  "applications_submissions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    postingId: text("posting_id")
+      .notNull()
+      .references(() => postings.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    content: jsonb("content").$type<SubmissionContent>().notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
+    reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("applications_submissions_posting_number_idx").on(t.postingId, t.number),
+    index("applications_submissions_user_posting_idx").on(t.userId, t.postingId),
   ],
 );

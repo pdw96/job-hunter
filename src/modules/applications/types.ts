@@ -38,3 +38,10 @@ export type ResumeEntry = SourceRef & {
 export type ResumeContent = { entries: ResumeEntry[]; commonVersion: number | null }; // 맞춤본을 만들 때의 공통본 version. 공통본은 null
 export type EmphasisPick = SourceRef & { why: string };
 export type ResumeSelection = { picks: EmphasisPick[]; noMatch: boolean; selectedAt: string };
+
+// 제출본. 제출하는 순간의 공고, 이력서, 답을 통째로 얼린 복사본이다
+export type SubmittedPosting = { company: string; title: string; url: string | null; deadline: string | null; isRolling: boolean; rawText: string; companyNote: string | null };
+export type SubmittedParagraph = { text: string; sources: { experienceId: string; name: string }[]; edited: boolean };
+export type SubmittedAnswer = { prompt: string; charLimit: number | null; countSpaces: boolean; paragraphs: SubmittedParagraph[] }; // 답이 없으면 paragraphs는 []
+export type SubmittedResume = { from: "tailored" | "common"; content: ResumeContent };
+export type SubmissionContent = { posting: SubmittedPosting; resume: SubmittedResume | null; answers: SubmittedAnswer[] };
