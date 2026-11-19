@@ -8,7 +8,7 @@ import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { SELECT_SYSTEM } from "./prompts";
 import { getQuestion, listQuestions, saveSelection } from "./repo";
-import { editBlock } from "./submission-repo";
+import { editBlock, editBlockNow } from "./submission-repo";
 import { cut, resolveAlias } from "./text";
 import type { PassedReason, PickReason, Selection } from "./types";
 
@@ -187,6 +187,8 @@ export async function selectForQuestion(
     now,
   );
   if (!selected.ok) return selected;
+  const late = await editBlockNow(db, userId, posting.id);
+  if (late) return { ok: false, reason: late };
 
   // 읽었을 때의 문항 글 그대로일 때만 저장한다(그사이 고쳤으면 changed)
   const value: Selection = { questionVersion: question.version, ...selected.value };

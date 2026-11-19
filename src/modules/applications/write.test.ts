@@ -692,3 +692,29 @@ test("제출한 공고의 답은 부분 수정·직접 고치기가 submitted이
   expect(await reopenPosting(db, "u1", postingId, 1)).toEqual({ ok: true });
   expect((await editParagraph(db, "u1", questionId, 0, "고친 글", draft, now)).ok).toBe(true);
 });
+
+test("쓰는 사이 제출하면 approveAndWrite는 submitted이고 답을 저장하지 않는다", async () => {
+  const { expId, questionId } = await ready();
+  const postingId = (await getQuestion(db, "u1", questionId))!.postingId;
+  const ai = createFakeAi([
+    async () => {
+      expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+      return writeReply();
+    },
+  ]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [expId], now)).toEqual({ ok: false, reason: "submitted" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toBeNull();
+});
+
+test("고치는 사이 제출하면 reviseParagraph는 submitted이고 답을 바꾸지 않는다", async () => {
+  const { questionId, draft } = await written();
+  const postingId = (await getQuestion(db, "u1", questionId))!.postingId;
+  const ai = createFakeAi([
+    async () => {
+      expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+      return reviseReply;
+    },
+  ]);
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, draft, now)).toEqual({ ok: false, reason: "submitted" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
+});

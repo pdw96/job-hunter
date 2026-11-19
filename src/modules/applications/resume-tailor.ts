@@ -4,7 +4,7 @@ import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { numbersIn } from "@/modules/experiences/grounding";
 import { listResumeSources, type ResumeSource } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
-import { editBlock } from "./submission-repo";
+import { editBlock, editBlockNow } from "./submission-repo";
 import { RESUME_LIMITS } from "./options";
 import { RESUME_EMPHASIS_SYSTEM } from "./prompts";
 import { buildEntry, emphasize } from "./resume-entries";
@@ -113,6 +113,8 @@ export async function selectEmphasis(
     now,
   );
   if (!selected.ok) return selected;
+  const late = await editBlockNow(db, userId, posting.id);
+  if (late) return { ok: false, reason: late };
   const saved = await saveTailoredSelection(db, userId, postingId, posting.trackId, selected.value);
   return saved.ok ? selected : saved;
 }
@@ -159,6 +161,8 @@ export async function buildTailored(
     now,
   );
   if (!written.ok) return written;
+  const late = await editBlockNow(db, userId, posting.id);
+  if (late) return { ok: false, reason: late };
 
   // AI가 답에서 뺀 경험은 공통본 항목을 그대로 두고 강조만 켠다(줄을 비우지 않는다)
   const inCommon = new Map(commonContent.entries.map((e) => [e.experienceId, e]));

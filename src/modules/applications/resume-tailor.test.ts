@@ -15,7 +15,7 @@ import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { RESUME_EMPHASIS_SYSTEM } from "./prompts";
 import { getCommonResume, getResume, getTailoredResume, saveResumeContent, saveTailoredContent } from "./resume-repo";
-import { submitPosting } from "./submit";
+import { reopenPosting, submitPosting } from "./submit";
 import { startCommonResume } from "./resume-write";
 import { buildTailored, emphasisText, selectEmphasis } from "./resume-tailor";
 import { listResumeSources } from "@/modules/experiences/writing";
@@ -484,5 +484,28 @@ test("제출한 공고는 강조 고르기와 맞춤본 만들기가 submitted�
   expect(await selectEmphasis(db, ai, "u1", postingId, now)).toEqual({ ok: false, reason: "submitted" });
   expect(await buildTailored(db, ai, "u1", postingId, [a], null, now)).toEqual({ ok: false, reason: "submitted" });
   expect(ai.requests).toHaveLength(0);
+  expect(await getTailoredResume(db, "u1", postingId)).toBeNull();
+});
+
+test("만드는 사이 제출하면 selectEmphasis와 buildTailored는 submitted이고 맞춤본을 저장하지 않는다", async () => {
+  const { a } = await commonWithThree();
+  const postingId = await addPosting();
+  const submitting = (answer: unknown) => async () => {
+    expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+    return answer;
+  };
+  const first = createFakeAi([submitting(pickReply(["E1", "공고의 Java 경력과 경험A가 겹칩니다"]))]);
+  expect(await selectEmphasis(db, first, "u1", postingId, now)).toEqual({ ok: false, reason: "submitted" });
+  expect(await getTailoredResume(db, "u1", postingId)).toBeNull();
+
+  // 이미 제출한 뒤라 새 버전을 만들어 다시 연다
+  expect(await reopenPosting(db, "u1", postingId, 1)).toEqual({ ok: true });
+  const second = createFakeAi([
+    async () => {
+      expect(await submitPosting(db, "u1", postingId, 1)).toEqual({ ok: true, number: 2 });
+      return lineReply(["E1", ["A 맞춤"]]);
+    },
+  ]);
+  expect(await buildTailored(db, second, "u1", postingId, [a], null, now)).toEqual({ ok: false, reason: "submitted" });
   expect(await getTailoredResume(db, "u1", postingId)).toBeNull();
 });

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { beforeEach, expect, test } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
@@ -15,6 +15,7 @@ import type { SurveyInput } from "@/modules/tracks/survey";
 import { addQuestions, createDraft, listQuestions } from "./repo";
 import { editResume } from "./resume-edit";
 import { getTailoredResume, insertCommonResume, saveTailoredContent } from "./resume-repo";
+import { resumes } from "./schema";
 import { editParagraph } from "./write";
 import { freeze, reopenPosting, submitPosting, submitPreview } from "./submit";
 import { getSubmission, listSubmissions } from "./submission-repo";
@@ -299,4 +300,26 @@ test("submitPreview: 답이 없는 문항과 한도를 넘은 문항, 공통본�
   expect(preview.resumeFrom).toBe("common");
   expect(preview.questionCount).toBe(2);
   expect(preview.warnings).toEqual(["답이 없는 문항: 2번", "글자 수를 넘은 문항: 1번", "맞춤본이 없어 트랙 공통본으로 냅니다"]);
+});
+
+test("맞춤본의 항목이 모두 빠져 0개면 공통본으로 내고, 공통본도 비었으면 이력서 없이 낸다", async () => {
+  const exp = await addExperience();
+  const postingId = await addPosting();
+  await insertCommonResume(db, "u1", trackId, resumeOf([entryOf(exp, "공통본 줄")], null));
+  await saveTailoredContent(db, "u1", postingId, trackId, resumeOf([], 1), null);
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  const preview = await submitPreview(db, "u1", posting);
+  expect(preview.resumeFrom).toBe("common");
+  expect(preview.warnings).toContain("맞춤본이 없어 트랙 공통본으로 냅니다");
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  expect((await getSubmission(db, "u1", postingId, 1))?.content.resume?.from).toBe("common");
+
+  // 공통본도 항목이 0개면 없는 것으로 친다
+  const other = await addPosting();
+  await saveTailoredContent(db, "u1", other, trackId, resumeOf([], 1), null);
+  const [common] = await db.select().from(resumes).where(and(eq(resumes.trackId, trackId), isNull(resumes.postingId)));
+  await db.update(resumes).set({ content: resumeOf([], null) }).where(eq(resumes.id, common.id));
+  const preview2 = await submitPreview(db, "u1", (await getPosting(db, "u1", other)) as Posting);
+  expect(preview2.resumeFrom).toBeNull();
+  expect(preview2.warnings).toContain("이력서가 없습니다");
 });

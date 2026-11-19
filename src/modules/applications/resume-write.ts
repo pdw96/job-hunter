@@ -3,7 +3,7 @@ import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listResumeSources, type ResumeSource } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
-import { editBlock } from "./submission-repo";
+import { editBlock, editBlockNow } from "./submission-repo";
 import { ownsTrack } from "@/modules/tracks/repo";
 import { RESUME_LIMITS } from "./options";
 import { RESUME_WRITE_SYSTEM } from "./prompts";
@@ -171,6 +171,10 @@ export async function rewriteEntries(
 
   const written = await writeLines(db, ai, userId, { requests, posting: context }, now);
   if (!written.ok) return { ok: false, reason: written.reason };
+  if (posting) {
+    const late = await editBlockNow(db, userId, posting.id);
+    if (late) return { ok: false, reason: late };
+  }
 
   // AI가 답에서 뺀 기존 항목은 그대로 둔다(줄을 비우지 않는다). 새 항목은 빈 줄로 넣는다
   const entries = requests

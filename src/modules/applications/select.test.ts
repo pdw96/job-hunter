@@ -486,3 +486,17 @@ test("제출한 공고의 문항은 submitted이고 AI를 부르지 않는다", 
   expect(await selectForQuestion(db, ai, "u1", questionId, now)).toEqual({ ok: false, reason: "submitted" });
   expect(ai.requests).toHaveLength(0);
 });
+
+test("고르는 사이 제출하면 selectForQuestion은 submitted이고 고른 것을 저장하지 않는다", async () => {
+  await addExperience();
+  const postingId = await addPosting();
+  const questionId = await addQuestion(postingId);
+  const ai = createFakeAi([
+    async () => {
+      expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+      return reply();
+    },
+  ]);
+  expect(await selectForQuestion(db, ai, "u1", questionId, now)).toEqual({ ok: false, reason: "submitted" });
+  expect((await getQuestion(db, "u1", questionId))?.selection).toBeNull();
+});

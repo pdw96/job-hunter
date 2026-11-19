@@ -46,11 +46,13 @@ export function freeze(
   };
 }
 
-// 맞춤본이 있으면 맞춤본, 없으면 트랙 공통본, 둘 다 없으면 null. 내용이 비어 있는 행은 없는 것으로 본다
+// 맞춤본이 있으면 맞춤본, 없으면 트랙 공통본, 둘 다 없으면 null. 내용이 비어 있거나 항목이 0개인 행은 없는 것으로 본다
 async function pickResume(db: Db, userId: string, posting: Posting) {
   const [tailored, common] = await Promise.all([getTailoredResume(db, userId, posting.id), getCommonResume(db, userId, posting.trackId)]);
-  if (tailored?.content) return { from: "tailored" as const, content: tailored.content, commonVersion: common?.version ?? tailored.content.commonVersion ?? 0 };
-  if (common?.content) return { from: "common" as const, content: common.content, commonVersion: null };
+  if (tailored?.content && tailored.content.entries.length > 0) {
+    return { from: "tailored" as const, content: tailored.content, commonVersion: common?.version ?? tailored.content.commonVersion ?? 0 };
+  }
+  if (common?.content && common.content.entries.length > 0) return { from: "common" as const, content: common.content, commonVersion: null };
   return null;
 }
 

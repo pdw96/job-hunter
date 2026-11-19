@@ -456,3 +456,20 @@ test("제출한 공고의 맞춤본은 다시 쓰기가 submitted이고 AI를 �
   expect(await rewriteEntries(db, ai, "u1", row.id, [a], row.version, now)).toEqual({ ok: false, reason: "submitted" });
   expect(ai.requests).toHaveLength(0);
 });
+
+test("다시 쓰는 사이 제출하면 맞춤본의 rewriteEntries는 submitted이고 저장하지 않는다", async () => {
+  const { a, resume } = await commonWithTwo();
+  const postingId = await addPosting();
+  const content: ResumeContent = { commonVersion: resume.version, entries: resume.content!.entries };
+  await saveTailoredContent(db, "u1", postingId, trackId, content, null);
+  const [row] = await db.select().from(resumes).where(eq(resumes.postingId, postingId));
+  const ai = createFakeAi([
+    async () => {
+      expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+      return reply(["E1", ["줄"]]);
+    },
+  ]);
+  expect(await rewriteEntries(db, ai, "u1", row.id, [a], row.version, now)).toEqual({ ok: false, reason: "submitted" });
+  const [after] = await db.select().from(resumes).where(eq(resumes.id, row.id));
+  expect(after.version).toBe(row.version);
+});

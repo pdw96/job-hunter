@@ -21,6 +21,8 @@ function refresh(postingId: string) {
   revalidatePath(`/postings/${postingId}`);
   revalidatePath(`/postings/${postingId}/application`);
   revalidatePath(`/postings/${postingId}/resume`);
+  // 제출본 화면은 번호마다 하나라 패턴으로 다시 그리게 한다
+  revalidatePath("/postings/[id]/submissions/[number]", "page");
 }
 
 const valid = (postingId: unknown, expectedNumber: unknown) =>

@@ -33,6 +33,15 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
     });
   }
 
+  function open() {
+    setMessage(null);
+    setConfirming(true);
+  }
+  function cancel() {
+    setMessage(null);
+    setConfirming(false);
+  }
+
   const last = submissions.at(-1);
   const resumeText = preview?.resumeFrom ? RESUME_LABELS[preview.resumeFrom] : "없음";
 
@@ -44,7 +53,7 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
             제출함 · {last.dateLabel} · 제출 {last.number}
           </p>
           {!confirming && (
-            <button type="button" disabled={pending} onClick={() => setConfirming(true)} className={button}>
+            <button type="button" disabled={pending} onClick={open} className={button}>
               새 버전 만들기
             </button>
           )}
@@ -55,7 +64,7 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
                 <button type="button" disabled={pending} onClick={() => run(() => reopenAction(postingId, lastNumber))} className={button}>
                   {pending ? "만드는 중…" : "새 버전 만들기"}
                 </button>
-                <button type="button" disabled={pending} onClick={() => setConfirming(false)} className="text-sm underline">
+                <button type="button" disabled={pending} onClick={cancel} className="text-sm underline">
                   취소
                 </button>
               </div>
@@ -67,7 +76,7 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
       {isApply && !locked && preview && (
         <div className="space-y-2">
           {!confirming && (
-            <button type="button" onClick={() => setConfirming(true)} className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background">
+            <button type="button" onClick={open} className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background">
               제출함
             </button>
           )}
@@ -92,7 +101,7 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
                 >
                   {pending ? "얼리는 중…" : "얼리기"}
                 </button>
-                <button type="button" disabled={pending} onClick={() => setConfirming(false)} className="text-sm underline">
+                <button type="button" disabled={pending} onClick={cancel} className="text-sm underline">
                   취소
                 </button>
               </div>

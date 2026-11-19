@@ -7,7 +7,7 @@ import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
-import { editBlock } from "./submission-repo";
+import { editBlock, editBlockNow } from "./submission-repo";
 import { cut, resolveAlias } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
@@ -159,6 +159,9 @@ export async function approveAndWrite(
     now,
   );
   if (!written.ok) return written;
+  // AI가 쓰는 사이 제출했으면 저장하지 않는다
+  const late = await editBlockNow(db, userId, posting.id);
+  if (late) return { ok: false, reason: late };
 
   // 읽었을 때의 문항 글, 승인, 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 직접 고쳤으면 changed)
   const draft: Draft = { questionVersion: question.version, basedOn: approved, ...written.value, writtenAt: now.toISOString() };
@@ -230,6 +233,9 @@ export async function reviseParagraph(
     now,
   );
   if (!result.ok) return { ok: false, reason: result.reason };
+
+  const late = await editBlockNow(db, userId, posting.id);
+  if (late) return { ok: false, reason: late };
 
   const cleaned = cleanParagraph(result.value.text, result.value.sources, sources);
   if (cleaned.text === "") return { ok: false, reason: "invalid" };

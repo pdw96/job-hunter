@@ -65,6 +65,12 @@ export async function editBlock(
   return isLocked(await latestSubmission(db, userId, posting.id)) ? "submitted" : null;
 }
 
+// AI가 도는 사이 상태가 바뀌었을 수 있어, 저장 직전에 공고를 다시 읽고 같은 검사를 한다. 공고가 사라졌으면 null(저장이 알아서 실패한다)
+export async function editBlockNow(db: Db, userId: string, postingId: string): Promise<"not_apply" | "submitted" | null> {
+  const posting = await getPosting(db, userId, postingId);
+  return posting ? editBlock(db, userId, posting) : null;
+}
+
 // 마지막 번호가 expectedNumber(없으면 0)이고 잠기지 않았을 때만 expectedNumber + 1로 넣는다.
 // 동시에 넣어 고유 색인을 어기면(23505) changed, 그 사이 공고가 지워져 외래 키를 어기면(23503) not_found
 export async function insertSubmission(

@@ -97,7 +97,8 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const locked = isLocked(latest);
   const byId = new Map(sources.map((source) => [source.id, source]));
   const views = questions.map((question, index) => toView(question, index, questions, sources, byId));
-  const canAct = posting.status === "apply" && !locked;
+  const isApply = posting.status === "apply";
+  const canAct = isApply && !locked;
 
   return (
     <div className="space-y-6">
@@ -113,7 +114,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
         </p>
       </div>
 
-      {locked && latest && (
+      {isApply && locked && latest && (
         <div className="space-y-1 rounded-lg bg-foreground/5 p-3 text-sm">
           <p>
             제출 {latest.number}({koreaDate(latest.submittedAt)})을 얼린 뒤라 고칠 수 없습니다. 고치려면 공고 화면에서 새 버전 만들기를 눌러 주세요
@@ -124,7 +125,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
         </div>
       )}
 
-      {!canAct && !locked && (
+      {!isApply && (
         <p className="rounded-lg bg-foreground/5 p-3 text-sm">지원으로 고른 공고에서만 문항을 더하고 쓸 수 있습니다</p>
       )}
 
