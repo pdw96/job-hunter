@@ -15,6 +15,7 @@ import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { RESUME_WRITE_SYSTEM } from "./prompts";
 import { getCommonResume, getResume, saveResumeContent, saveTailoredContent } from "./resume-repo";
+import { submitPosting } from "./submit";
 import { resumes } from "./schema";
 import { rewriteEntries, startCommonResume, writeResumeLines } from "./resume-write";
 import type { ResumeContent } from "./types";
@@ -442,4 +443,33 @@ test("AI가 다시 쓰는 기존 항목의 별명을 빠뜨리면 그 항목은 
   const byId = new Map(result.value.entries.map((e) => [e.experienceId, e]));
   expect(byId.get(a)?.lines).toEqual([{ text: "내가 고친 줄", edited: true }]);
   expect(byId.get(b)?.lines).toEqual([{ text: "B 새 줄", edited: false }]);
+});
+
+test("제출한 공고의 맞춤본은 다시 쓰기가 submitted이고 AI를 부르지 않는다", async () => {
+  const { a, resume } = await commonWithTwo();
+  const postingId = await addPosting();
+  const content: ResumeContent = { commonVersion: resume.version, entries: resume.content!.entries };
+  await saveTailoredContent(db, "u1", postingId, trackId, content, null);
+  const [row] = await db.select().from(resumes).where(eq(resumes.postingId, postingId));
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+  const ai = createFakeAi([reply(["E1", ["줄"]])]);
+  expect(await rewriteEntries(db, ai, "u1", row.id, [a], row.version, now)).toEqual({ ok: false, reason: "submitted" });
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("다시 쓰는 사이 제출하면 맞춤본의 rewriteEntries는 submitted이고 저장하지 않는다", async () => {
+  const { a, resume } = await commonWithTwo();
+  const postingId = await addPosting();
+  const content: ResumeContent = { commonVersion: resume.version, entries: resume.content!.entries };
+  await saveTailoredContent(db, "u1", postingId, trackId, content, null);
+  const [row] = await db.select().from(resumes).where(eq(resumes.postingId, postingId));
+  const ai = createFakeAi([
+    async () => {
+      expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+      return reply(["E1", ["줄"]]);
+    },
+  ]);
+  expect(await rewriteEntries(db, ai, "u1", row.id, [a], row.version, now)).toEqual({ ok: false, reason: "submitted" });
+  const [after] = await db.select().from(resumes).where(eq(resumes.id, row.id));
+  expect(after.version).toBe(row.version);
 });

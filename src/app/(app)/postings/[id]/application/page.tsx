@@ -4,9 +4,11 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { checkDraft } from "@/modules/applications/check";
 import { listQuestions, type Question } from "@/modules/applications/repo";
+import { isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import type { PassedReason, PickReason, SourceRef } from "@/modules/applications/types";
 import { listWritingSources, type WritingSource } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
+import { koreaDate } from "@/modules/postings/today";
 import { getTrack } from "@/modules/tracks/repo";
 import { AddQuestions } from "./add-questions";
 import type { DraftData } from "./draft-view";
@@ -86,14 +88,17 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const posting = await getPosting(db, user.id, id);
   if (!posting) notFound();
 
-  const [track, questions, sources] = await Promise.all([
+  const [track, questions, sources, latest] = await Promise.all([
     getTrack(db, user.id, posting.trackId),
     listQuestions(db, user.id, posting.id),
     listWritingSources(db, user.id, posting.trackId),
+    latestSubmission(db, user.id, posting.id),
   ]);
+  const locked = isLocked(latest);
   const byId = new Map(sources.map((source) => [source.id, source]));
   const views = questions.map((question, index) => toView(question, index, questions, sources, byId));
-  const canAct = posting.status === "apply";
+  const isApply = posting.status === "apply";
+  const canAct = isApply && !locked;
 
   return (
     <div className="space-y-6">
@@ -109,7 +114,18 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
         </p>
       </div>
 
-      {!canAct && (
+      {isApply && locked && latest && (
+        <div className="space-y-1 rounded-lg bg-foreground/5 p-3 text-sm">
+          <p>
+            제출 {latest.number}({koreaDate(latest.submittedAt)})을 얼린 뒤라 고칠 수 없습니다. 고치려면 공고 화면에서 새 버전 만들기를 눌러 주세요
+          </p>
+          <Link href={`/postings/${posting.id}`} className="underline">
+            공고 화면으로
+          </Link>
+        </div>
+      )}
+
+      {!isApply && (
         <p className="rounded-lg bg-foreground/5 p-3 text-sm">지원으로 고른 공고에서만 문항을 더하고 쓸 수 있습니다</p>
       )}
 

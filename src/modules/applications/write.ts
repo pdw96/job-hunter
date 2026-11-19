@@ -7,6 +7,7 @@ import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
+import { editBlock, withEditLock } from "./submission-repo";
 import { cut, resolveAlias } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
@@ -14,7 +15,7 @@ import type { Draft, Paragraph, SourceRef } from "./types";
 // AI에게는 경험의 실제 id 대신 E1, E2 같은 별명만 보내고, 답의 별명은 코드가 실제 id로 바꾼다.
 // 숫자·금지 표현은 저장 뒤 checkDraft가 표시한다(저장은 막지 않는다).
 
-export type WriteFailure = "not_found" | "not_apply" | "changed" | "stale" | "over_limit" | "too_many_selected" | AiFailure;
+export type WriteFailure = "not_found" | "not_apply" | "submitted" | "changed" | "stale" | "over_limit" | "too_many_selected" | AiFailure;
 export type RevisePreset = "shorter" | "concrete" | "natural";
 
 const paragraphSchema = z.object({ text: z.string(), sources: z.array(z.string()) });
@@ -124,7 +125,8 @@ export async function approveAndWrite(
   if (!question) return { ok: false, reason: "not_found" };
   const posting = await getPosting(db, userId, question.postingId);
   if (!posting) return { ok: false, reason: "not_found" };
-  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+  const block = await editBlock(db, userId, posting);
+  if (block) return { ok: false, reason: block };
   const selection = question.selection;
   if (!selection) return { ok: false, reason: "changed" };
 
@@ -157,10 +159,12 @@ export async function approveAndWrite(
     now,
   );
   if (!written.ok) return written;
-
-  // 읽었을 때의 문항 글, 승인, 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 직접 고쳤으면 changed)
+  // 읽었을 때의 문항 글, 승인, 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 직접 고쳤으면 changed).
+  // AI가 쓰는 사이 제출했으면 저장하지 않는다: 확인과 저장을 공고 잠금 안에서 한다
   const draft: Draft = { questionVersion: question.version, basedOn: approved, ...written.value, writtenAt: now.toISOString() };
-  const saved = await saveDraft(db, userId, questionId, draft, { version: question.version, approved, draft: question.draft });
+  const saved = await withEditLock(db, userId, posting.id, (tx) =>
+    saveDraft(tx, userId, questionId, draft, { version: question.version, approved, draft: question.draft }),
+  );
   return saved.ok ? { ok: true, value: draft } : saved;
 }
 
@@ -181,7 +185,8 @@ export async function reviseParagraph(
   if (!question) return { ok: false, reason: "not_found" };
   const posting = await getPosting(db, userId, question.postingId);
   if (!posting) return { ok: false, reason: "not_found" };
-  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+  const block = await editBlock(db, userId, posting);
+  if (block) return { ok: false, reason: block };
 
   // 저장된 답이 화면이 읽은 것과 같을 때만 고친다. 고친 답은 저장된 것에서 만든다
   const stored = question.draft;
@@ -234,7 +239,7 @@ export async function reviseParagraph(
     ...stored,
     paragraphs: stored.paragraphs.map((p, i) => (i === index ? { ...cleaned, edited: false } : p)),
   };
-  const saved = await replaceDraft(db, userId, questionId, expected, next);
+  const saved = await withEditLock(db, userId, posting.id, (tx) => replaceDraft(tx, userId, questionId, expected, next));
   return saved.ok ? { ok: true, value: next } : saved;
 }
 
@@ -247,7 +252,7 @@ export async function editParagraph(
   text: string,
   expected: Draft,
   now: Date = new Date(),
-): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "not_apply" | "changed" | "too_long" }> {
+): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "changed" | "too_long" }> {
   void now; // 다른 함수와 서명을 맞추려고 남겨 둔다(저장 시각은 replaceDraft가 정한다)
   const trimmed = text.trim();
   if ([...trimmed].length > APPLICATION_LIMITS.paragraph) return { ok: false, reason: "too_long" };
@@ -256,7 +261,8 @@ export async function editParagraph(
   if (!question) return { ok: false, reason: "not_found" };
   const posting = await getPosting(db, userId, question.postingId);
   if (!posting) return { ok: false, reason: "not_found" };
-  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+  const block = await editBlock(db, userId, posting);
+  if (block) return { ok: false, reason: block };
   const stored = question.draft;
   if (!stored || !sameJson(stored, expected) || !Number.isInteger(index) || index < 0 || index >= stored.paragraphs.length) {
     return { ok: false, reason: "changed" };
@@ -267,7 +273,7 @@ export async function editParagraph(
       ? stored.paragraphs.filter((_, i) => i !== index)
       : stored.paragraphs.map((p, i) => (i === index ? { ...p, text: trimmed, edited: true } : p));
   const next: Draft = { ...stored, paragraphs };
-  const saved = await replaceDraft(db, userId, questionId, expected, next);
+  const saved = await withEditLock(db, userId, posting.id, (tx) => replaceDraft(tx, userId, questionId, expected, next));
   return saved.ok ? { ok: true, value: next } : saved;
 }
 
@@ -279,7 +285,7 @@ export async function writeManually(
   questionId: string,
   text: string,
   now: Date = new Date(),
-): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "not_apply" | "changed" | "empty" | "too_long" }> {
+): Promise<{ ok: true; value: Draft } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "changed" | "empty" | "too_long" }> {
   const parts = text
     .trim()
     .split(/\n[^\S\n]*\n\s*/u)
@@ -294,7 +300,8 @@ export async function writeManually(
   if (!question) return { ok: false, reason: "not_found" };
   const posting = await getPosting(db, userId, question.postingId);
   if (!posting) return { ok: false, reason: "not_found" };
-  if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+  const block = await editBlock(db, userId, posting);
+  if (block) return { ok: false, reason: block };
 
   const draft: Draft = {
     questionVersion: question.version,
@@ -303,6 +310,6 @@ export async function writeManually(
     shortage: "",
     writtenAt: now.toISOString(),
   };
-  const saved = await createDraft(db, userId, questionId, draft);
+  const saved = await withEditLock(db, userId, posting.id, (tx) => createDraft(tx, userId, questionId, draft));
   return saved.ok ? { ok: true, value: draft } : saved;
 }

@@ -14,6 +14,7 @@ import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { editResume } from "./resume-edit";
 import { getResume, getTailoredResume, saveTailoredContent } from "./resume-repo";
+import { reopenPosting, submitPosting } from "./submit";
 import { startCommonResume } from "./resume-write";
 import { resumes } from "./schema";
 let db: Db;
@@ -219,4 +220,24 @@ test("맞춤본은 지원 공고일 때만 고치고, 보류로 바뀐 공고의
   expect((await getPosting(db, "u1", postingId))?.status).not.toBe("apply");
   expect(await editResume(db, "u1", tailored.id, { type: "remove", experienceId: a }, after!.version)).toEqual({ ok: false, reason: "not_apply" });
   expect(await getTailoredResume(db, "u1", postingId)).not.toBeNull();
+});
+
+test("제출한 공고의 맞춤본은 submitted이고, 같은 트랙의 공통본은 그래도 고칠 수 있다", async () => {
+  const { a, id, resume } = await commonWithTwo();
+  const postingId = await addPosting(true);
+  const saved = await saveTailoredContent(db, "u1", postingId, trackId, { ...resume.content!, commonVersion: resume.version }, null);
+  if (!saved.ok) throw new Error(saved.reason);
+  const tailored = await getTailoredResume(db, "u1", postingId);
+  if (!tailored) throw new Error("없음");
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+
+  expect(await editResume(db, "u1", tailored.id, { type: "lines", experienceId: a, text: "맞춤 줄" }, tailored.version)).toEqual({ ok: false, reason: "submitted" });
+  expect((await getTailoredResume(db, "u1", postingId))?.content).toEqual(tailored.content);
+
+  const common = await editResume(db, "u1", id, { type: "lines", experienceId: a, text: "공통 줄" }, resume.version);
+  expect(common.ok).toBe(true);
+
+  expect(await reopenPosting(db, "u1", postingId, 1)).toEqual({ ok: true });
+  const again = await editResume(db, "u1", tailored.id, { type: "lines", experienceId: a, text: "맞춤 줄" }, tailored.version);
+  expect(again.ok).toBe(true);
 });

@@ -15,3 +15,10 @@ test("createTestDb는 호출마다 서로 독립된 DB를 준다", async () => {
   await a.insert(allowedEmails).values({ email: "a@example.com" });
   expect(await b.select().from(allowedEmails)).toEqual([]);
 });
+
+test("앞의 DB에 쓴 뒤에 만든 DB도 비어 있다", async () => {
+  const a = await createTestDb();
+  await a.insert(allowedEmails).values({ email: "a@example.com" });
+  const c = await createTestDb();
+  expect(await c.select().from(allowedEmails)).toEqual([]);
+});

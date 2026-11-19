@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "@/modules/tracks/repo";
+import { hasPgCode } from "./db-errors";
 import { resumes } from "./schema";
 import type { ResumeContent, ResumeSelection } from "./types";
 
@@ -29,14 +30,6 @@ function toResume(row: typeof resumes.$inferSelect): Resume {
   const { userId: owner, ...rest } = row;
   void owner;
   return rest;
-}
-
-// 저장하는 사이 공고(또는 트랙)가 지워지면 외래 키 위반(23503)이다. 그 경우만 not_found로 바꾸고 나머지는 던진다
-function isForeignKeyViolation(error: unknown): boolean {
-  for (let e: unknown = error, depth = 0; e && typeof e === "object" && depth < 4; e = (e as { cause?: unknown }).cause, depth++) {
-    if ((e as { code?: unknown }).code === "23503") return true;
-  }
-  return false;
 }
 
 // 조건이 어긋나 못 고쳤을 때, 행이 없는 것인지 조건이 바뀐 것인지 가른다
@@ -105,7 +98,7 @@ export async function saveTailoredSelection(
     if (!row) throw new Error("다른 사용자의 이력서에는 쓸 수 없습니다");
     return { ok: true, id: row.id };
   } catch (error) {
-    if (isForeignKeyViolation(error)) return { ok: false, reason: "not_found" };
+    if (hasPgCode(error, "23503")) return { ok: false, reason: "not_found" };
     throw error;
   }
 }
@@ -134,7 +127,7 @@ export async function saveTailoredContent(
         })
         .returning({ version: resumes.version });
     } catch (error) {
-      if (isForeignKeyViolation(error)) return { ok: false, reason: "not_found" };
+      if (hasPgCode(error, "23503")) return { ok: false, reason: "not_found" };
       throw error;
     }
     return row ? { ok: true, version: row.version } : whyNot(db, tailoredOf(userId, postingId));

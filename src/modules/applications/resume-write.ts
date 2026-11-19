@@ -3,6 +3,7 @@ import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listResumeSources, type ResumeSource } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
+import { editBlock, withEditLock } from "./submission-repo";
 import { ownsTrack } from "@/modules/tracks/repo";
 import { RESUME_LIMITS } from "./options";
 import { RESUME_WRITE_SYSTEM } from "./prompts";
@@ -20,7 +21,7 @@ const resumeSchema = z.object({ entries: z.array(z.object({ exp: z.string(), lin
 
 export type LineRequest = { source: ResumeSource; detail: ResumeDetail; emphasize: boolean };
 export type ResumePostingContext = { text: string; requirements: string[] };
-type RewriteFailure = "not_found" | "not_apply" | "changed" | "none_selected" | "full" | "over_limit" | AiFailure;
+type RewriteFailure = "not_found" | "not_apply" | "submitted" | "changed" | "none_selected" | "full" | "over_limit" | AiFailure;
 
 const DETAIL_TEXT: Record<ResumeDetail, string> = { full: "자세히(2~4줄)", summary: "요약(1~2줄)" };
 const maxLines = (detail: ResumeDetail) => (detail === "full" ? RESUME_LIMITS.fullLines : RESUME_LIMITS.summaryLines);
@@ -140,7 +141,8 @@ export async function rewriteEntries(
   const posting = resume.postingId ? await getPosting(db, userId, resume.postingId) : null;
   if (resume.postingId) {
     if (!posting) return { ok: false, reason: "not_found" };
-    if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+    const block = await editBlock(db, userId, posting);
+    if (block) return { ok: false, reason: block };
   }
   const content = resume.content;
   if (!content || resume.version !== expectedVersion) return { ok: false, reason: "changed" };
@@ -175,6 +177,8 @@ export async function rewriteEntries(
     .filter((r) => written.answered.has(r.source.id) || !existing.has(r.source.id))
     .map((r) => buildEntry(r.source, r.detail, r.emphasize, written.value[r.source.id] ?? [], now));
   const next = upsertEntries(content, entries);
-  const saved = await saveResumeContent(db, userId, resumeId, next, expectedVersion);
+  // 맞춤본은 제출 확인과 저장을 공고 잠금 안에서 한다. 공통본은 잠금 없이 저장한다
+  const save = (tx: Db) => saveResumeContent(tx, userId, resumeId, next, expectedVersion);
+  const saved = posting ? await withEditLock(db, userId, posting.id, save) : await save(db);
   return saved.ok ? { ok: true, value: next } : saved;
 }

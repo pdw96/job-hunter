@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { getCommonResume, getTailoredResume } from "@/modules/applications/resume-repo";
+import { getSubmission, isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import { listResumeSources } from "@/modules/experiences/writing";
 import { getPosting } from "@/modules/postings/repo";
+import { koreaDate } from "@/modules/postings/today";
 import { editorData } from "../../../_resume/editor-data";
 import { ResumeEditor } from "../../../_resume/resume-editor";
 import { type EmphasisSelectionView, EmphasisPicker, type OtherView } from "./emphasis-picker";
@@ -17,12 +19,15 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
   const posting = await getPosting(db, user.id, id);
   if (!posting) notFound();
 
-  const [common, tailored, sources] = await Promise.all([
+  const [common, tailored, sources, latest] = await Promise.all([
     getCommonResume(db, user.id, posting.trackId),
     getTailoredResume(db, user.id, posting.id),
     listResumeSources(db, user.id, posting.trackId),
+    latestSubmission(db, user.id, posting.id),
   ]);
-  const canAct = posting.status === "apply";
+  const locked = isLocked(latest);
+  const isApply = posting.status === "apply";
+  const canAct = isApply && !locked;
   const hasCommon = common?.content != null;
   const byId = new Map(sources.map((source) => [source.id, source]));
 
@@ -44,6 +49,13 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
   const commonVersion = common?.version ?? tailored?.content?.commonVersion ?? 0;
   const data = tailored ? editorData(tailored, sources, commonVersion) : null;
 
+  // 맞춤본이 없을 때의 안내. 잠겼으면 마지막 제출본이 무엇으로 냈는지 알린다
+  let emptyNote = "아직 만든 맞춤본이 없습니다";
+  if (isApply && locked && latest) {
+    const last = await getSubmission(db, user.id, posting.id, latest.number);
+    emptyNote = last?.content.resume?.from === "common" ? "트랙 공통본으로 제출했습니다" : last && !last.content.resume ? "이력서 없이 제출했습니다" : emptyNote;
+  }
+
   return (
     <div className="space-y-6">
       <div className="space-y-1">
@@ -58,7 +70,18 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
         </p>
       </div>
 
-      {!canAct && <p className="rounded-lg bg-foreground/5 p-3 text-sm">지원으로 고른 공고에서만 맞춤본을 만들고 고칠 수 있습니다</p>}
+      {isApply && locked && latest && (
+        <div className="space-y-1 rounded-lg bg-foreground/5 p-3 text-sm">
+          <p>
+            제출 {latest.number}({koreaDate(latest.submittedAt)})을 얼린 뒤라 고칠 수 없습니다. 고치려면 공고 화면에서 새 버전 만들기를 눌러 주세요
+          </p>
+          <Link href={`/postings/${posting.id}`} className="underline">
+            공고 화면으로
+          </Link>
+        </div>
+      )}
+
+      {!isApply && <p className="rounded-lg bg-foreground/5 p-3 text-sm">지원으로 고른 공고에서만 맞춤본을 만들고 고칠 수 있습니다</p>}
 
       {canAct && !hasCommon && (
         <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
@@ -82,7 +105,7 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
       {data ? (
         <ResumeEditor data={data} readOnly={!canAct} tailored />
       ) : (
-        !canAct && <p className="text-sm text-foreground/70">아직 만든 맞춤본이 없습니다</p>
+        !canAct && <p className="text-sm text-foreground/70">{emptyNote}</p>
       )}
     </div>
   );

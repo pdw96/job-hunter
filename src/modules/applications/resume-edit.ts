@@ -1,6 +1,7 @@
 import type { Db } from "@/db/types";
 import { getPosting } from "@/modules/postings/repo";
 import { RESUME_LIMITS } from "./options";
+import { editBlock, withEditLock } from "./submission-repo";
 import { moveEntry, parseLines, removeEntry, replaceLines } from "./resume-entries";
 import { getResume, saveResumeContent } from "./resume-repo";
 import type { ResumeContent } from "./types";
@@ -12,7 +13,7 @@ export type ResumeEdit =
   | { type: "move"; experienceId: string; direction: "up" | "down" }
   | { type: "remove"; experienceId: string };
 
-type Failure = "not_found" | "not_apply" | "changed" | "too_long" | "too_many_lines";
+type Failure = "not_found" | "not_apply" | "submitted" | "changed" | "too_long" | "too_many_lines";
 
 export async function editResume(
   db: Db,
@@ -27,7 +28,8 @@ export async function editResume(
   if (resume.postingId) {
     const posting = await getPosting(db, userId, resume.postingId);
     if (!posting) return { ok: false, reason: "not_found" };
-    if (posting.status !== "apply") return { ok: false, reason: "not_apply" };
+    const block = await editBlock(db, userId, posting);
+    if (block) return { ok: false, reason: block };
   }
   const content = resume.content;
   if (!content || resume.version !== expectedVersion || !content.entries.some((entry) => entry.experienceId === edit.experienceId)) {
@@ -47,6 +49,8 @@ export async function editResume(
     next = removeEntry(content, edit.experienceId);
   }
 
-  const saved = await saveResumeContent(db, userId, resumeId, next, expectedVersion);
+  // 맞춤본은 제출 확인과 저장을 공고 잠금 안에서 한다. 공통본은 잠금 없이 저장한다
+  const save = (tx: Db) => saveResumeContent(tx, userId, resumeId, next, expectedVersion);
+  const saved = resume.postingId ? await withEditLock(db, userId, resume.postingId, save) : await save(db);
   return saved.ok ? { ok: true, value: next } : saved;
 }
