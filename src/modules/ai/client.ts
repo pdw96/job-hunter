@@ -20,6 +20,9 @@ export type AiRequest<T> = {
   schema: ZodType<T>;
   effort: "low" | "medium";
   maxTokens: number;
+  // 답 모양을 API의 문법으로 강제하지 않고 지시에 적어 받는다(코드가 같은 스키마로 검사한다).
+  // 모양이 커서 API가 "compiled grammar is too large"로 거절하는 요청에만 쓴다(loose-json.ts)
+  loose?: boolean;
 };
 
 // refused 모델이 요청을 거절 / truncated 답이 잘림 / invalid 답이 스키마에 안 맞음 / unavailable 서비스 오류
