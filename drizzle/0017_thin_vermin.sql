@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "experiences_moves_user_affiliate_idx" ON "experiences_moves" USING btree ("user_id") WHERE "experiences_moves"."step" = 'affiliate';

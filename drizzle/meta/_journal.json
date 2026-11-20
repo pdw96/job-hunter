@@ -120,6 +120,13 @@
       "when": 1795167132358,
       "tag": "0016_low_abomination",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795174829067,
+      "tag": "0017_thin_vermin",
+      "breakpoints": true
     }
   ]
 }

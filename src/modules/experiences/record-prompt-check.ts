@@ -1,13 +1,16 @@
 import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
+import type { ExperienceInput } from "./input";
+import { type AffiliationInput, requestAffiliation } from "./move";
 import type { CheckRow } from "./prompt-check";
+import { describeExperience } from "./prompts";
 import type { SceneInput } from "./record-input";
 import { requestRecordImport } from "./record-import";
 import type { SceneHead } from "./scene-head";
 import { requestSceneDraft } from "./scene-interview";
 import type { InterviewMessage } from "./schema";
 
-// 새 기록 구조의 프롬프트 점검. 장면 정리(extract_scene)와 새 가져오기(import_records)를 실제 AI에 돌려 기대대로 동작하는지 본다.
+// 새 기록 구조의 프롬프트 점검. 장면 정리(extract_scene), 새 가져오기(import_records), 옮기기(migrate)를 실제 AI에 돌려 기대대로 동작하는지 본다.
 // prompt-check.ts와 같은 줄 모양(CheckRow)을 돌려주고, 관리자 화면이 함께 보인다.
 
 const talk = (pairs: [string, string][]): InterviewMessage[] =>
@@ -136,6 +139,96 @@ function importRows({ plan, inventedDropped }: Prepared): CheckRow[] {
   ];
 }
 
+// 옮기기: 예전 재직 기록 한 건. 경력 하나와 장면 둘 이상으로 나누고, 원본에 없는 숫자를 넣지 않는지 본다
+export const MOVE_SPLIT_SAMPLE = {
+  name: "예전 재직 기록 옮기기",
+  record: {
+    name: "나라물산 구매 담당",
+    kind: "job",
+    organization: "나라물산",
+    role: "구매팀 사원",
+    startMonth: "2019-01",
+    endMonth: "2021-06",
+    isOngoing: false,
+    situation: null,
+    actions: "협력사 납품 일정을 매주 표로 정리해 생산팀과 맞췄다.\n부품 단가 비교표를 만들어 팀장에게 올렸다.",
+    result: "단가 비교표는 견적 비교에 쓰였다.",
+    metrics: [],
+    notDone: "계약 협상은 팀장이 했다",
+    bannedPhrases: [],
+    evidenceNote: null,
+    tags: [],
+  } satisfies ExperienceInput,
+};
+
+function moveRows({ plan, inventedDropped }: Prepared): CheckRow[] {
+  const sample = MOVE_SPLIT_SAMPLE.name;
+  const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample, check, expected, actual, pass });
+  const others = plan.education.length + plan.courses.length + plan.credentials.length + plan.gaps.length + plan.projects.length + plan.activities.length;
+  const scenes = plan.jobs.flatMap((job) => job.scenes);
+  const invented = [...plan.jobs, ...scenes].flatMap((item) => item.claims).filter((claim) => claim.status === "needs_fix").map((claim) => claim.quote);
+  return [
+    row("경력 하나로 나눈다", "경력 1 · 다른 메뉴 0", `경력 ${plan.jobs.length} · 다른 메뉴 ${others}`, plan.jobs.length === 1 && others === 0),
+    row(
+      "장면을 둘 이상으로 나눈다",
+      "장면 2개 이상",
+      `${scenes.length}개${scenes.length > 0 ? `: ${scenes.map((s) => s.input.title).join(", ")}` : ""}`,
+      scenes.length >= 2,
+    ),
+    row(
+      "원본에 없던 숫자를 넣지 않는다",
+      "없음",
+      invented.length === 0 && inventedDropped === 0
+        ? "없음"
+        : [...invented, ...(inventedDropped > 0 ? [`코드가 비우거나 버린 칸 ${inventedDropped}개`] : [])].join(" / "),
+      invented.length === 0 && inventedDropped === 0,
+    ),
+  ];
+}
+
+// 옮기기: 프로젝트 둘(회사에서 한 것, 학교에서 한 것)을 경력 하나·학교 하나에 잇는다
+export const AFFILIATE_SAMPLE = {
+  name: "옮긴 프로젝트의 소속 잇기",
+  input: {
+    projects: [
+      { name: "물류 대시보드", organization: "나라물산", role: "데이터 정리", span: { startMonth: "2020-03", endMonth: "2020-09", isOngoing: false } },
+      { name: "졸업 작품", organization: "한국대학교 산업공학과", role: "화면 설계", span: { startMonth: "2018-03", endMonth: "2018-12", isOngoing: false } },
+    ],
+    jobs: [{ company: "나라물산", department: "구매팀", span: { startMonth: "2019-01", endMonth: "2021-06", isOngoing: false } }],
+    schools: [{ schoolName: "한국대학교", major: "산업공학과", span: { startMonth: "2015-03", endMonth: "2019-02" } }],
+    courses: [],
+  } satisfies AffiliationInput,
+};
+
+function affiliateRows(links: Extract<Awaited<ReturnType<typeof requestAffiliation>>, { ok: true }>["links"]): CheckRow[] {
+  const sample = AFFILIATE_SAMPLE.name;
+  const { input } = AFFILIATE_SAMPLE;
+  const parentName = (link: (typeof links)[number] | undefined) => {
+    if (!link) return "개인";
+    const { kind, index } = link.parent;
+    return kind === "job" ? input.jobs[index].company : kind === "education" ? input.schools[index].schoolName : `과정 ${index + 1}`;
+  };
+  const linkOf = (project: number) => links.find((link) => link.project === project);
+  const job = linkOf(0);
+  const school = linkOf(1);
+  return [
+    {
+      sample,
+      check: "회사에서 한 프로젝트를 경력에 잇는다",
+      expected: "물류 대시보드 → 나라물산",
+      actual: `물류 대시보드 → ${parentName(job)}`,
+      pass: job?.parent.kind === "job" && job.parent.index === 0,
+    },
+    {
+      sample,
+      check: "학교에서 한 프로젝트를 학교에 잇는다",
+      expected: "졸업 작품 → 한국대학교",
+      actual: `졸업 작품 → ${parentName(school)}`,
+      pass: school?.parent.kind === "education" && school.parent.index === 0,
+    },
+  ];
+}
+
 const failed = (sample: string, reason: string): CheckRow[] => [{ sample, check: "AI 호출", expected: "성공", actual: reason, pass: false }];
 
 export async function runRecordCheck(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<CheckRow[]> {
@@ -162,5 +255,15 @@ export async function runRecordCheck(db: Db, ai: AiClient, userId: string, now: 
     return result.ok ? importRows(result) : failed(RECORD_IMPORT_SAMPLE.name, result.reason);
   })();
 
-  return (await Promise.all([...extracted, imported])).flat();
+  const moved = (async () => {
+    const result = await requestRecordImport(db, ai, userId, describeExperience(MOVE_SPLIT_SAMPLE.record), { purpose: "migrate", hint: "job" }, now);
+    return result.ok ? moveRows(result) : failed(MOVE_SPLIT_SAMPLE.name, result.reason);
+  })();
+
+  const affiliated = (async () => {
+    const result = await requestAffiliation(db, ai, userId, AFFILIATE_SAMPLE.input, now);
+    return result.ok ? affiliateRows(result.links) : failed(AFFILIATE_SAMPLE.name, result.reason);
+  })();
+
+  return (await Promise.all([...extracted, imported, moved, affiliated])).flat();
 }

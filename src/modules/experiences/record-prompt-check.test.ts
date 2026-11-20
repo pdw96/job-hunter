@@ -4,7 +4,7 @@ import type { Db } from "@/db/types";
 import type { AiRequest } from "@/modules/ai/client";
 import { createFakeAi } from "@/modules/ai/fake-client";
 import { user } from "@/modules/auth/schema";
-import { RECORD_IMPORT_SAMPLE, runRecordCheck, SCENE_SAMPLES } from "./record-prompt-check";
+import { AFFILIATE_SAMPLE, MOVE_SPLIT_SAMPLE, RECORD_IMPORT_SAMPLE, runRecordCheck, SCENE_SAMPLES } from "./record-prompt-check";
 
 let db: Db;
 
@@ -108,12 +108,55 @@ const importAnswer = (educationOver: Record<string, unknown> = {}) => ({
   more: false,
 });
 
-const CALLS = SCENE_SAMPLES.length + 1;
+// 옮기기 예시(재직 기록 하나): 경력 하나와 장면 둘
+const moveAnswer = () => ({
+  education: [],
+  courses: [],
+  credentials: [],
+  gaps: [],
+  jobs: [
+    {
+      company: "나라물산",
+      department: "구매팀",
+      title: "사원",
+      employment: "regular",
+      startMonth: "2019-01",
+      endMonth: "2021-06",
+      isOngoing: false,
+      duties: [],
+      bannedPhrases: [],
+      roleClaims: [],
+      scenes: [
+        sceneOf({ title: "납품 일정 조율", actions: "협력사 납품 일정을 매주 표로 정리해 생산팀과 맞췄다" }),
+        sceneOf({ title: "단가 비교표", actions: "부품 단가 비교표를 만들어 팀장에게 올렸다", result: "견적 비교에 쓰였다" }),
+      ],
+    },
+  ],
+  projects: [],
+  activities: [],
+  more: false,
+});
 
-const answering = (importing: unknown) =>
+// 보낸 글에서 이름으로 별명(P1, J1 …)을 찾는다
+const aliasOf = (text: string, name: string) => text.match(new RegExp(`^([PJSC]\\d+) \\| 이름: ${name}`, "m"))?.[1] ?? "";
+
+const affiliateAnswer = (text: string) => ({
+  links: [
+    { project: aliasOf(text, "물류 대시보드"), parent: aliasOf(text, "나라물산") },
+    { project: aliasOf(text, "졸업 작품"), parent: aliasOf(text, "한국대학교") },
+  ],
+});
+
+const CALLS = SCENE_SAMPLES.length + 3;
+
+const answering = (importing: unknown, moving: unknown = moveAnswer(), affiliating = affiliateAnswer) =>
   createFakeAi(
     Array.from({ length: CALLS }, () => (request: AiRequest<unknown>) => {
       if (request.purpose === "import_records") return importing;
+      if (request.purpose === "migrate") {
+        const text = request.messages[0].text;
+        return text.startsWith("[옮기기: 소속]") ? affiliating(text) : moving;
+      }
       return request.messages[0].text.includes("가나다물류") ? delayScene : tutoringScene;
     }),
   );
@@ -126,7 +169,8 @@ test("기대대로 답하는 AI면 모든 줄이 통과한다", async () => {
   expect(rows.length).toBeGreaterThan(6);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
   // 예시마다 줄이 있다
-  for (const sample of [...SCENE_SAMPLES.map((s) => s.name), RECORD_IMPORT_SAMPLE.name]) {
+  expect(ai.requests.filter((r) => r.purpose === "migrate")).toHaveLength(2);
+  for (const sample of [...SCENE_SAMPLES.map((s) => s.name), RECORD_IMPORT_SAMPLE.name, MOVE_SPLIT_SAMPLE.name, AFFILIATE_SAMPLE.name]) {
     expect(rows.some((row) => row.sample === sample)).toBe(true);
   }
 });
@@ -151,6 +195,10 @@ test("다른 장면을 섞거나 대화에 없던 숫자를 넣으면 그 줄이
   const ai = createFakeAi(
     Array.from({ length: CALLS }, () => (request: AiRequest<unknown>) => {
       if (request.purpose === "import_records") return importAnswer();
+      if (request.purpose === "migrate") {
+        const text = request.messages[0].text;
+        return text.startsWith("[옮기기: 소속]") ? affiliateAnswer(text) : moveAnswer();
+      }
       return request.messages[0].text.includes("가나다물류")
         ? { ...delayScene, lessons: "창고 재고 실사도 했다" }
         : { ...tutoringScene, result: "4명 중 3명의 점수가 20점 올랐다" };
@@ -167,4 +215,31 @@ test("AI 호출이 실패하면 그 예시는 실패 한 줄로 남는다", asyn
   const rows = await runRecordCheck(db, ai, "admin");
   expect(rows).toHaveLength(CALLS);
   expect(rows.every((row) => !row.pass && row.check === "AI 호출")).toBe(true);
+});
+
+test("옮기기 예시: 재직 기록을 장면 하나로만 나누거나 숫자를 지어내면 그 줄이 실패한다", async () => {
+  const answer = moveAnswer();
+  answer.jobs[0].scenes = [sceneOf({ title: "구매 업무", actions: "협력사 납품 일정을 매주 표로 정리해 생산팀과 맞췄다" })];
+  answer.jobs[0].department = "구매 3팀";
+  const rows = await runRecordCheck(db, answering(importAnswer(), answer), "admin");
+  const failed = rows.filter((row) => !row.pass);
+  expect(failed.map((row) => row.sample)).toEqual([MOVE_SPLIT_SAMPLE.name, MOVE_SPLIT_SAMPLE.name]);
+  expect(failed.map((row) => row.check).sort()).toEqual(["원본에 없던 숫자를 넣지 않는다", "장면을 둘 이상으로 나눈다"].sort());
+});
+
+test("옮기기 예시: 소속 짝이 틀리면 그 줄이 실패한다", async () => {
+  // 졸업 작품을 회사에 잇는다(기간 밖이라 버려진다)
+  const wrong = (text: string) => ({
+    links: [
+      { project: aliasOf(text, "물류 대시보드"), parent: aliasOf(text, "나라물산") },
+      { project: aliasOf(text, "졸업 작품"), parent: aliasOf(text, "나라물산") },
+    ],
+  });
+  const ai = answering(importAnswer(), moveAnswer(), wrong);
+  const rows = await runRecordCheck(db, ai, "admin");
+  const failed = rows.filter((row) => !row.pass);
+  expect(failed).toHaveLength(1);
+  expect(failed[0]).toMatchObject({ sample: AFFILIATE_SAMPLE.name, check: "학교에서 한 프로젝트를 학교에 잇는다" });
+  const affiliate = ai.requests.find((r) => r.messages[0].text.startsWith("[옮기기: 소속]"));
+  expect(affiliate?.messages[0].text).toContain("P2");
 });

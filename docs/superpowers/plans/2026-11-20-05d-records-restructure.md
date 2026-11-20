@@ -516,6 +516,15 @@ PR 2 (Task 5~7)
 - (Codex 검토) 프로젝트·활동 머리에도 `맞음`을 둔다(경험 사례 목록의 묶음 머리와 고치기 화면). 사례가 없는 프로젝트도 확인할 수 있다
 - 프롬프트 점검은 `runRecordCheck`(사례 정리 2, 새 가져오기 1)를 더해 호출이 21번이다
 
+PR 3 (Task 8~)
+- affiliate 행이 사용자마다 하나뿐이게 부분 고유 색인 `experiences_moves_user_affiliate_idx`(`user_id` where `step = 'affiliate'`)를 더했다(마이그레이션 0017). `planMoves`는 `on conflict do nothing`으로 넣는다
+- `claimNextMove`는 `FOR UPDATE SKIP LOCKED`를 쓰지 않는다(PGlite에서 잡을 행을 건너뛰는 일이 있었다). 한 문장의 `update … where id in (select … limit 1) and <잡을 수 있음> returning`이고, 동시에 같은 행을 고른 쪽은 다시 읽기에서 0행이 된다(그 호출은 진행만 돌려받는다)
+- 확인된 옛 기록의 `confirmedAt`은 `getExperience`가 돌려주지 않아 옛 표에서 그 칸만 따로 읽는다(읽기만)
+- 옮기기의 세 요청은 모두 목적 `migrate`이고 메시지 첫 줄(`[옮기기: 나누기]`·`[옮기기: 주장]`·`[옮기기: 소속]`)로 나뉜다. `requestRecordImport`가 `migrate`일 때 첫 줄을 붙인다. 로컬 가짜 AI는 나누기를 옛 기록의 구분 메뉴 하나로, 주장·소속은 빈 답으로 돌려준다
+- 소속 잇기에는 새 프로젝트에 없는 칸인 옛 기록의 소속(organization)을 함께 보낸다. 조직의 끝 월이 없거나 재직 중이면 끝이 열린 것으로 본다. 묻기는 `requestAffiliation`으로 나눠 프롬프트 점검도 쓴다
+- `describeExperience`는 `ExperienceInput`을 받는다(프롬프트 점검 예시가 옛 기록 모양의 입력만으로 부른다)
+- 프롬프트 점검에 옮기기 예시 2개(재직 기록 나누기, 소속 짝)를 더해 호출이 23번이다
+
 ## 판단 기록
 
 (PR마다 PR 본문에 적고, 끝나면 여기에 모은다)

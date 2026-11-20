@@ -184,7 +184,12 @@ test("아무것도 없으면 nothing_found, 옮기기면 목적과 구분 안내
   const ai = createFakeAi([answer()]);
   await requestRecordImport(db, ai, "u1", SOURCE, { purpose: "migrate", hint: "job" }, now);
   expect(ai.requests[0].purpose).toBe("migrate");
-  expect(ai.requests[0].messages[0].text.startsWith("이 글은 예전 기록의 '재직' 한 건입니다")).toBe(true);
+  // 첫 줄은 옮기기의 어떤 요청인지 적는다(로컬 미리보기의 가짜 AI가 고른다)
+  expect(ai.requests[0].messages[0].text.startsWith("[옮기기: 나누기]\n이 글은 예전 기록의 '재직' 한 건입니다")).toBe(true);
+  // 가져오기에는 붙이지 않는다
+  const plain = createFakeAi([answer()]);
+  await requestRecordImport(db, plain, "u1", SOURCE, {}, now);
+  expect(plain.requests[0].messages[0].text.startsWith("[가져올 글]")).toBe(true);
 });
 
 test("저장하면 모두 미확인이고 출처는 가져오기, 주장은 장면과 경력에, 프로젝트는 만든 경력에 딸린다", async () => {

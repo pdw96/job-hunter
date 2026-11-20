@@ -315,5 +315,7 @@ export const moves = pgTable(
   (t) => [
     index("experiences_moves_user_idx").on(t.userId),
     uniqueIndex("experiences_moves_user_old_idx").on(t.userId, t.oldId),
+    // old_id가 빈 affiliate 행은 위 색인이 막지 못한다. 사용자마다 하나뿐이게 한다
+    uniqueIndex("experiences_moves_user_affiliate_idx").on(t.userId).where(sql`${t.step} = 'affiliate'`),
   ],
 );
