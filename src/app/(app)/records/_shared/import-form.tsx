@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { deleteExperienceAction, importAction } from "@/modules/experiences/actions";
 import { groupPages, type PageGroup } from "@/modules/experiences/notion-export";
 import { readZip } from "./read-zip";
 import { ZipImport } from "./zip-import";
@@ -13,7 +12,7 @@ export type ImportOutcome<C> =
   // stop: 한도에 닿아 더 보내도 소용없다 / empty: 실패가 아니라 경험으로 볼 내용이 없었다
   | { ok: false; message: string; stop?: boolean; empty?: boolean };
 
-// 가져오기 화면이 쓰는 액션과 결과 표시. 옛 경험 기록과 새 기록 구조가 같은 화면(붙여 넣기·파일·노션 zip)을 쓴다
+// 가져오기 화면이 쓰는 액션과 결과 표시(붙여 넣기·파일·노션 zip). 새 기록 구조의 가져오기가 쓴다
 export type ImportKit<C extends { id: string }> = {
   run: (formData: FormData) => Promise<ImportOutcome<C>>;
   remove?: (item: C) => Promise<unknown>; // 없으면 지우기 단추를 보이지 않는다
@@ -26,36 +25,6 @@ export type ImportKit<C extends { id: string }> = {
   backHref: string;
   backLabel: string;
 };
-
-type OldItem = { id: string; name: string; claimCount: number; trimmed: boolean };
-
-// 옛 경험 기록 가져오기
-const EXPERIENCE_KIT: ImportKit<OldItem> = {
-  run: importAction,
-  remove: (item) => deleteExperienceAction(item.id, false), // 지운 뒤 목록 화면으로 보내려는 이동은 따르지 않고 이 화면에 머문다
-  Item: ({ item, onRemove, disabled }) => (
-    <>
-      <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-      <span className="text-sm text-foreground/60">확인할 주장 {item.claimCount}개</span>
-      <Link href={`/experiences/${item.id}`} className="text-sm underline">
-        열기
-      </Link>
-      <button type="button" onClick={onRemove} disabled={disabled} className="text-sm text-red-600 underline">
-        지우기
-      </button>
-    </>
-  ),
-  isTrimmed: (item) => item.trimmed,
-  headline: (items) => `기록 ${items.length}건을 만들었습니다`,
-  note: "모두 “미확인” 상태입니다. 기록마다 주장을 하나씩 확인해야 지원서에 쓸 수 있습니다. 필요 없는 기록은 지워 주세요",
-  intro: "이력서나 자기소개서를 붙여 넣거나 파일로 올리면, AI가 경험 단위로 나눠 기록 초안을 만듭니다",
-  backHref: "/experiences",
-  backLabel: "경험 기록으로",
-};
-
-export function ImportForm() {
-  return <ImportScreen kit={EXPERIENCE_KIT} />;
-}
 
 export function ImportScreen<C extends { id: string }>({ kit }: { kit: ImportKit<C> }) {
   const router = useRouter();

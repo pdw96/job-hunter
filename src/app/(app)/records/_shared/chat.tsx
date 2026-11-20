@@ -2,25 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { answerInterviewAction, draftInterviewAction } from "@/modules/experiences/actions";
-import type { ExperienceInput } from "@/modules/experiences/input";
-import type { Scope } from "@/modules/experiences/options";
 import type { InterviewMessage } from "@/modules/experiences/schema";
-import { ExperienceForm } from "../experience-form";
-
-type Props = {
-  interviewId: string;
-  experienceId: string | null; // 있으면 기존 기록을 보완하는 인터뷰
-  initialMessages: InterviewMessage[];
-  finished: boolean;
-  tracks: { id: string; name: string }[];
-  scopes?: Record<string, Scope>;
-};
 
 type Failure = { ok: false; message: string };
 export type ChatDraft<D> = { draft: D; warnings: Record<string, string | undefined> };
 
-// 대화 화면. 답 보내기·정리하기 액션과 정리한 초안을 보여 줄 화면을 받아, 옛 경험 인터뷰와 새 사례 인터뷰가 함께 쓴다
+// 대화 화면. 답 보내기·정리하기 액션과 정리한 초안을 보여 줄 화면을 받는다(사례 인터뷰가 쓴다)
 export type ChatProps<D> = {
   interviewId: string;
   initialMessages: InterviewMessage[];
@@ -34,37 +21,6 @@ export type ChatProps<D> = {
   draft: (interviewId: string) => Promise<({ ok: true } & ChatDraft<D>) | Failure>;
   renderDraft: (draft: ChatDraft<D>, back: () => void) => React.ReactNode;
 };
-
-// 옛 경험 기록 인터뷰
-export function InterviewChat({ interviewId, experienceId, initialMessages, finished, tracks, scopes }: Props) {
-  return (
-    <Chat<ExperienceInput>
-      interviewId={interviewId}
-      initialMessages={initialMessages}
-      finished={finished}
-      title={experienceId ? "기록 보완 인터뷰" : "AI 인터뷰"}
-      draftLabel="기록으로 정리하기"
-      exitHref={experienceId ? `/experiences/${experienceId}` : "/experiences"}
-      doneHref="/experiences"
-      doneLabel="경험 기록으로 돌아가기"
-      answer={answerInterviewAction}
-      draft={draftInterviewAction}
-      renderDraft={(draft, back) => (
-        <div className="max-w-2xl space-y-6">
-          <DraftNotice warned={Object.keys(draft.warnings).length > 0} where="기록 화면" onBack={back} />
-          <ExperienceForm
-            id={experienceId ?? undefined}
-            initial={draft.draft}
-            initialScopes={scopes}
-            tracks={tracks}
-            interviewId={interviewId}
-            warnings={draft.warnings as Partial<Record<keyof ExperienceInput, string>>}
-          />
-        </div>
-      )}
-    />
-  );
-}
 
 // 초안 화면 머리의 안내
 export function DraftNotice({ warned, where, onBack }: { warned: boolean; where: string; onBack: () => void }) {

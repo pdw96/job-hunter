@@ -6,10 +6,10 @@ import { checkDraft } from "@/modules/applications/check";
 import { listQuestions, type Question } from "@/modules/applications/repo";
 import { isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import type { PassedReason, PickReason, SourceRef } from "@/modules/applications/types";
+import { recordHrefs } from "@/modules/experiences/record-href";
 import { listWritingSources, oldRecordIds, type WritingSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
-import { getTrack } from "@/modules/tracks/repo";
 import { AddQuestions } from "./add-questions";
 import type { DraftData } from "./draft-view";
 import { type CandidateView, QuestionCard, type QuestionView, type SelectionView } from "./question-card";
@@ -31,12 +31,14 @@ function toView(
   sources: WritingSource[],
   byId: Map<string, WritingSource>,
   oldIds: Set<string>,
+  hrefs: Map<string, string>,
 ): QuestionView {
   const candidate = (item: (PickReason | PassedReason) & { whyNot?: string }): CandidateView => {
     const source = byId.get(item.experienceId);
     return {
       experienceId: item.experienceId,
       name: source?.name ?? null,
+      href: hrefs.get(item.experienceId) ?? null,
       metricCount: source?.metrics.length ?? 0,
       // 다른 문항에서 승인한 경험이면 몇 번 문항인지 알린다
       alsoIn: all.flatMap((other, i) =>
@@ -89,8 +91,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const posting = await getPosting(db, user.id, id);
   if (!posting) notFound();
 
-  const [track, questions, sources, latest, oldIds] = await Promise.all([
-    getTrack(db, user.id, posting.trackId),
+  const [questions, sources, latest, oldIds] = await Promise.all([
     listQuestions(db, user.id, posting.id),
     listWritingSources(db, user.id, posting.trackId),
     latestSubmission(db, user.id, posting.id),
@@ -98,7 +99,10 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   ]);
   const locked = isLocked(latest);
   const byId = new Map(sources.map((source) => [source.id, source]));
-  const views = questions.map((question, index) => toView(question, index, questions, sources, byId, oldIds));
+  // 후보마다 그 기록을 여는 화면(표마다 한 번 읽는다)
+  const candidateIds = questions.flatMap((question) => [...(question.selection?.picks ?? []), ...(question.selection?.passed ?? [])].map((item) => item.experienceId));
+  const hrefs = await recordHrefs(db, user.id, candidateIds);
+  const views = questions.map((question, index) => toView(question, index, questions, sources, byId, oldIds, hrefs));
   const isApply = posting.status === "apply";
   const canAct = isApply && !locked;
 
@@ -138,7 +142,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
       ) : (
         <div className="space-y-4">
           {views.map((view) => (
-            <QuestionCard key={view.id} question={view} track={{ id: posting.trackId, name: track?.name ?? "" }} canAct={canAct} />
+            <QuestionCard key={view.id} question={view} canAct={canAct} />
           ))}
         </div>
       )}

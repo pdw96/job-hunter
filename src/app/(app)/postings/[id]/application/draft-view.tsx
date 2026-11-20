@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { editParagraphAction, reviseAction, selectAction } from "@/modules/applications/actions";
+import { editParagraphAction, reviseAction } from "@/modules/applications/actions";
 import { answerText, type DraftCheck, type ParagraphCheck } from "@/modules/applications/check";
 import type { Draft } from "@/modules/applications/types";
 import { ErrorLine, useRun } from "./use-run";
@@ -29,7 +29,7 @@ function problems(check: ParagraphCheck): string[] {
   if (check.ungrounded.length > 0) lines.push(`기록에 없는 숫자: ${check.ungrounded.join(", ")}`);
   if (check.noSource) lines.push("근거 경험이 없습니다");
   if (check.staleSource) lines.push("근거 경험의 기록이 바뀌었습니다");
-  if (check.structureChanged) lines.push("기록 구조가 바뀌어 다시 만들어야 합니다. 경험을 다시 고른 뒤 다시 써 주세요");
+  if (check.structureChanged) lines.push("기록 구조가 바뀌어 다시 만들어야 합니다");
   return lines;
 }
 
@@ -50,7 +50,6 @@ function ParagraphView({
   const [asking, setAsking] = useState(false);
   const [note, setNote] = useState("");
   const { message, pending, run } = useRun();
-  const reselect = useRun();
   const check = data.check.paragraphs[index];
   const lines = problems(check);
 
@@ -92,24 +91,6 @@ function ParagraphView({
           {line}
         </p>
       ))}
-      {check.structureChanged && canRevise && !editing && (
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={reselect.pending}
-            onClick={() => reselect.run(() => selectAction(questionId))}
-            className="rounded-lg border border-red-600 px-3 py-1 text-sm font-medium text-red-600 disabled:opacity-50"
-          >
-            {reselect.pending ? "경험을 고르는 중…" : "다시 고르기"}
-          </button>
-          {reselect.pending && (
-            <span role="status" className="text-xs text-foreground/60">
-              1분쯤 걸릴 수 있습니다
-            </span>
-          )}
-        </div>
-      )}
-      <ErrorLine message={reselect.message} />
 
       {!editing && canRevise && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">

@@ -21,6 +21,15 @@ import { startCommonResume } from "./resume-write";
 import { buildTailored, emphasisText, selectEmphasis } from "./resume-tailor";
 import { listResumeSources } from "@/modules/experiences/writing";
 
+// 이 파일의 예시는 대부분 옛 표(createExperience)로 원천을 만든다. 스위치(newRecordsOn)는 5-4부터 늘 켜져 있으므로
+// 원천 읽기(sources.ts)를 옛 표로 고정하고, 새 표를 쓰는 테스트에서만 켠다(자소서·이력서·채점 로직은 원천 모양만 본다)
+const recordSwitch = vi.hoisted(() => ({ on: false }));
+// 옛 표를 지우는 계획에서 예시를 새 표로 옮기고 이 모의를 걷어 낸다
+vi.mock("@/modules/experiences/switch", () => ({ newRecordsOn: () => recordSwitch.on }));
+afterEach(() => {
+  recordSwitch.on = false;
+});
+
 let db: Db;
 let trackId: string;
 const now = new Date("2026-11-18T03:00:00Z");
@@ -513,12 +522,9 @@ test("만드는 사이 제출하면 selectEmphasis와 buildTailored는 submitted
 
 // ── 새 기록(스위치 켬): 코드 줄 원천은 강조 후보가 아니고, 직접 올리면 맨 위로만 옮긴다 ──
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
 
 async function newCommon() {
-  vi.stubEnv("NEW_RECORDS", "1");
+  recordSwitch.on = true;
   const school = await createFact(
     db,
     "u1",

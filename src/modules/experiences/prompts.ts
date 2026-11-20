@@ -1,7 +1,7 @@
 import type { ExperienceInput } from "./input";
 import { KIND_LABELS } from "./options";
 import type { SceneHead } from "./scene-head";
-import type { Scene } from "./scenes-repo";
+import type { SceneInput } from "./record-input";
 
 // AI에게 주는 글. 시스템 프롬프트는 고정 글만 담는다(캐시가 깨지지 않게 날짜·이름 등을 넣지 않는다).
 
@@ -47,7 +47,7 @@ export function describeExperience(experience: ExperienceInput): string {
 
 // 장면을 판정할 글. 머리(회사·프로젝트·활동)의 이름 칸과 판정에 쓸 기간을 함께 준다.
 // 금지 표현은 보내지 않는다(증빙 메모는 describeExperience처럼 보낸다)
-export function describeScene(scene: Scene, head: SceneHead): string {
+export function describeScene(scene: SceneInput, head: SceneHead): string {
   const range = scene.startMonth === null ? head.period : scene;
   const period = `${range.startMonth ?? "없음"} ~ ${range.isOngoing ? "진행 중" : (range.endMonth ?? "없음")}`;
   const periodNote = scene.startMonth === null ? `${period} (머리의 기간)` : period;

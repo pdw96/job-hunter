@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { recordUsage } from "@/modules/ai/usage";
@@ -13,7 +13,6 @@ import { confirmExperience, createExperience } from "./repo";
 import { experiences, moves, type StoredRubric } from "./schema";
 
 let db: Db;
-const OFF = "아직 열리지 않은 기능입니다";
 
 const old = (over: Partial<ExperienceInput> & Pick<ExperienceInput, "kind" | "name">): ExperienceInput => ({
   organization: "가나다 주식회사",
@@ -65,7 +64,6 @@ async function seed() {
 }
 
 beforeEach(async () => {
-  vi.stubEnv("NEW_RECORDS", "1");
   delete process.env.AI_MONTHLY_LIMIT_USD;
   db = await createTestDb();
   await db.insert(user).values([
@@ -74,15 +72,6 @@ beforeEach(async () => {
   ]);
 });
 
-afterEach(() => vi.unstubAllEnvs());
-
-test("스위치가 꺼져 있으면 거절한다", async () => {
-  vi.stubEnv("NEW_RECORDS", "");
-  await seed();
-  expect(await moveNext(db, ai(), "u1")).toEqual({ ok: false, message: OFF });
-  expect(await retryMoveCommand(db, "u1", "x")).toEqual({ ok: false, message: OFF });
-  expect(await db.select().from(moves)).toHaveLength(0);
-});
 
 test("옛 기록 둘(확인된 프로젝트, 학력)을 한 번에 하나씩 끝까지 옮긴다", async () => {
   await seed();

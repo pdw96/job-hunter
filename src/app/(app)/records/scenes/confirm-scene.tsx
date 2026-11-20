@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { confirmSceneAction } from "@/modules/experiences/record-actions";
-import { useDirty } from "../../experiences/dirty";
+import { useDirty } from "../_shared/dirty";
 
 type Props = {
   sceneId: string;

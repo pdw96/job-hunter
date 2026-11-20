@@ -5,7 +5,7 @@ import { useState } from "react";
 import { approveAndWriteAction, deleteQuestionAction, selectAction, updateQuestionAction, writeManuallyAction } from "@/modules/applications/actions";
 import { countChars } from "@/modules/applications/check";
 import { APPLICATION_LIMITS } from "@/modules/applications/options";
-import { StartInterview } from "../../../experiences/start-interview";
+import { AddRecordLink } from "../../../records/_shared/add-record-link";
 import { DraftView, type DraftData } from "./draft-view";
 import { ErrorLine, useRun } from "./use-run";
 
@@ -14,6 +14,7 @@ import { ErrorLine, useRun } from "./use-run";
 export type CandidateView = {
   experienceId: string;
   name: string | null; // null이면 지금 쓸 수 없는 경험
+  href: string | null; // 그 기록을 여는 화면. 모르는 기록(옛 기록 등)이면 null
   metricCount: number;
   alsoIn: number[]; // 이 경험을 승인한 다른 문항 번호
   overlap?: string;
@@ -43,6 +44,7 @@ export type QuestionView = {
 const UNUSABLE = "(지금 쓸 수 없는 경험)";
 const small = "text-sm underline disabled:opacity-50";
 const primary = "rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50";
+const reselectStyle = "rounded-lg border border-red-600 px-3 py-1 text-sm font-medium text-red-600 disabled:opacity-50";
 
 function Candidate({
   item,
@@ -91,11 +93,13 @@ function Candidate({
           {item.whyNot !== undefined && <span className="block break-words text-foreground/80">{item.whyNot}</span>}
         </span>
       </label>
-      <p className="pl-6 text-xs">
-        <Link href={`/experiences/${item.experienceId}`} className="underline">
-          경험 보기
-        </Link>
-      </p>
+      {item.href && (
+        <p className="pl-6 text-xs">
+          <Link href={item.href} className="underline">
+            경험 보기
+          </Link>
+        </p>
+      )}
     </li>
   );
 }
@@ -104,12 +108,10 @@ function Candidate({
 function Picker({
   question,
   selection,
-  track,
   hasDraft,
 }: {
   question: QuestionView;
   selection: SelectionView;
-  track: { id: string; name: string };
   hasDraft: boolean;
 }) {
   const initial = selection.approvedIds.length > 0 ? selection.approvedIds : selection.picks.filter((p) => p.name !== null).map((p) => p.experienceId);
@@ -152,7 +154,7 @@ function Picker({
       <div className="space-y-3">
         <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
           <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
-          <StartInterview tracks={[track]} />
+          <AddRecordLink href="/records/scenes/new" label="경험 사례 추가" />
         </div>
         {selection.passed.length > 0 && (
           <div className="space-y-3">
@@ -293,11 +295,9 @@ function ManualWrite({ question }: { question: QuestionView }) {
 
 export function QuestionCard({
   question,
-  track,
   canAct,
 }: {
   question: QuestionView;
-  track: { id: string; name: string };
   canAct: boolean; // 지원으로 고른 공고일 때만 고치고 AI를 부를 수 있다
 }) {
   const [editing, setEditing] = useState(false);
@@ -305,6 +305,8 @@ export function QuestionCard({
   const remove = useRun();
   const { selection, draft } = question;
   const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
+  // 근거가 옛 기록인 문단이 있으면 다시 고르기를 눈에 띄게 한다(문단마다 단추를 두지 않고 문항에 하나만)
+  const structureChanged = !empty && draft.check.paragraphs.some((paragraph) => paragraph.structureChanged);
 
   return (
     <section className="space-y-4 rounded-lg border border-foreground/20 p-4" aria-label={`${question.number}번 문항`}>
@@ -349,7 +351,7 @@ export function QuestionCard({
               type="button"
               disabled={select.pending}
               onClick={() => select.run(() => selectAction(question.id))}
-              className={selection ? small : primary}
+              className={structureChanged ? reselectStyle : selection ? small : primary}
             >
               {select.pending ? "경험을 고르는 중…" : selection ? "다시 고르기" : "경험 고르기"}
             </button>
@@ -359,9 +361,12 @@ export function QuestionCard({
               </span>
             )}
           </div>
+          {structureChanged && (
+            <p className="text-sm text-red-600">기록 구조가 바뀌어 답을 다시 만들어야 합니다. 다시 고르기를 누른 뒤 다시 써 주세요</p>
+          )}
           <ErrorLine message={select.message} />
           {empty && <ManualWrite question={question} />}
-          {selection && <Picker key={selection.selectedAt} question={question} selection={selection} track={track} hasDraft={!empty} />}
+          {selection && <Picker key={selection.selectedAt} question={question} selection={selection} hasDraft={!empty} />}
         </div>
       )}
 

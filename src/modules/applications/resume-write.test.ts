@@ -23,6 +23,15 @@ import { rewriteEntries, startCommonResume, writeResumeLines } from "./resume-wr
 import type { ResumeContent } from "./types";
 import { listResumeSources } from "@/modules/experiences/writing";
 
+// 이 파일의 예시는 대부분 옛 표(createExperience)로 원천을 만든다. 스위치(newRecordsOn)는 5-4부터 늘 켜져 있으므로
+// 원천 읽기(sources.ts)를 옛 표로 고정하고, 새 표를 쓰는 테스트에서만 켠다(자소서·이력서·채점 로직은 원천 모양만 본다)
+const recordSwitch = vi.hoisted(() => ({ on: false }));
+// 옛 표를 지우는 계획에서 예시를 새 표로 옮기고 이 모의를 걷어 낸다
+vi.mock("@/modules/experiences/switch", () => ({ newRecordsOn: () => recordSwitch.on }));
+afterEach(() => {
+  recordSwitch.on = false;
+});
+
 let db: Db;
 let trackId: string;
 let otherTrack: string;
@@ -507,12 +516,9 @@ async function addFact<K extends "education" | "job">(kind: K, input: K extends 
   return created.id;
 }
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
 
 test("이력 사실만 있는 트랙은 AI를 부르지 않고 코드 줄로 공통본을 만든다", async () => {
-  vi.stubEnv("NEW_RECORDS", "1");
+  recordSwitch.on = true;
   const schoolId = await addFact("education", schoolInput);
   const ai = createFakeAi([]);
 
@@ -531,7 +537,7 @@ test("이력 사실만 있는 트랙은 AI를 부르지 않고 코드 줄로 공
 });
 
 test("머리 1 + 학력 1이면 AI에는 머리만 가고, 담당 업무는 머리에 들어간다", async () => {
-  vi.stubEnv("NEW_RECORDS", "1");
+  recordSwitch.on = true;
   const schoolId = await addFact("education", schoolInput);
   const jobId = await addFact("job", jobInput);
   const ai = createFakeAi([reply(["E1", ["결제 서버를 운영했다"]])]);
@@ -553,7 +559,7 @@ test("머리 1 + 학력 1이면 AI에는 머리만 가고, 담당 업무는 머�
 });
 
 test("코드 줄 항목을 다시 쓰면 AI 없이 지금의 기록으로 줄을 바꾼다", async () => {
-  vi.stubEnv("NEW_RECORDS", "1");
+  recordSwitch.on = true;
   const schoolId = await addFact("education", schoolInput);
   const made = await startCommonResume(db, createFakeAi([]), "u1", trackId, now);
   if (!made.ok) throw new Error(made.reason);
@@ -575,7 +581,7 @@ test("코드 줄 항목을 다시 쓰면 AI 없이 지금의 기록으로 줄을
 });
 
 test("옛 기록 항목을 다시 쓰면 그 항목을 빼고 새 구조의 기록을 넣는다", async () => {
-  vi.stubEnv("NEW_RECORDS", "1");
+  recordSwitch.on = true;
   const oldId = await addExperience({ name: "옛 경험" });
   const schoolId = await addFact("education", schoolInput);
   const oldEntry = {

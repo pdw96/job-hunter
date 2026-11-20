@@ -1,16 +1,6 @@
-import { db } from "@/db";
-import { requireUser } from "@/lib/session";
-import { listTracks } from "@/modules/tracks/repo";
-import { ExperienceForm } from "../experience-form";
+import { redirect } from "next/navigation";
 
-export default async function NewExperiencePage() {
-  const user = await requireUser();
-  const tracks = await listTracks(db, user.id);
-
-  return (
-    <div className="max-w-2xl space-y-6">
-      <h1 className="text-2xl font-bold">기록 추가</h1>
-      <ExperienceForm tracks={tracks.map(({ id, name }) => ({ id, name }))} />
-    </div>
-  );
+// 옛 경험 기록 화면. 5-4에서 새 구조(/records)로 바꾸며 닫았다. 예전 주소로 들어오면 경험 기록으로 보낸다
+export default function OldExperiencesPage() {
+  redirect("/records");
 }

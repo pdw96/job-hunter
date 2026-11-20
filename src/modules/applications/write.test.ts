@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { createFakeAi } from "@/modules/ai/fake-client";
@@ -22,6 +22,11 @@ import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { selectForQuestion } from "./select";
 import type { Draft } from "./types";
 import { approveAndWrite, editParagraph, reviseParagraph, writeManually, writeText } from "./write";
+
+// 이 파일의 예시는 옛 표(createExperience)로 원천을 만든다. 스위치(newRecordsOn)는 5-4부터 늘 켜져 있으므로
+// 원천 읽기(sources.ts)를 옛 표로 고정한다(자소서·이력서 로직은 원천 모양만 본다)
+// 옛 표를 지우는 계획에서 예시를 새 표로 옮기고 이 모의를 걷어 낸다
+vi.mock("@/modules/experiences/switch", () => ({ newRecordsOn: () => false }));
 
 let db: Db;
 let trackId: string;

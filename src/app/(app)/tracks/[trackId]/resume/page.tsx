@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/session";
 import { getCommonResume } from "@/modules/applications/resume-repo";
 import { listResumeSources, oldRecordIds } from "@/modules/experiences/sources";
 import { getTrack } from "@/modules/tracks/repo";
-import { StartInterview } from "../../../experiences/start-interview";
+import { AddRecordLink } from "../../../records/_shared/add-record-link";
 import { editorData } from "../../../_resume/editor-data";
 import { ResumeEditor } from "../../../_resume/resume-editor";
 import { StartCommon } from "./start-common";
@@ -44,7 +44,7 @@ export default async function CommonResumePage({ params }: { params: Promise<{ t
       ) : sources.length === 0 ? (
         <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
           <p className="text-sm">이 트랙에 쓸 수 있는 확인된 기록이 없습니다</p>
-          <StartInterview tracks={[{ id: track.id, name: track.name }]} />
+          <AddRecordLink href="/records" label="경험 기록으로" />
         </div>
       ) : (
         <StartCommon trackId={track.id} count={sources.length} />

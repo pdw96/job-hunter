@@ -42,7 +42,7 @@ const STATE_HELP: Record<VerificationState, string> = {
 
 type Result = { ok: true } | { ok: false; message: string };
 
-// 판정, 닫기, 후보 결정, 확인 액션. 옛 기록과 새 장면이 같은 패널을 쓰도록 화면에서 넘겨 준다
+// 판정, 닫기, 후보 결정, 확인 액션. 사례 화면이 넘겨 준다
 export type RubricActions = {
   judge: (id: string) => Promise<Result>;
   setClosed: (id: string, item: RubricItem, closed: boolean) => Promise<Result>;

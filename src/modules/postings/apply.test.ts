@@ -1,4 +1,4 @@
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
@@ -11,6 +11,11 @@ import { applyWithCurrentScore } from "./apply";
 import { validatePosting } from "./input";
 import { createPosting, getPosting, saveAnalysis } from "./repo";
 import { fieldTarget } from "./score";
+
+// 이 파일의 예시는 옛 표(createExperience)로 채점 근거를 만든다. 스위치(newRecordsOn)는 5-4부터 늘 켜져 있으므로
+// 근거 읽기(sources.ts)를 옛 표로 고정한다(채점 로직은 근거 모양만 본다)
+// 옛 표를 지우는 계획에서 예시를 새 표로 옮기고 이 모의를 걷어 낸다
+vi.mock("@/modules/experiences/switch", () => ({ newRecordsOn: () => false }));
 
 let db: Db;
 let trackId: string;

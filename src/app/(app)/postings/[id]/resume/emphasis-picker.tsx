@@ -8,8 +8,9 @@ import { ErrorLine, useRun } from "../application/use-run";
 
 // 맞춤본에서 강조할 경험 고르기. AI가 고른 경험(기본 켬)과 나머지 쓸 수 있는 경험(기본 끔)을 체크해 맞춤본을 만든다
 
-export type PickView = { experienceId: string; name: string | null; why: string }; // name이 null이면 지금 쓸 수 없는 경험
-export type OtherView = { experienceId: string; name: string; summary: boolean; fact: boolean }; // fact: 코드가 쓰는 이력 사실(올려도 줄은 그대로)
+// href: 그 기록을 여는 화면. 모르는 기록(옛 기록 등)이면 null이고 이름만 보인다
+export type PickView = { experienceId: string; name: string | null; href: string | null; why: string }; // name이 null이면 지금 쓸 수 없는 경험
+export type OtherView = { experienceId: string; name: string; href: string | null; summary: boolean; fact: boolean }; // fact: 코드가 쓰는 이력 사실(올려도 줄은 그대로)
 export type EmphasisSelectionView = { picks: PickView[]; noMatch: boolean; selectedAt: string };
 
 const small = "text-sm underline disabled:opacity-50";
@@ -17,14 +18,14 @@ const primary = "rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-bac
 const WAIT = "1분쯤 걸릴 수 있습니다";
 
 function Choice({
-  id,
+  href,
   name,
   checked,
   disabled,
   onChange,
   children,
 }: {
-  id: string;
+  href: string | null;
   name: string | null;
   checked: boolean;
   disabled: boolean;
@@ -44,10 +45,12 @@ function Choice({
       <span className="min-w-0 space-y-1 text-sm">
         {name === null ? (
           <span className="font-medium text-foreground/60">(지금 쓸 수 없는 경험)</span>
-        ) : (
-          <Link href={`/experiences/${id}`} className="font-medium underline">
+        ) : href ? (
+          <Link href={href} className="font-medium underline">
             {name}
           </Link>
+        ) : (
+          <span className="font-medium">{name}</span>
         )}
         {children}
       </span>
@@ -90,7 +93,7 @@ function Checklist({
           {picks.map((pick) => (
             <Choice
               key={pick.experienceId}
-              id={pick.experienceId}
+              href={pick.href}
               name={pick.name}
               checked={checked.includes(pick.experienceId)}
               disabled={pick.name === null || (full && !checked.includes(pick.experienceId))}
@@ -108,7 +111,7 @@ function Checklist({
             {others.map((other) => (
               <Choice
                 key={other.experienceId}
-                id={other.experienceId}
+                href={other.href}
                 name={other.name}
                 checked={checked.includes(other.experienceId)}
                 disabled={full && !checked.includes(other.experienceId)}

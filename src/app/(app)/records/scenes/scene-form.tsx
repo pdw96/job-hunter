@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { LIMITS, SCOPE_LABELS, SCOPES, type Scope } from "@/modules/experiences/options";
 import { deleteSceneAction, saveSceneAction } from "@/modules/experiences/record-actions";
-import { setDirty } from "../../experiences/dirty";
+import { setDirty } from "../_shared/dirty";
 import { EMPTY_SCENE, inputOfValues, mergeServerPhrases, type SceneFormValues } from "./scene-values";
 
 type Props = {

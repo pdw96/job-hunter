@@ -4,7 +4,8 @@ import type { Db } from "@/db/types";
 import type { AiRequest } from "@/modules/ai/client";
 import { createFakeAi } from "@/modules/ai/fake-client";
 import { user } from "@/modules/auth/schema";
-import { AFFILIATE_SAMPLE, MOVE_SPLIT_SAMPLE, RECORD_IMPORT_SAMPLE, runRecordCheck, SCENE_SAMPLES } from "./record-prompt-check";
+import { describeScene, JUDGE_SYSTEM } from "./prompts";
+import { AFFILIATE_SAMPLE, MOVE_SPLIT_SAMPLE, RECORD_IMPORT_SAMPLE, runRecordCheck, SCENE_JUDGE_SAMPLES, SCENE_SAMPLES } from "./record-prompt-check";
 
 let db: Db;
 
@@ -147,11 +148,32 @@ const affiliateAnswer = (text: string) => ({
   ],
 });
 
-const CALLS = SCENE_SAMPLES.length + 3;
+const CALLS = SCENE_JUDGE_SAMPLES.length + SCENE_SAMPLES.length + 3;
 
-const answering = (importing: unknown, moving: unknown = moveAnswer(), affiliating = affiliateAnswer) =>
+// 판정 예시마다 기대한 판정을 돌려준다(기대에 없는 항목은 충족). wrong이 주어지면 그 예시의 판정을 바꾼다
+const judgeAnswer = (text: string, wrong: Record<string, Record<string, "met" | "unmet">> = {}) => {
+  const sample = SCENE_JUDGE_SAMPLES.find((s) => describeScene(s.scene, s.head) === text);
+  if (!sample) throw new Error("모르는 판정 예시");
+  const verdict = { ...sample.expect, ...wrong[sample.name] };
+  const item = (key: "role" | "level" | "metrics" | "evidence") => ({ status: verdict[key] ?? "met", note: "" });
+  return {
+    role: item("role"),
+    level: item("level"),
+    metrics: item("metrics"),
+    evidence: item("evidence"),
+    phraseCandidates: sample.candidates === "some" ? ["설계를 주도"] : [],
+  };
+};
+
+const answering = (
+  importing: unknown,
+  moving: unknown = moveAnswer(),
+  affiliating = affiliateAnswer,
+  wrongVerdicts: Record<string, Record<string, "met" | "unmet">> = {},
+) =>
   createFakeAi(
     Array.from({ length: CALLS }, () => (request: AiRequest<unknown>) => {
+      if (request.purpose === "judge") return judgeAnswer(request.messages[0].text, wrongVerdicts);
       if (request.purpose === "import_records") return importing;
       if (request.purpose === "migrate") {
         const text = request.messages[0].text;
@@ -166,13 +188,44 @@ test("기대대로 답하는 AI면 모든 줄이 통과한다", async () => {
   const rows = await runRecordCheck(db, ai, "admin");
   expect(ai.requests).toHaveLength(CALLS);
   expect(ai.requests.filter((r) => r.purpose === "extract_scene")).toHaveLength(SCENE_SAMPLES.length);
+  expect(ai.requests.filter((r) => r.purpose === "judge")).toHaveLength(SCENE_JUDGE_SAMPLES.length);
   expect(rows.length).toBeGreaterThan(6);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
   // 예시마다 줄이 있다
   expect(ai.requests.filter((r) => r.purpose === "migrate")).toHaveLength(2);
-  for (const sample of [...SCENE_SAMPLES.map((s) => s.name), RECORD_IMPORT_SAMPLE.name, MOVE_SPLIT_SAMPLE.name, AFFILIATE_SAMPLE.name]) {
+  for (const sample of [...SCENE_JUDGE_SAMPLES.map((s) => s.name), ...SCENE_SAMPLES.map((s) => s.name), RECORD_IMPORT_SAMPLE.name, MOVE_SPLIT_SAMPLE.name, AFFILIATE_SAMPLE.name]) {
     expect(rows.some((row) => row.sample === sample)).toBe(true);
   }
+});
+
+test("장면 판정 예시: judgeScene과 같은 요청을 보내고, 기대와 다른 판정은 그 줄만 실패한다", async () => {
+  const ai = answering(importAnswer(), moveAnswer(), affiliateAnswer, { "본인 역할이 흐린 기록": { role: "met" } });
+  const rows = await runRecordCheck(db, ai, "admin");
+  const judge = ai.requests.filter((r) => r.purpose === "judge");
+  expect(judge.every((r) => r.system === JUDGE_SYSTEM && r.effort === "medium")).toBe(true);
+  expect(judge[0].messages[0].text).toContain("[장면 제목]\n주문 조회 API 개선");
+  const failed = rows.filter((row) => !row.pass);
+  expect(failed).toHaveLength(1);
+  expect(failed[0]).toMatchObject({ sample: "본인 역할이 흐린 기록", check: "본인 역할", expected: "미달", actual: "충족" });
+});
+
+test("장면 판정 예시: 과장 후보가 나와야 하는 예시에서 없으면 실패한다", async () => {
+  const ai = createFakeAi(
+    Array.from({ length: CALLS }, () => (request: AiRequest<unknown>) => {
+      if (request.purpose === "judge") return { ...judgeAnswer(request.messages[0].text), phraseCandidates: [] };
+      if (request.purpose === "import_records") return importAnswer();
+      if (request.purpose === "migrate") {
+        const text = request.messages[0].text;
+        return text.startsWith("[옮기기: 소속]") ? affiliateAnswer(text) : moveAnswer();
+      }
+      return request.messages[0].text.includes("가나다물류") ? delayScene : tutoringScene;
+    }),
+  );
+  const failed = (await runRecordCheck(db, ai, "admin")).filter((row) => !row.pass);
+  expect(failed.map((row) => [row.sample, row.check])).toEqual([
+    ["구체적인 기록", "과장 표현 후보"],
+    ["평범하지만 분명한 기록", "과장 표현 후보"],
+  ]);
 });
 
 test("학력에 서술을 넣은 답이면 그 줄이 실패한다", async () => {
@@ -194,6 +247,7 @@ test("원본에 없던 숫자 때문에 칸을 비웠으면 숫자 줄이 실패
 test("다른 장면을 섞거나 대화에 없던 숫자를 넣으면 그 줄이 실패한다", async () => {
   const ai = createFakeAi(
     Array.from({ length: CALLS }, () => (request: AiRequest<unknown>) => {
+      if (request.purpose === "judge") return judgeAnswer(request.messages[0].text);
       if (request.purpose === "import_records") return importAnswer();
       if (request.purpose === "migrate") {
         const text = request.messages[0].text;

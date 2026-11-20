@@ -8,7 +8,7 @@ import { FACT_KIND_LABELS, type HeadKind } from "@/modules/experiences/record-op
 import { listScenes } from "@/modules/experiences/scenes-repo";
 import { newRecordsOn } from "@/modules/experiences/switch";
 import { HeadConfirm } from "../head-confirm";
-import { StateBadge } from "../../experiences/state-badge";
+import { StateBadge } from "../_shared/state-badge";
 import { periodText } from "../fact-summary";
 import { HEAD_NOUN } from "./heads";
 import { StartSceneInterview } from "./start-scene-interview";

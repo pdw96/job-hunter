@@ -1,10 +1,11 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
-import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
+import { type AiClient, type AiFailure, type AiRequest, runAi } from "@/modules/ai/client";
 import { cleanCandidates, type Judgement, judgementSchema } from "./judge";
 import type { RubricItem } from "./options";
 import { describeScene, JUDGE_SYSTEM } from "./prompts";
-import { loadHead } from "./scene-head";
+import type { SceneInput } from "./record-input";
+import { loadHead, type SceneHead } from "./scene-head";
 import { getScene } from "./scenes-repo";
 import type { HeadRef } from "./record-options";
 import { activities, jobs, projects, scenes } from "./schema";
@@ -24,6 +25,18 @@ function headUnchanged(userId: string, ref: HeadRef, version: number) {
 
 const mine = (userId: string, id: string) => and(eq(scenes.id, id), eq(scenes.userId, userId));
 
+// 장면 판정 요청. judgeScene과 프롬프트 점검(record-prompt-check.ts)이 같은 요청을 쓴다
+export function sceneJudgeRequest(scene: SceneInput, head: SceneHead): AiRequest<Judgement> {
+  return {
+    purpose: "judge",
+    system: JUDGE_SYSTEM,
+    messages: [{ role: "user", text: describeScene(scene, head) }],
+    schema: judgementSchema,
+    effort: "medium",
+    maxTokens: 8000,
+  };
+}
+
 export async function judgeScene(
   db: Db,
   ai: AiClient,
@@ -36,20 +49,7 @@ export async function judgeScene(
   const head = await loadHead(db, userId, scene.head);
   if (!head) return { ok: false, reason: "not_found" };
 
-  const result = await runAi(
-    db,
-    ai,
-    userId,
-    {
-      purpose: "judge",
-      system: JUDGE_SYSTEM,
-      messages: [{ role: "user", text: describeScene(scene, head) }],
-      schema: judgementSchema,
-      effort: "medium",
-      maxTokens: 8000,
-    },
-    now,
-  );
+  const result = await runAi(db, ai, userId, sceneJudgeRequest(scene, head), now);
   if (!result.ok) return { ok: false, reason: result.reason };
   const judgement: Judgement = result.value;
 
