@@ -46,15 +46,15 @@ const LONG_LABELS = {
   evidenceNote: "증빙·확인 메모",
 } as const;
 
-const isMonth = (value: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+export const isMonth = (value: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 
-function text(value: unknown): string | null {
+export function text(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
 }
 
-function stringList(value: unknown): string[] {
+export function stringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.flatMap((item) => text(item) ?? []))];
 }

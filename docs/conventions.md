@@ -16,7 +16,7 @@
 | `profile` | 연락처 | `profile_contacts` |
 | `ncs` | NCS 직무 분류와 별칭 (모든 사용자가 함께 쓰는 기준 데이터, `userId` 없음) | `ncs_categories`, `ncs_aliases` |
 | `tracks` | 트랙, 설문 규칙, 희망 조건과 채점 배점 | `tracks_tracks`, `tracks_jobs` |
-| `experiences` | 경험 기록, 검증 규칙(루브릭과 검증 상태), 트랙별 사용 범위, AI 판정, AI 인터뷰, 가져오기와 주장별 확인 | `experiences_experiences`, `experiences_track_scopes`, `experiences_interviews`, `experiences_claims` |
+| `experiences` | 경험 기록, 검증 규칙(루브릭과 검증 상태), 트랙별 사용 범위, AI 판정, AI 인터뷰, 가져오기와 주장별 확인 | `experiences_experiences`, `experiences_track_scopes`, `experiences_interviews`, `experiences_claims`, 새 기록 표(`experiences_education`, `experiences_courses`, `experiences_jobs`, `experiences_gaps`, `experiences_credentials`, `experiences_projects`, `experiences_activities`, `experiences_scenes`, `experiences_record_claims`, `experiences_moves`) |
 | `postings` | 채용 공고, 공고에서 값 뽑기(붙여 넣기·주소·그림), 제외 조건, 요구 사항과 점수 | `postings_postings` |
 | `applications` | 자기소개서 문항, 고른 경험, 쓴 답, 이력서 공통본·맞춤본, 제출본 | `applications_questions`, `applications_resumes`, `applications_submissions` |
 | `ai` | Claude API 호출, 사용량 기록과 월 한도, 보내기 전 연락처 가리기 | `ai_usage` |

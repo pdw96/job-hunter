@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
-import { type Claim, claimsAfterEdit, type ClaimStatus, type FoundClaim, proseContains, quotePieces } from "./claims";
+import { type Claim, claimsAfterEdit, type ClaimStatus, type FoundClaim, proseContains, quotePieces, subjectOfExperience } from "./claims";
 import type { ExperienceInput } from "./input";
 import { LIMITS } from "./options";
 import { contentResetFields } from "./rubric-store";
@@ -65,7 +65,7 @@ export async function insertClaims(
 // 기록의 내용을 고친 뒤 주장을 맞춘다. 가져온 기록에만 쓴다. 소유자는 부르는 쪽(updateExperience)이 확인했다
 export async function syncClaimsAfterEdit(db: Tx, experienceId: string, input: ExperienceInput): Promise<void> {
   const rows = await db.select().from(claims).where(eq(claims.experienceId, experienceId));
-  const { updates, deletes, adds } = claimsAfterEdit(rows.map(toClaim), input);
+  const { updates, deletes, adds } = claimsAfterEdit(rows.map(toClaim), subjectOfExperience(input));
   for (const { id, status } of updates) {
     await db.update(claims).set({ status, updatedAt: new Date() }).where(eq(claims.id, id));
   }
@@ -151,7 +151,7 @@ export async function answerClaim(
           })
           .where(eq(experiences.id, experience.id));
         removedMetric = remaining;
-        if (!proseContains({ ...experience, metrics: remaining }, claim.quote)) status = "removed";
+        if (!proseContains(subjectOfExperience({ ...experience, metrics: remaining }), claim.quote)) status = "removed";
       }
     }
     if (answer === "exaggerated" && claim.phrase) {

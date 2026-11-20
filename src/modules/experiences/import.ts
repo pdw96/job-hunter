@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
-import { findClaims, type FoundClaim, MAX_CLAIMS, mergeClaims, OTHER_FIELDS, sentences } from "./claims";
+import { findClaims, type FoundClaim, MAX_CLAIMS, mergeClaims, OTHER_FIELDS, sentences, subjectOfExperience } from "./claims";
 import { insertClaims } from "./claims-repo";
 import { numbersIn, ungroundedNumbers } from "./grounding";
 import { type ExperienceInput, validateExperience } from "./input";
@@ -106,7 +106,8 @@ export async function requestImport(
       metrics: checked.value.metrics.map((metric) => (isInvented(metric.basis) ? { ...metric, basis: null } : metric)),
     };
     // 원본에 없던 숫자가 든 구절은 처음부터 고쳐야 할 것으로 둔다
-    const scanned = mergeClaims(findClaims(input), roleClaims, input).map((claim) => ({
+    const subject = subjectOfExperience(input);
+    const scanned = mergeClaims(findClaims(subject), roleClaims, subject).map((claim) => ({
       ...claim,
       status: isInvented(claim.quote) ? ("needs_fix" as const) : ("pending" as const),
     }));

@@ -28,7 +28,7 @@ type Failure = "not_found" | "changed" | "over_limit" | AiFailure;
 
 const mine = (userId: string, id: string) => and(eq(experiences.id, id), eq(experiences.userId, userId));
 
-function cleanCandidates(raw: string[], banned: string[], dismissed: string[]): string[] {
+export function cleanCandidates(raw: string[], banned: string[], dismissed: string[]): string[] {
   const excluded = new Set([...banned, ...dismissed]);
   const cleaned = raw
     .map((phrase) => phrase.trim())

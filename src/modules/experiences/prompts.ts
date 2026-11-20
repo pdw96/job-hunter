@@ -1,5 +1,7 @@
-import type { Experience } from "./repo";
 import { KIND_LABELS } from "./options";
+import type { Experience } from "./repo";
+import type { SceneHead } from "./scene-head";
+import type { Scene } from "./scenes-repo";
 
 // AI에게 주는 글. 시스템 프롬프트는 고정 글만 담는다(캐시가 깨지지 않게 날짜·이름 등을 넣지 않는다).
 
@@ -39,6 +41,32 @@ export function describeExperience(experience: Experience): string {
     ["수치", metrics],
     ["하지 않은 것", experience.notDone],
     ["증빙·확인 메모", experience.evidenceNote],
+  ];
+  return lines.map(([label, value]) => `[${label}]\n${value ?? "없음"}`).join("\n\n");
+}
+
+// 장면을 판정할 글. 머리(회사·프로젝트·활동)의 이름 칸과 판정에 쓸 기간을 함께 준다.
+// 금지 표현은 보내지 않는다(증빙 메모는 describeExperience처럼 보낸다)
+export function describeScene(scene: Scene, head: SceneHead): string {
+  const range = scene.startMonth === null ? head.period : scene;
+  const period = `${range.startMonth ?? "없음"} ~ ${range.isOngoing ? "진행 중" : (range.endMonth ?? "없음")}`;
+  const periodNote = scene.startMonth === null ? `${period} (머리의 기간)` : period;
+  const metrics =
+    scene.metrics.length === 0
+      ? "없음"
+      : scene.metrics.map((m, i) => `${i + 1}. ${m.text} (기준·근거: ${m.basis ?? "없음"})`).join("\n");
+  const lines: [string, string | null][] = [
+    ...head.labels,
+    ["장면 제목", scene.title],
+    ["기간", periodNote],
+    ["상황", scene.situation],
+    ["판단", scene.judgment],
+    ["본인이 한 일", scene.actions],
+    ["결과", scene.result],
+    ["배운 점", scene.lessons],
+    ["수치", metrics],
+    ["하지 않은 것", scene.notDone],
+    ["증빙·확인 메모", scene.evidenceNote],
   ];
   return lines.map(([label, value]) => `[${label}]\n${value ?? "없음"}`).join("\n\n");
 }
