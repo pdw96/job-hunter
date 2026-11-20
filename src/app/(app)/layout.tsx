@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { db } from "@/db";
+import { needsMove, planMoves } from "@/modules/experiences/move-repo";
+import { newRecordsOn } from "@/modules/experiences/switch";
 import { requireUser } from "@/lib/session";
 import { SignOutButton } from "./sign-out-button";
 
@@ -7,6 +11,11 @@ export const instant = false;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  // 개편 뒤 처음 들어오면 옛 기록을 새 구조로 옮기는 화면으로 보낸다(스위치가 꺼져 있으면 아무것도 하지 않는다)
+  if (newRecordsOn()) {
+    await planMoves(db, user.id);
+    if (await needsMove(db, user.id)) redirect("/moving");
+  }
 
   return (
     <div className="flex flex-1 flex-col">

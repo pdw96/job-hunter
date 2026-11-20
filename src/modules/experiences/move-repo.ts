@@ -139,3 +139,42 @@ export async function moveProgress(db: Db, userId: string): Promise<MoveProgress
     pending: rows.filter((row) => row.status === "pending" || row.status === "running").length,
   };
 }
+
+// 옛 구분마다 옮긴 결과(화면의 결과 줄용). 옛 기록은 읽기만 한다.
+export type KindMove = {
+  kind: Kind;
+  total: number;
+  done: number;
+  failed: { id: string; name: string; error: string }[];
+  // 옮겼지만 일부를 옮기지 못했거나 비웠다는 글(done 행의 error 칸)
+  notes: string[];
+};
+export type MoveSummary = { kinds: KindMove[]; affiliate: { id: string; status: "pending" | "running" | "done" | "failed"; error: string } | null };
+
+export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> {
+  const [rows, old] = await Promise.all([
+    db.select().from(moves).where(eq(moves.userId, userId)).orderBy(asc(moves.updatedAt), asc(moves.id)),
+    listExperiences(db, userId),
+  ]);
+  const byId = new Map(old.map((item) => [item.id, item]));
+  const kinds = new Map<Kind, KindMove>();
+  let affiliate: MoveSummary["affiliate"] = null;
+  for (const row of rows) {
+    if (row.step === "affiliate" || row.oldId === null) {
+      affiliate = { id: row.id, status: row.status, error: row.error ?? "" };
+      continue;
+    }
+    const item = byId.get(row.oldId);
+    if (!item) continue; // 옛 기록이 지워졌으면 줄에 넣지 않는다
+    const entry = kinds.get(item.kind) ?? { kind: item.kind, total: 0, done: 0, failed: [], notes: [] };
+    entry.total += 1;
+    if (row.status === "done") {
+      entry.done += 1;
+      if (row.error) entry.notes.push(row.error);
+    } else if (row.status === "failed") {
+      entry.failed.push({ id: row.id, name: item.name, error: row.error ?? "" });
+    }
+    kinds.set(item.kind, entry);
+  }
+  return { kinds: [...kinds.values()], affiliate };
+}

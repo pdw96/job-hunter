@@ -4,7 +4,7 @@ import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
 import type { ExperienceInput } from "./input";
-import { claimNextMove, finishMove, moveProgress, needsMove, planMoves, reopenAffiliate, retryMove } from "./move-repo";
+import { claimNextMove, finishMove, moveProgress, moveSummary, needsMove, planMoves, reopenAffiliate, retryMove } from "./move-repo";
 import type { Kind } from "./options";
 import { createExperience } from "./repo";
 import { moves } from "./schema";
@@ -242,4 +242,25 @@ test("reopenAffiliate는 끝난 affiliate 행만 pending으로 되돌린다", as
   const rows = await rowsOf("u1");
   expect(rows.find((row) => row.step === "affiliate")?.status).toBe("pending");
   expect(rows.filter((row) => row.step === "record").every((row) => row.status === "done")).toBe(true);
+});
+
+test("moveSummary는 옛 구분마다 전체·완료·실패·메모를 모은다", async () => {
+  const school = await createExperience(db, "u1", old("한국대학교", "school"));
+  await createExperience(db, "u1", old("가나다상사", "job"));
+  const training = await createExperience(db, "u1", old("부트캠프", "training"));
+  await createExperience(db, "u2", old("남의 학교", "school"));
+  await planMoves(db, "u1");
+  const rows = await rowsOf("u1");
+  const of = (oldId: string) => rows.find((row) => row.oldId === oldId)!;
+  await finishMove(db, "u1", of(school).id, { ok: true, note: "사례 1개는 옮기지 못했습니다" });
+  await finishMove(db, "u1", of(training).id, { ok: false, error: "AI의 답을 읽지 못했습니다" });
+
+  const summary = await moveSummary(db, "u1");
+  expect(summary.affiliate).toBeNull();
+  const byKind = Object.fromEntries(summary.kinds.map((k) => [k.kind, k]));
+  expect(byKind.school).toMatchObject({ total: 1, done: 1, failed: [], notes: ["사례 1개는 옮기지 못했습니다"] });
+  expect(byKind.job).toMatchObject({ total: 1, done: 0, failed: [], notes: [] });
+  expect(byKind.training).toMatchObject({ total: 1, done: 0, notes: [] });
+  expect(byKind.training.failed).toEqual([{ id: of(training).id, name: "부트캠프", error: "AI의 답을 읽지 못했습니다" }]);
+  expect(summary.kinds).toHaveLength(3);
 });

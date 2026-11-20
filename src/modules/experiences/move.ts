@@ -26,8 +26,9 @@ import { rubricAfterContentEdit, verificationState } from "./verification";
 type Result = { ok: true; note?: string } | { ok: false; error: string };
 
 const NOTHING_FOUND = "나눌 내용을 찾지 못했습니다";
+export const OVER_LIMIT_MESSAGE = "이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 시도해 주세요";
 const ERRORS: Record<string, string> = {
-  over_limit: "이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 시도해 주세요",
+  over_limit: OVER_LIMIT_MESSAGE,
   refused: "AI가 이 기록을 처리하지 못했습니다",
   truncated: "AI의 답이 중간에 끊겼습니다. 다시 시도해 주세요",
   invalid: "AI의 답을 읽지 못했습니다. 다시 시도해 주세요",
