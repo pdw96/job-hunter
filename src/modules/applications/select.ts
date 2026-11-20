@@ -164,10 +164,12 @@ export async function selectForQuestion(
   const block = await editBlock(db, userId, posting);
   if (block) return { ok: false, reason: block };
 
-  const [sources, questions] = await Promise.all([
+  const [listed, questions] = await Promise.all([
     listWritingSources(db, userId, posting.trackId),
     listQuestions(db, userId, question.postingId),
   ]);
+  // 학력·자격은 자격 요건만 채울 뿐 자소서에 쓸 이야기가 없어 후보에서 뺀다("학사 이상"과 맞는다고 뽑히던 것)
+  const sources = listed.filter((s) => s.kind !== "school" && s.kind !== "certificate");
   const usedElsewhere = questions
     .filter((other) => other.id !== question.id)
     .flatMap((other) => other.selection?.approved?.map((ref) => ref.experienceId) ?? []);
