@@ -78,3 +78,9 @@ export function inputOfValues(v: SceneFormValues): Record<string, unknown> {
     tags: v.tags,
   };
 }
+
+// 서버의 금지 표현이 바뀌었을 때 고치던 폼에 반영한다. 서버에 새로 생긴 것만 더하고, 사용자가 지운 것은 그대로 둔다
+export function mergeServerPhrases(current: string[], prevServer: string[], nextServer: string[]): string[] {
+  const added = nextServer.filter((p) => !prevServer.includes(p));
+  return [...new Set([...current, ...added])];
+}

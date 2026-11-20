@@ -5,7 +5,7 @@ import { useEffect, useState, useTransition } from "react";
 import { LIMITS, SCOPE_LABELS, SCOPES, type Scope } from "@/modules/experiences/options";
 import { deleteSceneAction, saveSceneAction } from "@/modules/experiences/record-actions";
 import { setDirty } from "../../experiences/dirty";
-import { EMPTY_SCENE, inputOfValues, type SceneFormValues } from "./scene-values";
+import { EMPTY_SCENE, inputOfValues, mergeServerPhrases, type SceneFormValues } from "./scene-values";
 
 type Props = {
   id?: string; // 있으면 고치기
@@ -68,14 +68,18 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
   // 사용자가 고치던 중이 아닐 때만 그렇게 하고, 고치던 중이면 저장 때 옛 목록이 덮어쓰지 않도록 서버 쪽 금지 표현을 합친다
   const serverKey = snapshot(start, startScopes);
   const [seenKey, setSeenKey] = useState(serverKey);
+  const [seenPhrases, setSeenPhrases] = useState(start.bannedPhrases);
   if (serverKey !== seenKey) {
     setSeenKey(serverKey);
+    setSeenPhrases(start.bannedPhrases);
     if (snapshot(draft, scopes) === seenKey) {
       setV(start);
       setTagText(start.tags.join(", "));
       setScopes(startScopes);
+      setErrors({});
+      setSaved(false);
     } else {
-      const merged = [...new Set([...v.bannedPhrases, ...start.bannedPhrases])];
+      const merged = mergeServerPhrases(v.bannedPhrases, seenPhrases, start.bannedPhrases);
       if (merged.length !== v.bannedPhrases.length) setV((cur) => ({ ...cur, bannedPhrases: merged }));
     }
   }
