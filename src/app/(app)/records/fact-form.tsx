@@ -187,7 +187,7 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
         return;
       }
       const tab = TAB_OF_KIND[kind];
-      router.push(tab ? `/records?tab=${tab}` : `/records/facts/${kind}/${result.id}`);
+      router.push(tab ? `/records?tab=${tab}` : "/records/scenes");
     });
   }
 
@@ -200,7 +200,7 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
         return;
       }
       const tab = TAB_OF_KIND[kind];
-      router.push(tab ? `/records?tab=${tab}` : "/records");
+      router.push(tab ? `/records?tab=${tab}` : "/records/scenes");
     });
   }
 

@@ -2,13 +2,6 @@
 
 import { useState, useTransition } from "react";
 import {
-  decidePhraseAction,
-  judgeAction,
-  setConfirmedAction,
-  setRubricClosedAction,
-  startInterviewAction,
-} from "@/modules/experiences/actions";
-import {
   type Kind,
   RUBRIC_ITEM_LABELS,
   RUBRIC_ITEM_QUESTIONS,
@@ -47,7 +40,20 @@ const STATE_HELP: Record<VerificationState, string> = {
   confirmed: "지원서에 쓸 수 있습니다",
 };
 
+type Result = { ok: true } | { ok: false; message: string };
+
+// 판정, 닫기, 후보 결정, 확인 액션. 옛 기록과 새 장면이 같은 패널을 쓰도록 화면에서 넘겨 준다
+export type RubricActions = {
+  judge: (id: string) => Promise<Result>;
+  setClosed: (id: string, item: RubricItem, closed: boolean) => Promise<Result>;
+  decidePhrase: (id: string, phrase: string, approve: boolean) => Promise<Result>;
+  setConfirmed: (id: string, confirmed: boolean) => Promise<Result>;
+  startInterview?: (id: string) => Promise<Result>; // 없으면 "지금 보완하기"를 보이지 않는다
+};
+
 type Props = {
+  actions: RubricActions;
+  confirmSlot?: React.ReactNode; // 있으면 아직 확인 전일 때 "내용이 맞습니다" 단추 대신 보인다
   id: string;
   kind: Kind;
   rubric: StoredRubric;
@@ -59,6 +65,8 @@ type Props = {
 };
 
 export function RubricPanel({
+  actions,
+  confirmSlot,
   id,
   kind,
   rubric,
@@ -111,7 +119,7 @@ export function RubricPanel({
                 <button
                   type="button"
                   disabled={pending}
-                  onClick={() => run(() => setRubricClosedAction(id, item, status !== "closed"))}
+                  onClick={() => run(() => actions.setClosed(id, item, status !== "closed"))}
                   className="text-xs underline disabled:opacity-50"
                 >
                   {status === "closed" ? "다시 열기" : "해당 없음으로 닫기"}
@@ -126,16 +134,16 @@ export function RubricPanel({
         <button
           type="button"
           disabled={pending || dirty}
-          onClick={() => run(() => judgeAction(id), "judge")}
+          onClick={() => run(() => actions.judge(id), "judge")}
           className="w-full rounded-lg border border-foreground/20 px-3 py-2 font-medium disabled:opacity-50"
         >
           {busy === "judge" ? "판정 중…" : isJudged ? "AI 판정 다시 받기" : "AI 판정 받기"}
         </button>
-        {hasUnmet && (
+        {hasUnmet && actions.startInterview && (
           <button
             type="button"
             disabled={pending || dirty}
-            onClick={() => run(() => startInterviewAction({ experienceId: id }), "interview")}
+            onClick={() => run(() => actions.startInterview?.(id) ?? Promise.resolve({ ok: true as const }), "interview")}
             className="w-full rounded-lg border border-foreground/20 px-3 py-2 font-medium disabled:opacity-50"
           >
             {busy === "interview" ? "준비 중…" : "지금 보완하기"}
@@ -160,7 +168,7 @@ export function RubricPanel({
                   <button
                     type="button"
                     disabled={pending}
-                    onClick={() => run(() => decidePhraseAction(id, phrase, true))}
+                    onClick={() => run(() => actions.decidePhrase(id, phrase, true))}
                     className="underline disabled:opacity-50"
                   >
                     금지 목록에 넣기
@@ -168,7 +176,7 @@ export function RubricPanel({
                   <button
                     type="button"
                     disabled={pending}
-                    onClick={() => run(() => decidePhraseAction(id, phrase, false))}
+                    onClick={() => run(() => actions.decidePhrase(id, phrase, false))}
                     className="underline disabled:opacity-50"
                   >
                     괜찮아요
@@ -185,16 +193,20 @@ export function RubricPanel({
           <span className="font-medium">검증 상태: {VERIFICATION_LABELS[state]}</span>
         </p>
         <p className="text-xs text-foreground/60">{STATE_HELP[state]}</p>
-        <button
-          type="button"
-          disabled={pending || ((dirty || claimsOpen) && !isConfirmed)}
-          onClick={() => run(() => setConfirmedAction(id, !isConfirmed))}
-          className={`w-full rounded-lg px-3 py-2 font-medium disabled:opacity-50 ${
-            isConfirmed ? "border border-foreground/20" : "bg-foreground text-background"
-          }`}
-        >
-          {isConfirmed ? "확인 취소" : "내용이 맞습니다"}
-        </button>
+        {confirmSlot && !isConfirmed ? (
+          confirmSlot
+        ) : (
+          <button
+            type="button"
+            disabled={pending || ((dirty || claimsOpen) && !isConfirmed)}
+            onClick={() => run(() => actions.setConfirmed(id, !isConfirmed))}
+            className={`w-full rounded-lg px-3 py-2 font-medium disabled:opacity-50 ${
+              isConfirmed ? "border border-foreground/20" : "bg-foreground text-background"
+            }`}
+          >
+            {isConfirmed ? "확인 취소" : "내용이 맞습니다"}
+          </button>
+        )}
         {claimsOpen && !isConfirmed && (
           <p className="text-xs text-foreground/60">가져온 내용을 먼저 하나씩 확인해 주세요</p>
         )}

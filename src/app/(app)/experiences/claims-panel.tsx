@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { answerClaimAction, startInterviewAction } from "@/modules/experiences/actions";
 import type { Claim, ClaimKind } from "@/modules/experiences/claims";
 import type { ClaimAnswer } from "@/modules/experiences/claims-repo";
 import { useDirty } from "./dirty";
@@ -32,7 +31,13 @@ const ANSWERS: Record<ClaimKind, { answer: ClaimAnswer; label: string }[]> = {
 };
 
 // 가져온 기록의 주장을 하나씩 확인한다. 모두 닫아야 기록을 확인할 수 있다
-export function ClaimsPanel({ experienceId, claims }: { experienceId: string; claims: Claim[] }) {
+type Result = { ok: true } | { ok: false; message: string };
+export type ClaimsActions = {
+  answer: (ownerId: string, claimId: string, answer: ClaimAnswer) => Promise<Result>;
+  startInterview?: (ownerId: string) => Promise<Result>; // 없으면 "인터뷰로 고치기"를 보이지 않는다
+};
+
+export function ClaimsPanel({ experienceId, claims, actions }: { experienceId: string; claims: Claim[]; actions: ClaimsActions }) {
   const dirty = useDirty();
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -81,7 +86,7 @@ export function ClaimsPanel({ experienceId, claims }: { experienceId: string; cl
                 key={answer}
                 type="button"
                 disabled={pending || dirty}
-                onClick={() => run(() => answerClaimAction(experienceId, current.id, answer))}
+                onClick={() => run(() => actions.answer(experienceId, current.id, answer))}
                 className={`rounded-lg px-4 py-2 font-medium disabled:opacity-50 ${
                   answer === "confirm" ? "bg-foreground text-background" : "border border-foreground/20"
                 }`}
@@ -105,16 +110,18 @@ export function ClaimsPanel({ experienceId, claims }: { experienceId: string; cl
             ))}
           </ul>
           <p className="text-xs text-foreground/60">
-            아래 입력 칸에서 이 구절을 실제에 맞게 고쳐 저장하면 닫힙니다. 직접 쓰기 번거로우면 인터뷰로 답해도 됩니다
+            아래 입력 칸에서 이 구절을 실제에 맞게 고쳐 저장하면 닫힙니다{actions.startInterview && ". 직접 쓰기 번거로우면 인터뷰로 답해도 됩니다"}
           </p>
-          <button
-            type="button"
-            disabled={pending || dirty}
-            onClick={() => run(() => startInterviewAction({ experienceId }))}
-            className="rounded-lg border border-foreground/20 px-3 py-2 text-sm font-medium disabled:opacity-50"
-          >
-            인터뷰로 고치기
-          </button>
+          {actions.startInterview && (
+            <button
+              type="button"
+              disabled={pending || dirty}
+              onClick={() => run(() => actions.startInterview?.(experienceId) ?? Promise.resolve({ ok: true as const }))}
+              className="rounded-lg border border-foreground/20 px-3 py-2 text-sm font-medium disabled:opacity-50"
+            >
+              인터뷰로 고치기
+            </button>
+          )}
         </div>
       )}
 

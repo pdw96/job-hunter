@@ -168,6 +168,11 @@ export async function startInterviewAction(options: {
   redirect(`/experiences/interview/${result.id}`);
 }
 
+// 기록 화면의 패널이 id만 넘겨 부르는 모양
+export async function startExperienceInterviewAction(experienceId: string): Promise<SimpleResult> {
+  return startInterviewAction({ experienceId });
+}
+
 export async function answerInterviewAction(
   interviewId: string,
   text: string,
