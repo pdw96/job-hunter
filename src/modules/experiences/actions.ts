@@ -1,262 +1,84 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { requireAdmin, requireUser } from "@/lib/session";
 import { ai } from "@/modules/ai/provider";
-import { answerClaim, type ClaimAnswer } from "./claims-repo";
-import { importExperiences } from "./import";
-import { extractText, IMPORT_TEXT_MESSAGES, prepareSource } from "./import-text";
-import { type ExperienceErrors, type ExperienceInput, validateExperience } from "./input";
-import {
-  answerInterview,
-  type DraftWarnings,
-  draftFromInterview,
-  finishInterview,
-  startInterview,
-} from "./interview";
-import { approvePhrase, dismissPhrase, judgeExperience } from "./judge";
-import { RUBRIC_ITEMS, type RubricItem, SCOPES, type Scope } from "./options";
 import { runApplicationCheck } from "@/modules/applications/prompt-check";
 import { runResumeCheck } from "@/modules/applications/resume-prompt-check";
 import { runPostingCheck } from "@/modules/postings/prompt-check";
-import { type CheckRow, runPromptCheck } from "./prompt-check";
+import type { ExperienceErrors, ExperienceInput } from "./input";
+import type { DraftWarnings } from "./interview";
+import type { CheckRow } from "./prompt-check";
 import { runRecordCheck } from "./record-prompt-check";
-import {
-  closeRubricItem,
-  confirmExperience,
-  createExperience,
-  deleteExperience,
-  reopenRubricItem,
-  setTrackScope,
-  unconfirmExperience,
-  updateExperience,
-} from "./repo";
 
-// 모든 액션은 requireUser()로 얻은 userId만 쓴다. 저장 뒤에는 브라우저가 기억한 예전 화면을 버리게 한다.
+// 옛 경험 기록(experiences_experiences)의 쓰기 액션. 5-4에서 새 구조로 바꾼 뒤로는 아무것도 쓰지 않고 안내만 돌려준다.
+// 옛 화면은 /records로 보내지만, 어디서 불려도 옛 표가 바뀌지 않게 이름은 남겨 둔다(받는 값은 보지 않는다).
+// 옛 표는 옮기기(move.ts)가 읽으므로 지우지 않는다.
+
+const CLOSED = "경험 기록이 새 구조로 바뀌었습니다";
 
 type SaveResult = { ok: true; id: string; value: ExperienceInput } | { ok: false; errors: ExperienceErrors; message?: string };
 type SimpleResult = { ok: true } | { ok: false; message: string };
+type AiTurnResult = { ok: true; message: string; suggestFinish: boolean } | { ok: false; message: string };
+type DraftResult = { ok: true; draft: ExperienceInput; warnings: DraftWarnings } | { ok: false; message: string };
+export type ImportActionResult =
+  | { ok: true; created: { id: string; name: string; claimCount: number; trimmed: boolean }[]; skipped: number; more: boolean }
+  | { ok: false; message: string; stop?: boolean; empty?: boolean };
 
-const NOT_FOUND = "기록을 찾을 수 없습니다";
-
-function refresh(id?: string) {
-  revalidatePath("/experiences");
-  revalidatePath("/");
-  if (id) revalidatePath(`/experiences/${id}`);
+// 로그인은 그대로 확인하고(남이 부르지 못하게), 받은 값은 보지 않는다
+async function refuse(): Promise<{ ok: false; message: string }> {
+  await requireUser();
+  return { ok: false, message: CLOSED };
 }
 
-const isScopes = (value: unknown): value is Record<string, Scope> =>
-  typeof value === "object" &&
-  value !== null &&
-  Object.values(value).every((scope) => (SCOPES as readonly unknown[]).includes(scope));
-
-// 새 기록(id 없음) 또는 고치기. 트랙별 사용 범위도 함께 저장한다
-// interviewId가 있으면 인터뷰로 만든 초안을 저장하는 것이다. 인터뷰를 끝내고 AI 판정을 한 번 돌린다
-export async function saveExperienceAction(
-  id: string | null,
-  input: unknown,
-  scopes: unknown,
-  interviewId?: string,
-): Promise<SaveResult> {
-  const user = await requireUser();
-  const parsed = validateExperience(input);
-  if (!parsed.ok) return parsed;
-  if (!isScopes(scopes)) return { ok: false, errors: {}, message: "트랙별 사용 범위를 다시 골라 주세요" };
-
-  let savedId = id;
-  if (typeof savedId === "string") {
-    const result = await updateExperience(db, user.id, savedId, parsed.value);
-    if (!result.ok) return { ok: false, errors: {}, message: NOT_FOUND };
-  } else {
-    savedId = await createExperience(db, user.id, parsed.value);
-  }
-  // 남의 트랙 id가 섞여 있으면 그 줄은 저장되지 않는다(setTrackScope가 거부한다)
-  for (const [trackId, scope] of Object.entries(scopes)) {
-    await setTrackScope(db, user.id, savedId, trackId, scope);
-  }
-  if (typeof interviewId === "string") {
-    await finishInterview(db, user.id, interviewId);
-    // 판정이 실패해도(한도, 일시 오류) 저장은 된 것이다. 사용자가 나중에 다시 누를 수 있다
-    await judgeExperience(db, ai, user.id, savedId);
-  }
-  refresh(savedId);
-  return { ok: true, id: savedId, value: parsed.value };
+export async function saveExperienceAction(): Promise<SaveResult> {
+  return { ...(await refuse()), errors: {} };
+}
+export async function deleteExperienceAction(): Promise<SimpleResult> {
+  return refuse();
+}
+export async function setConfirmedAction(): Promise<SimpleResult> {
+  return refuse();
+}
+export async function setRubricClosedAction(): Promise<SimpleResult> {
+  return refuse();
+}
+export async function judgeAction(): Promise<SimpleResult> {
+  return refuse();
+}
+export async function decidePhraseAction(): Promise<SimpleResult> {
+  return refuse();
+}
+export async function startInterviewAction(): Promise<SimpleResult> {
+  return refuse();
+}
+export async function startExperienceInterviewAction(): Promise<SimpleResult> {
+  return refuse();
+}
+export async function answerInterviewAction(): Promise<AiTurnResult> {
+  return refuse();
+}
+export async function draftInterviewAction(): Promise<DraftResult> {
+  return refuse();
+}
+export async function importAction(): Promise<ImportActionResult> {
+  return refuse();
+}
+export async function answerClaimAction(): Promise<SimpleResult> {
+  return refuse();
 }
 
-// stay가 false가 아니면 지운 뒤 목록으로 이동한다(가져오기 결과 화면에서는 그 자리에 머문다)
-export async function deleteExperienceAction(id: string, goToList = true): Promise<SimpleResult> {
-  const user = await requireUser();
-  const result = typeof id === "string" ? await deleteExperience(db, user.id, id) : { ok: false as const };
-  if (!result.ok) return { ok: false, message: NOT_FOUND };
-  refresh(id);
-  if (goToList !== false) redirect("/experiences");
-  return { ok: true };
-}
-
-export async function setConfirmedAction(id: string, confirmed: boolean): Promise<SimpleResult> {
-  const user = await requireUser();
-  if (typeof id !== "string") return { ok: false, message: NOT_FOUND };
-  const result = confirmed ? await confirmExperience(db, user.id, id) : await unconfirmExperience(db, user.id, id);
-  if (!result.ok) {
-    return {
-      ok: false,
-      message: result.reason === "claims_pending" ? "확인할 주장이 남아 있습니다. 먼저 주장을 확인해 주세요" : NOT_FOUND,
-    };
-  }
-  refresh(id);
-  return { ok: true };
-}
-
-export async function setRubricClosedAction(id: string, item: RubricItem, closed: boolean): Promise<SimpleResult> {
-  const user = await requireUser();
-  if (typeof id !== "string" || !RUBRIC_ITEMS.includes(item)) return { ok: false, message: NOT_FOUND };
-  const result = closed
-    ? await closeRubricItem(db, user.id, id, item)
-    : await reopenRubricItem(db, user.id, id, item);
-  if (!result.ok) {
-    return { ok: false, message: result.reason === "not_allowed" ? "이 항목은 닫을 수 없습니다" : NOT_FOUND };
-  }
-  refresh(id);
-  return { ok: true };
-}
-
-// AI 기능의 실패 사유를 화면에 보여 줄 글로 바꾼다
-const AI_MESSAGES: Record<string, string> = {
-  not_found: NOT_FOUND,
-  over_limit: "이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 쓸 수 있습니다",
-  refused: "AI가 이 요청을 처리하지 못했습니다. 내용을 조금 바꿔 다시 시도해 주세요",
-  truncated: "AI의 답이 중간에 끊겼습니다. 다시 시도해 주세요",
-  invalid: "AI의 답을 읽지 못했습니다. 다시 시도해 주세요",
-  unavailable: "AI 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요",
-  changed: "판정하는 사이 내용이 바뀌었습니다. 다시 판정받아 주세요",
-  finished: "이미 끝난 인터뷰입니다",
-  too_long: "인터뷰가 너무 길어졌습니다. 지금까지의 내용으로 정리해 주세요",
-  invalid_text: "답을 입력해 주세요 (4,000자까지)",
-  busy: "앞의 답을 처리하는 중입니다. 잠시 뒤 다시 보내 주세요",
-  empty: "아직 답한 내용이 없습니다",
-  nothing_found: "경험으로 나눌 만한 내용을 찾지 못했습니다",
-};
-const aiMessage = (reason: string) => AI_MESSAGES[reason] ?? "문제가 생겼습니다. 다시 시도해 주세요";
-
-export async function judgeAction(id: string): Promise<SimpleResult> {
-  const user = await requireUser();
-  if (typeof id !== "string") return { ok: false, message: NOT_FOUND };
-  const result = await judgeExperience(db, ai, user.id, id);
-  refresh(id);
-  return result.ok ? { ok: true } : { ok: false, message: aiMessage(result.reason) };
-}
-
-export async function decidePhraseAction(id: string, phrase: string, approve: boolean): Promise<SimpleResult> {
-  const user = await requireUser();
-  if (typeof id !== "string" || typeof phrase !== "string") return { ok: false, message: NOT_FOUND };
-  const result = approve ? await approvePhrase(db, user.id, id, phrase) : await dismissPhrase(db, user.id, id, phrase);
-  refresh(id);
-  return result.ok ? { ok: true } : { ok: false, message: "후보를 찾을 수 없습니다" };
-}
-
-// 성공하면 인터뷰 화면으로 이동한다
-export async function startInterviewAction(options: {
-  experienceId?: string;
-  trackId?: string;
-}): Promise<SimpleResult> {
-  const user = await requireUser();
-  const experienceId = typeof options?.experienceId === "string" ? options.experienceId : undefined;
-  const trackId = typeof options?.trackId === "string" && options.trackId !== "" ? options.trackId : undefined;
-  const result = await startInterview(db, ai, user.id, { experienceId, trackId });
-  if (!result.ok) return { ok: false, message: aiMessage(result.reason) };
-  redirect(`/experiences/interview/${result.id}`);
-}
-
-// 기록 화면의 패널이 id만 넘겨 부르는 모양
-export async function startExperienceInterviewAction(experienceId: string): Promise<SimpleResult> {
-  return startInterviewAction({ experienceId });
-}
-
-export async function answerInterviewAction(
-  interviewId: string,
-  text: string,
-): Promise<{ ok: true; message: string; suggestFinish: boolean } | { ok: false; message: string }> {
-  const user = await requireUser();
-  if (typeof interviewId !== "string" || typeof text !== "string") return { ok: false, message: NOT_FOUND };
-  const result = await answerInterview(db, ai, user.id, interviewId, text);
-  return result.ok ? result : { ok: false, message: aiMessage(result.reason) };
-}
-
-export async function draftInterviewAction(
-  interviewId: string,
-): Promise<{ ok: true; draft: ExperienceInput; warnings: DraftWarnings } | { ok: false; message: string }> {
-  const user = await requireUser();
-  if (typeof interviewId !== "string") return { ok: false, message: NOT_FOUND };
-  const result = await draftFromInterview(db, ai, user.id, interviewId);
-  return result.ok
-    ? { ok: true, draft: result.draft, warnings: result.warnings }
-    : { ok: false, message: aiMessage(result.reason) };
-}
-
-// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 23번, 비용 발생)
+// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 13번, 비용 발생)
 export async function runPromptCheckAction(): Promise<
   { ok: true; rows: CheckRow[] } | { ok: false; message: string }
 > {
   const admin = await requireAdmin();
-  // 공고에서 값을 뽑는 프롬프트와 자소서 고르기·쓰기, 이력서 쓰기·강조 고르기도 함께 점검한다
-  // 새 기록 구조의 장면 정리·가져오기도 함께 점검한다
-  const [rows, recordRows, postingRows, applicationRows, resumeRows] = await Promise.all([
-    runPromptCheck(db, ai, admin.id),
+  // 새 기록 구조(사례 정리·가져오기·옮기기), 공고에서 값을 뽑는 프롬프트, 자소서 고르기·쓰기, 이력서 쓰기·강조 고르기를 점검한다
+  const [recordRows, postingRows, applicationRows, resumeRows] = await Promise.all([
     runRecordCheck(db, ai, admin.id),
     runPostingCheck(db, ai, admin.id),
     runApplicationCheck(db, ai, admin.id),
     runResumeCheck(db, ai, admin.id),
   ]);
-  return { ok: true, rows: [...rows, ...recordRows, ...postingRows, ...applicationRows, ...resumeRows] };
-}
-
-const IMPORT_MESSAGES = IMPORT_TEXT_MESSAGES;
-
-export type ImportActionResult =
-  | {
-      ok: true;
-      created: { id: string; name: string; claimCount: number; trimmed: boolean }[];
-      skipped: number;
-      more: boolean;
-    }
-  // stop: 한도에 닿아 더 보내도 소용없다 / empty: 실패가 아니라 경험으로 볼 내용이 없었다
-  | { ok: false; message: string; stop?: boolean; empty?: boolean };
-
-// 글(붙여 넣기 또는 파일)을 경험 기록으로 가져온다. 파일은 글자만 뽑고 저장하지 않는다
-export async function importAction(formData: FormData): Promise<ImportActionResult> {
-  const user = await requireUser();
-  const file = formData.get("file");
-  let raw = typeof formData.get("text") === "string" ? (formData.get("text") as string) : "";
-
-  if (file instanceof File && file.size > 0) {
-    const extracted = await extractText({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
-    if (!extracted.ok) return { ok: false, message: IMPORT_MESSAGES[extracted.reason] };
-    raw = extracted.text;
-  }
-  const source = prepareSource(raw);
-  if (!source.ok) return { ok: false, message: IMPORT_MESSAGES[source.reason] };
-
-  const result = await importExperiences(db, ai, user.id, source.text);
-  if (!result.ok) return { ok: false, message: aiMessage(result.reason), stop: result.reason === "over_limit", empty: result.reason === "nothing_found" };
-  refresh();
-  return result;
-}
-
-const CLAIM_ANSWERS: ClaimAnswer[] = ["confirm", "unknown", "exaggerated", "wrong"];
-
-export async function answerClaimAction(experienceId: string, claimId: string, answer: ClaimAnswer): Promise<SimpleResult> {
-  const user = await requireUser();
-  if (typeof claimId !== "string" || !CLAIM_ANSWERS.includes(answer)) return { ok: false, message: NOT_FOUND };
-  const result = await answerClaim(db, user.id, claimId, answer);
-  if (!result.ok) {
-    const message =
-      result.reason === "banned_full"
-        ? "금지 표현이 가득 찼습니다. 아래 입력 칸에서 하나를 지우고 저장한 뒤 다시 눌러 주세요"
-        : "이 주장에는 그 답을 할 수 없습니다";
-    return { ok: false, message };
-  }
-  if (typeof experienceId === "string") refresh(experienceId);
-  return { ok: true };
+  return { ok: true, rows: [...recordRows, ...postingRows, ...applicationRows, ...resumeRows] };
 }

@@ -22,6 +22,14 @@ import { getSubmission, listSubmissions } from "./submission-repo";
 import type { Draft, ResumeContent, ResumeEntry, SubmittedResume } from "./types";
 import type { Posting } from "@/modules/postings/repo";
 
+// 이 파일의 예시는 대부분 옛 표(createExperience)로 원천을 만든다. 스위치(newRecordsOn)는 5-4부터 늘 켜져 있으므로
+// 원천 읽기(sources.ts)를 옛 표로 고정하고, 새 표를 쓰는 테스트에서만 켠다(자소서·이력서·채점 로직은 원천 모양만 본다)
+const recordSwitch = vi.hoisted(() => ({ on: false }));
+vi.mock("@/modules/experiences/switch", () => ({ newRecordsOn: () => recordSwitch.on }));
+afterEach(() => {
+  recordSwitch.on = false;
+});
+
 let db: Db;
 let trackId: string;
 const now = new Date("2026-11-19T03:00:00Z");
@@ -329,7 +337,7 @@ test("submitPreview: 스위치를 켠 뒤 옛 기록을 가리키는 답·이력
   const postingId = await addPosting();
   await insertCommonResume(db, "u1", trackId, resumeOf([entryOf(exp, "Java로 결제 승인 API를 다시 설계했다")], null));
   await addQuestionWithDraft(postingId, "지원 동기", ["결제 승인 API를 다시 설계했습니다"], null, [exp]);
-  vi.stubEnv("NEW_RECORDS", "1");
+  recordSwitch.on = true;
   const posting = (await getPosting(db, "u1", postingId)) as Posting;
   const preview = await submitPreview(db, "u1", posting);
   expect(preview.warnings).toContain("표시가 남은 문항: 1번");
@@ -340,12 +348,9 @@ test("스위치를 켠 뒤 옛 기록을 근거로 한 답을 제출하면 근�
   const exp = await addExperience({ name: "옛 결제 경험" });
   const postingId = await addPosting();
   await addQuestionWithDraft(postingId, "지원 동기", ["결제 승인 API를 다시 설계했습니다"], null, [exp]);
-  vi.stubEnv("NEW_RECORDS", "1");
+  recordSwitch.on = true;
   expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
   const submitted = await getSubmission(db, "u1", postingId, 1);
   expect(submitted?.content.answers[0].paragraphs[0].sources).toEqual([{ experienceId: exp, name: "옛 결제 경험" }]);
 });
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});

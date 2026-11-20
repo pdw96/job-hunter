@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion";
 import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } from "@/modules/postings/options";
+import { recordHrefs } from "@/modules/experiences/record-href";
 import { listEvidenceCandidates } from "@/modules/experiences/sources";
 import { listQuestions } from "@/modules/applications/repo";
 import { getTailoredResume } from "@/modules/applications/resume-repo";
@@ -36,6 +37,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
     getTailoredResume(db, user.id, posting.id),
     listSubmissions(db, user.id, posting.id),
   ]);
+  const hrefs = await recordHrefs(db, user.id, candidates.map((c) => c.id));
   const latest = submissions.at(-1) ?? null;
   const locked = isLocked(latest);
   const preview = posting.status === "apply" && !locked ? await submitPreview(db, user.id, posting) : null;
@@ -90,13 +92,12 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
 
       <ScoreSection
         id={posting.id}
-        track={track ? { id: track.id, name: track.name } : null}
         analysis={posting.analysis}
         score={score}
         fieldStale={track !== null && posting.analysis !== null && fieldStale(posting.analysis, track)}
         // 관심으로 되돌리면 지원할 때의 점수는 남겨 두되 보여 주지 않는다
         appliedScore={posting.status === "apply" ? posting.appliedScore : null}
-        candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion }))}
+        candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion, href: hrefs.get(c.id) ?? null }))}
       />
 
       {posting.status === "apply" ? (

@@ -175,6 +175,23 @@ test("needsMove는 행이 없는 옛 기록이나 남은 일이 있을 때만 tr
   expect(await needsMove(db, "u1")).toBe(false);
 });
 
+test("needsMove: 모든 옛 기록에 행이 있어도 소속 잇기 행이 빠졌으면 true, 다 끝났으면 false다", async () => {
+  await createExperience(db, "u1", old("가나다상사", "job"));
+  await createExperience(db, "u1", old("결제 개편", "project"));
+  await planMoves(db, "u1");
+  // record 행만 남기고 affiliate 행이 없는 상태(만들다 끊긴 경우)
+  await db.delete(moves).where(and(eq(moves.userId, "u1"), eq(moves.step, "affiliate")));
+  await db.update(moves).set({ status: "done" }).where(eq(moves.userId, "u1"));
+  expect(await needsMove(db, "u1")).toBe(true);
+  await planMoves(db, "u1");
+  expect(await needsMove(db, "u1")).toBe(true); // 새 affiliate 행이 pending
+  await db.update(moves).set({ status: "done" }).where(eq(moves.userId, "u1"));
+  expect(await needsMove(db, "u1")).toBe(false);
+  // 다른 사용자의 옛 기록과 행은 보지 않는다
+  await createExperience(db, "u2", old("남의 회사", "job"));
+  expect(await needsMove(db, "u1")).toBe(false);
+});
+
 test("moveProgress는 수와 실패한 기록의 이름을 돌려준다", async () => {
   await createExperience(db, "u1", old("가나다상사", "job"));
   await createExperience(db, "u1", old("한국대학교", "school"));

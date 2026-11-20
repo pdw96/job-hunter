@@ -4,7 +4,7 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/db/types";
 import type { Kind } from "./options";
 import { type ExperienceSummary, listExperiences } from "./repo";
-import { moves } from "./schema";
+import { experiences, moves } from "./schema";
 
 // 옛 기록을 새 표로 옮기는 일의 목록(experiences_moves). 옛 기록 하나가 record 행 하나이고,
 // 모두 끝난 뒤 옮긴 프로젝트의 소속을 잇는 affiliate 행이 사용자마다 하나까지 있다. 옛 표는 읽기만 한다.
@@ -37,15 +37,31 @@ export async function planMoves(db: Db, userId: string): Promise<void> {
   }
 }
 
+// 앱 레이아웃이 요청마다 부르므로 한 문장으로 본다(다 옮긴 사용자는 이것 하나로 끝난다). 아래 중 하나면 true:
+// 행이 없는 옛 기록이 있다 / 소속을 이을 일이 있는데(needsAffiliate) affiliate 행이 없다 / pending·running 행이 있다
 export async function needsMove(db: Db, userId: string): Promise<boolean> {
-  const [old, rows] = await Promise.all([
-    listExperiences(db, userId),
-    db.select({ step: moves.step, oldId: moves.oldId, status: moves.status }).from(moves).where(eq(moves.userId, userId)),
-  ]);
-  const covered = new Set(rows.map((row) => row.oldId));
-  if (old.some((item) => !covered.has(item.id))) return true;
-  if (needsAffiliate(old) && !rows.some((row) => row.step === "affiliate")) return true;
-  return rows.some((row) => row.status === "pending" || row.status === "running");
+  const parentKinds = sql.join(
+    PARENT_KINDS.map((kind) => sql`${kind}`),
+    sql`, `,
+  );
+  const [row] = await db
+    .select({
+      needed: sql<boolean>`(
+        exists (
+          select 1 from ${experiences} e
+          where e.user_id = ${userId}
+            and not exists (select 1 from ${moves} m where m.user_id = ${userId} and m.old_id = e.id)
+        )
+        or (
+          exists (select 1 from ${experiences} e where e.user_id = ${userId} and e.kind = 'project')
+          and exists (select 1 from ${experiences} e where e.user_id = ${userId} and e.kind in (${parentKinds}))
+          and not exists (select 1 from ${moves} m where m.user_id = ${userId} and m.step = 'affiliate')
+        )
+        or exists (select 1 from ${moves} m where m.user_id = ${userId} and m.status in ('pending', 'running'))
+      )`,
+    })
+    .from(sql`(select 1) as one`);
+  return row?.needed === true;
 }
 
 // 할 일 하나를 running으로 잡는다. 고르기와 바꾸기를 한 문장으로 해서, 동시에 불러도 같은 행을 둘이 잡지 않는다.

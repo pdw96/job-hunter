@@ -237,7 +237,9 @@ export function ResumeEditor({
 
   function rewriteAll() {
     const edited = usable.some((view) => view.entry.lines.some((line) => line.edited));
-    const question = `쓸 수 있는 항목 ${usable.length}개를 모두 다시 씁니다.${edited ? " 직접 고친 줄이 덮어써집니다." : ""} 다시 쓸까요?`;
+    // 옛 구조의 항목은 다시 쓰면 빠지고, 아직 이력서에 없는 새 구조의 기록이 들어간다(항목 하나씩 다시 쓰기와 같다)
+    const restructured = usable.some((view) => view.check.structureChanged);
+    const question = `쓸 수 있는 항목 ${usable.length}개를 모두 다시 씁니다.${restructured ? " 옛 구조의 항목은 빠지고, 아직 이력서에 없는 새 구조의 기록이 들어갑니다." : ""}${edited ? " 직접 고친 줄이 덮어써집니다." : ""} 다시 쓸까요?`;
     if (!confirm(question)) return;
     all.run(() => rewriteEntriesAction(data.resumeId, usable.map((view) => view.entry.experienceId), data.version));
   }

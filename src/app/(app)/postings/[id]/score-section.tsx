@@ -11,7 +11,7 @@ import {
 } from "@/modules/postings/score";
 import { todayInKorea } from "@/modules/postings/today";
 import { type Criterion, CRITERION_LABELS } from "@/modules/tracks/options";
-import { StartInterview } from "../../experiences/start-interview";
+import { AddRecordLink } from "../../records/_shared/add-record-link";
 import { AnalyzeButton } from "../posting-actions";
 
 // 공고 화면의 점수 칸. 점수는 페이지가 지금의 경험 후보로 계산해 넘긴다(근거가 빠진 경험은 여기서도 보이지 않는다)
@@ -71,10 +71,12 @@ function RequirementItem({
   requirement,
   usable,
   names,
+  hrefs,
 }: {
   requirement: Requirement;
   usable: Usable;
   names: ReadonlyMap<string, string>;
+  hrefs: ReadonlyMap<string, string>; // 그 기록을 여는 화면. 없으면 이름만 보인다
 }) {
   const level = requirementLevel(requirement, usable);
   // 지금 쓸 수 없는 경험(지웠거나 확인을 풀었거나 트랙에서 뺀 것)과 맞댄 뒤 고친 경험은 근거로 보여 주지 않는다
@@ -97,9 +99,13 @@ function RequirementItem({
         <ul className="space-y-1 text-xs">
           {evidence.map((e) => (
             <li key={e.experienceId} className="break-words">
-              <Link href={`/experiences/${e.experienceId}`} className="underline">
-                {names.get(e.experienceId)}
-              </Link>
+              {hrefs.has(e.experienceId) ? (
+                <Link href={hrefs.get(e.experienceId)!} className="underline">
+                  {names.get(e.experienceId)}
+                </Link>
+              ) : (
+                names.get(e.experienceId)
+              )}
               <span className="text-foreground/60">
                 {" "}
                 ({LEVEL_LABELS[e.level]}){e.why && ` ${e.why}`}
@@ -119,18 +125,17 @@ export function ScoreSection({
   fieldStale,
   appliedScore,
   candidates,
-  track,
 }: {
   id: string;
-  track: { id: string; name: string } | null;
   analysis: PostingAnalysis | null;
   score: PostingScore | null;
   fieldStale: boolean; // 맞댄 뒤 트랙의 분야나 직무가 바뀌었다(분야 점수는 알 수 없음)
   appliedScore: AppliedScore | null;
-  candidates: { id: string; name: string; contentVersion: number }[];
+  candidates: { id: string; name: string; contentVersion: number; href: string | null }[];
 }) {
   const usable = usableOf(candidates);
   const names = new Map(candidates.map((c) => [c.id, c.name]));
+  const hrefs = new Map(candidates.flatMap((c) => (c.href ? [[c.id, c.href] as const] : [])));
   const requirements = analysis?.requirements ?? [];
   const groups = [
     { title: "필수", list: requirements.filter((r) => r.kind === "required") },
@@ -152,7 +157,7 @@ export function ScoreSection({
       {candidates.length === 0 && (
         <p className="rounded-lg bg-foreground/5 p-3 text-sm">
           확인된 경험이 없어 자격 점수가 낮게 나옵니다.{" "}
-          <Link href="/experiences" className="underline">
+          <Link href="/records" className="underline">
             경험 기록
           </Link>
         </p>
@@ -191,7 +196,7 @@ export function ScoreSection({
                   <p className="text-sm font-medium text-foreground/70">{group.title}</p>
                   <ul className="divide-y divide-foreground/10">
                     {group.list.map((requirement, index) => (
-                      <RequirementItem key={index} requirement={requirement} usable={usable} names={names} />
+                      <RequirementItem key={index} requirement={requirement} usable={usable} names={names} hrefs={hrefs} />
                     ))}
                   </ul>
                 </div>
@@ -210,9 +215,8 @@ export function ScoreSection({
                   </li>
                 ))}
               </ul>
-              <p className="text-sm text-foreground/70">기록하지 않은 경험이 있다면 경험 인터뷰로 더해 보세요</p>
-              {/* /experiences/interview에는 목록 화면이 없어서, 이 공고의 트랙으로 인터뷰를 바로 시작한다 */}
-              {track && <StartInterview tracks={[track]} />}
+              <p className="text-sm text-foreground/70">기록하지 않은 경험이 있다면 경험 기록에 더해 보세요</p>
+              <AddRecordLink href="/records" label="경험 기록으로" />
             </div>
           )}
         </>

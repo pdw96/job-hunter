@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { CreatedItem } from "@/modules/experiences/record-import";
 import { importRecordsAction } from "@/modules/experiences/record-actions";
 import { FACT_KIND_LABELS } from "@/modules/experiences/record-options";
-import { type ImportKit, ImportScreen } from "../../experiences/import/import-form";
+import { type ImportKit, ImportScreen } from "../_shared/import-form";
 
 const labelOf = (kind: CreatedItem["kind"]) => (kind === "scene" ? "사례" : FACT_KIND_LABELS[kind]);
 

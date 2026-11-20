@@ -1,31 +1,6 @@
-import { notFound } from "next/navigation";
-import { db } from "@/db";
-import { requireUser } from "@/lib/session";
-import { getInterview, isSceneInterview } from "@/modules/experiences/interview";
-import { getTrackScopes } from "@/modules/experiences/repo";
-import { listTracks } from "@/modules/tracks/repo";
-import { InterviewChat } from "../chat";
+import { redirect } from "next/navigation";
 
-export default async function InterviewPage({ params }: { params: Promise<{ interviewId: string }> }) {
-  const user = await requireUser();
-  const { interviewId } = await params;
-  // 없는 인터뷰와 남의 인터뷰를 구분하지 않고 404로 보낸다. 사례(새 기록) 인터뷰는 /records/interview에서 연다
-  const interview = await getInterview(db, user.id, interviewId);
-  if (!interview || isSceneInterview(interview)) notFound();
-
-  const [tracks, scopes] = await Promise.all([
-    listTracks(db, user.id),
-    interview.experienceId ? getTrackScopes(db, user.id, interview.experienceId) : undefined,
-  ]);
-
-  return (
-    <InterviewChat
-      interviewId={interview.id}
-      experienceId={interview.experienceId}
-      initialMessages={interview.messages}
-      finished={interview.status === "done"}
-      tracks={tracks.map((track) => ({ id: track.id, name: track.name }))}
-      scopes={scopes}
-    />
-  );
+// 옛 경험 기록 화면. 5-4에서 새 구조(/records)로 바꾸며 닫았다. 예전 주소로 들어오면 경험 기록으로 보낸다
+export default function OldExperiencesPage() {
+  redirect("/records");
 }

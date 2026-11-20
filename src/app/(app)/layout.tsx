@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { needsMove, planMoves } from "@/modules/experiences/move-repo";
-import { newRecordsOn } from "@/modules/experiences/switch";
+import { needsMove } from "@/modules/experiences/move-repo";
 import { requireUser } from "@/lib/session";
 import { SignOutButton } from "./sign-out-button";
 
@@ -11,11 +10,9 @@ export const instant = false;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  // 개편 뒤 처음 들어오면 옛 기록을 새 구조로 옮기는 화면으로 보낸다(스위치가 꺼져 있으면 아무것도 하지 않는다)
-  if (newRecordsOn()) {
-    await planMoves(db, user.id);
-    if (await needsMove(db, user.id)) redirect("/moving");
-  }
+  // 개편 뒤 처음 들어오면 옛 기록을 새 구조로 옮기는 화면으로 보낸다. 요청마다 도는 검사라 쿼리 한 번으로 보고,
+  // 할 일 목록 만들기(planMoves)는 /moving 화면이 한다. 다 옮긴 사용자는 이 검사 하나로 끝난다
+  if (await needsMove(db, user.id)) redirect("/moving");
 
   return (
     <div className="flex flex-1 flex-col">
@@ -26,7 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </Link>
           <nav className="flex gap-4 text-sm">
             <Link href="/">트랙</Link>
-            <Link href="/experiences">경험 기록</Link>
+            <Link href="/records">경험 기록</Link>
             <Link href="/postings">공고</Link>
             <Link href="/settings/contact">내 정보</Link>
             {user.isAdmin && <Link href="/admin">관리</Link>}

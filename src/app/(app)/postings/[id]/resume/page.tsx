@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { getCommonResume, getTailoredResume } from "@/modules/applications/resume-repo";
 import { getSubmission, isLocked, latestSubmission } from "@/modules/applications/submission-repo";
+import { recordHrefs } from "@/modules/experiences/record-href";
 import { listResumeSources, oldRecordIds } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
@@ -31,6 +32,8 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
   const canAct = isApply && !locked;
   const hasCommon = common?.content != null;
   const byId = new Map(sources.map((source) => [source.id, source]));
+  const hrefs = await recordHrefs(db, user.id, [...sources.map((source) => source.id), ...(tailored?.selection?.picks.map((pick) => pick.experienceId) ?? [])]);
+  const hrefOf = (id: string) => hrefs.get(id) ?? null;
 
   let selection: EmphasisSelectionView | null = null;
   if (tailored?.selection) {
@@ -38,13 +41,13 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
     selection = {
       selectedAt: s.selectedAt,
       noMatch: s.noMatch,
-      picks: s.picks.map((pick) => ({ experienceId: pick.experienceId, name: byId.get(pick.experienceId)?.name ?? null, why: pick.why })),
+      picks: s.picks.map((pick) => ({ experienceId: pick.experienceId, name: byId.get(pick.experienceId)?.name ?? null, href: hrefOf(pick.experienceId), why: pick.why })),
     };
   }
   const picked = new Set(selection?.picks.map((pick) => pick.experienceId) ?? []);
   const others: OtherView[] = sources
     .filter((source) => !picked.has(source.id))
-    .map((source) => ({ experienceId: source.id, name: source.name, summary: source.scope === "summary", fact: source.codeLines !== undefined }));
+    .map((source) => ({ experienceId: source.id, name: source.name, href: hrefOf(source.id), summary: source.scope === "summary", fact: source.codeLines !== undefined }));
 
   // 공통본이 없어졌으면 맞춤본이 기억한 공통본 version과 비교해 "공통본을 고친 뒤"를 띄우지 않는다
   const commonVersion = common?.version ?? tailored?.content?.commonVersion ?? 0;

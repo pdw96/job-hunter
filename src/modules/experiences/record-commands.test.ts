@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
@@ -32,7 +32,6 @@ import { createScene, getScene } from "./scenes-repo";
 
 let db: Db;
 
-const OFF = "아직 열리지 않은 기능입니다";
 const school = { schoolName: "한국대학교", location: "서울", degree: "bachelor", major: "컴퓨터공학", startMonth: "2015-03", endMonth: "2019-02", status: "graduated", gpa: null, gpaScale: null };
 const job: JobInput = {
   company: "가나다 주식회사",
@@ -59,25 +58,11 @@ const survey: SurveyInput = {
 };
 
 beforeEach(async () => {
-  vi.stubEnv("NEW_RECORDS", "1");
   db = await createTestDb();
   await db.insert(user).values([
     { id: "u1", name: "A", email: "u1@example.com" },
     { id: "u2", name: "B", email: "u2@example.com" },
   ]);
-});
-afterEach(() => vi.unstubAllEnvs());
-
-test("스위치가 꺼져 있으면 저장하지 않고 안내한다", async () => {
-  vi.stubEnv("NEW_RECORDS", "");
-  const result = await saveFact(db, "u1", "education", null, school, {});
-  expect(result).toEqual({ ok: false, errors: {}, message: OFF });
-  expect(await deleteFactCommand(db, "u1", "education", "x")).toEqual({ ok: false, message: OFF });
-  expect(await setFactConfirmed(db, "u1", "education", "x", true)).toEqual({ ok: false, message: OFF });
-  expect(await answerClaimCommand(db, "u1", "x", "confirm")).toEqual({ ok: false, message: OFF });
-  vi.stubEnv("NEW_RECORDS", "1");
-  const { listFacts } = await import("./facts-repo");
-  expect((await listFacts(db, "u1")).education).toEqual([]);
 });
 
 test("잘못된 입력은 칸별 오류, 알 수 없는 종류는 찾을 수 없음", async () => {
@@ -150,19 +135,6 @@ async function jobWithScene(over: Record<string, unknown> = {}, source: "manual"
   if (!s.ok) throw new Error(JSON.stringify(s));
   return { jobId: j.id, sceneId: s.id };
 }
-
-test("장면: 스위치가 꺼져 있으면 모든 장면 명령이 거절된다", async () => {
-  vi.stubEnv("NEW_RECORDS", "");
-  const ai = createFakeAi([]);
-  expect(await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: "x" }), {})).toEqual({ ok: false, errors: {}, message: OFF });
-  expect(await deleteSceneCommand(db, "u1", "x")).toEqual({ ok: false, message: OFF });
-  expect(await confirmSceneCommand(db, "u1", "x", true)).toEqual({ ok: false, message: OFF });
-  expect(await unconfirmSceneCommand(db, "u1", "x")).toEqual({ ok: false, message: OFF });
-  expect(await judgeSceneCommand(db, ai, "u1", "x")).toEqual({ ok: false, message: OFF });
-  expect(await setSceneRubricClosed(db, "u1", "x", "metrics", true)).toEqual({ ok: false, message: OFF });
-  expect(await decideScenePhrase(db, "u1", "x", "p", true)).toEqual({ ok: false, message: OFF });
-  expect(ai.requests).toHaveLength(0);
-});
 
 test("장면: 저장 검사, 남의 머리, 고치기, 범위", async () => {
   const { jobId, sceneId } = await jobWithScene();
@@ -325,15 +297,7 @@ const draftAnswer = {
   actions: "로그를 모아 원인을 찾았다", result: "", lessons: "", metrics: [], notDone: "", evidenceNote: "", tags: [],
 };
 
-test("사례 인터뷰: 스위치, 머리 고르기, 답, 정리", async () => {
-  vi.stubEnv("NEW_RECORDS", "");
-  const off = createFakeAi([]);
-  expect(await startSceneInterviewCommand(db, off, "u1", { head: "job:x" })).toEqual({ ok: false, message: OFF });
-  expect(await answerSceneInterviewCommand(db, off, "u1", "x", "답")).toEqual({ ok: false, message: OFF });
-  expect(await draftSceneCommand(db, off, "u1", "x")).toEqual({ ok: false, message: OFF });
-  expect(await importRecordsCommand(db, off, "u1", { text: "글" })).toEqual({ ok: false, message: OFF });
-  vi.stubEnv("NEW_RECORDS", "1");
-
+test("사례 인터뷰: 머리 고르기, 답, 정리", async () => {
   const j = await createFact(db, "u1", "job", job);
   if (!j.ok) throw new Error();
   const none = createFakeAi([]);

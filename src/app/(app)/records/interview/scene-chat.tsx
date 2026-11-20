@@ -4,7 +4,7 @@ import type { Scope } from "@/modules/experiences/options";
 import { answerSceneInterviewAction, draftSceneAction } from "@/modules/experiences/record-actions";
 import type { SceneInput } from "@/modules/experiences/record-input";
 import type { InterviewMessage } from "@/modules/experiences/schema";
-import { Chat, DraftNotice } from "../../experiences/interview/chat";
+import { Chat, DraftNotice } from "../_shared/chat";
 import { SceneForm } from "../scenes/scene-form";
 import { valuesOfScene } from "../scenes/scene-values";
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
@@ -67,22 +67,7 @@ beforeEach(async () => {
   newId = created.id;
 });
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
-
-test("스위치가 꺼져 있으면 옛 원천을 읽는다", async () => {
-  vi.stubEnv("NEW_RECORDS", "");
-  expect((await listResumeSources(db, "u1", t1)).map((s) => s.id)).toEqual([oldId]);
-  expect((await listEvidenceCandidates(db, "u1", t1)).map((s) => s.id)).toEqual([oldId]);
-  expect((await listWritingSources(db, "u1", t1)).map((s) => s.id)).toEqual([oldId]); // 옛 원천은 학력도 담는다
-  const names = await sourceNames(db, "u1");
-  expect(names.get(oldId)).toBe("옛 한국대학교");
-  expect(names.has(newId)).toBe(false);
-});
-
-test("스위치가 켜져 있으면 새 원천을 읽는다", async () => {
-  vi.stubEnv("NEW_RECORDS", "1");
+test("새 원천을 읽는다(스위치는 늘 켜져 있다)", async () => {
   expect((await listResumeSources(db, "u1", t1)).map((s) => s.id)).toEqual([newId]);
   expect((await listEvidenceCandidates(db, "u1", t1)).map((s) => s.id)).toEqual([newId]);
   expect(await listWritingSources(db, "u1", t1)).toEqual([]); // 새 자소서 원천은 장면만
@@ -92,20 +77,16 @@ test("스위치가 켜져 있으면 새 원천을 읽는다", async () => {
   expect(names.get(oldId)).toBe("옛 한국대학교");
 });
 
-test("sourceNames: 스위치가 켜져 있어도 남의 옛 기록 이름은 담지 않는다", async () => {
+test("sourceNames: 남의 옛 기록 이름은 담지 않는다", async () => {
   const theirs = await createExperience(db, "u2", { ...school, name: "남의 옛 기록" });
-  vi.stubEnv("NEW_RECORDS", "1");
   expect((await sourceNames(db, "u1")).has(theirs)).toBe(false);
 });
 
-test("oldRecordIds: 스위치가 켜져 있으면 그 사용자의 옛 표 id(확인 여부 상관없이), 꺼져 있으면 빈 집합", async () => {
+test("oldRecordIds: 그 사용자의 옛 표 id(확인 여부 상관없이)", async () => {
   const draft = await createExperience(db, "u1", { ...school, name: "미확인 옛 기록" });
   const theirs = await createExperience(db, "u2", { ...school, name: "남의 옛 기록" });
-  vi.stubEnv("NEW_RECORDS", "1");
   const ids = await oldRecordIds(db, "u1");
   expect([...ids].sort()).toEqual([oldId, draft].sort());
   expect(ids.has(theirs)).toBe(false);
   expect(ids.has(newId)).toBe(false);
-  vi.stubEnv("NEW_RECORDS", "");
-  expect((await oldRecordIds(db, "u1")).size).toBe(0);
 });

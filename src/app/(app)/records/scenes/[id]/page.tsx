@@ -16,9 +16,9 @@ import {
 import { getScene } from "@/modules/experiences/scenes-repo";
 import { newRecordsOn } from "@/modules/experiences/switch";
 import { listTracks } from "@/modules/tracks/repo";
-import { ClaimsPanel } from "../../../experiences/claims-panel";
-import { RubricPanel } from "../../../experiences/rubric-panel";
-import { StateBadge } from "../../../experiences/state-badge";
+import { ClaimsPanel } from "../../_shared/claims-panel";
+import { RubricPanel } from "../../_shared/rubric-panel";
+import { StateBadge } from "../../_shared/state-badge";
 import { cardOf } from "../../fact-summary";
 import { HEAD_NOUN, headOptionsOf } from "../heads";
 import { ConfirmScene } from "../confirm-scene";
