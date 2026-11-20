@@ -14,11 +14,12 @@
 
 - **표 10개**(새로): `experiences_education`(학교), `experiences_courses`(교육 과정), `experiences_jobs`(경력), `experiences_gaps`(공백), `experiences_credentials`(자격·어학·수상), `experiences_projects`, `experiences_activities`, `experiences_scenes`(장면), `experiences_record_claims`(새 구조의 주장), `experiences_moves`(옮기기 진행). 공백과 교육 과정은 칸이 달라 합치지 않는다. `experiences_interviews`에는 칸만 더한다
 - **트랙별 사용 범위**는 표마다 `track_scopes jsonb`(`Record<trackId, Scope>`, 없는 키는 "사용") 칸으로 둔다. 머리와 장면이 둘 다 있으면 **더 좁은 쪽**을 쓴다(제외 > 요약만 > 사용)
-- **머리 지우기**: 장면이 달린 경력·프로젝트·활동은 지우지 않고 "장면 N개가 있습니다. 장면을 먼저 지우거나 다른 곳으로 옮겨 주세요"를 보인다. 경력을 지우면 그 경력에 딸린 프로젝트의 소속은 비운다(`set null`)
-- **프로젝트의 소속 경력**(`job_id`)은 내용 칸이 아니다. 바꿔도 확인이 풀리지 않는다
+- **머리 지우기**: 장면이 달린 경력·프로젝트·활동은 지우지 않고 "장면 N개가 있습니다. 장면을 먼저 지우거나 다른 곳으로 옮겨 주세요"를 보인다. 경력·학교·교육 과정을 지우면 거기 딸린 프로젝트의 소속은 비운다(`set null`)
+- **프로젝트의 소속**(「결정」 2026-11-20, 사용자): 프로젝트는 조직 하나(경력의 회사, 학력의 학교, 교육 과정의 기관)에 딸리거나 아무 데도 딸리지 않는다(개인). 소속(`parent`)은 내용 칸이 아니다. 바꿔도 확인이 풀리지 않는다
+- **학교 소재지**(「결정」 2026-11-20, 사용자): 회사 자사양식 이력서에 학교 위치를 묻는 곳이 있어 학력에 `소재지` 칸(선택)을 둔다
 - **머리의 기간을 바꾸면** 기간이 빈(머리의 기간을 쓰는) 장면의 기간 판정을 다시 계산한다
 - **주장**: 장면, 경력의 담당 업무 줄, 프로젝트의 한 줄 요약에만 둔다. 가져오기·옮기기로 만든 것만 주장을 갖는다. 같은 답 버튼을 쓴다
-- **옮기기**: 옛 기록 하나가 한 단위다. 화면이 한 단위씩 서버 액션을 불러(시간 제한을 피함) 진행을 보인다. 프로젝트·기타는 코드가 칸에 그대로 옮기고(확인됨이었으면 확인 상태·루브릭·주장 답을 이어 감), 학력·교육·자격·공백·재직은 새 가져오기(Task 7)에 그 기록의 글을 넣어 AI가 나눈다. 옮긴 장면의 금지 표현과 "하지 않은 것"은 옛 기록의 것을 그대로 붙인다(재직에서 나온 장면 여럿에는 모두). 모든 기록을 옮긴 뒤 AI가 프로젝트의 소속 경력을 한 번에 제안한다. 같은 단위를 두 탭에서 동시에 돌리지 않게 `running`으로 잡고, 5분이 지난 `running`은 다시 잡을 수 있다
+- **옮기기**: 옛 기록 하나가 한 단위다. 화면이 한 단위씩 서버 액션을 불러(시간 제한을 피함) 진행을 보인다. 프로젝트·기타는 코드가 칸에 그대로 옮기고(확인됨이었으면 확인 상태·루브릭·주장 답을 이어 감), 학력·교육·자격·공백·재직은 새 가져오기(Task 7)에 그 기록의 글을 넣어 AI가 나눈다. 옮긴 장면의 금지 표현과 "하지 않은 것"은 옛 기록의 것을 그대로 붙인다(재직에서 나온 장면 여럿에는 모두). 모든 기록을 옮긴 뒤 AI가 프로젝트의 소속(회사·학교·교육 기관)을 한 번에 제안한다. 같은 단위를 두 탭에서 동시에 돌리지 않게 `running`으로 잡고, 5분이 지난 `running`은 다시 잡을 수 있다
 - **스위치**: `src/modules/experiences/switch.ts`의 `newRecordsOn()`. 바꾸기 전에는 `process.env.NEW_RECORDS === "1"`일 때만 켜진다(실서비스에는 넣지 않는다. 로컬 미리보기와 테스트만). 바꾸기 PR에서 `true`로 고정한다. 꺼져 있으면 새 화면은 `notFound()`, 새 서버 액션은 "아직 열리지 않은 기능입니다"를 돌려준다
 - **어댑터의 id와 version**: 자소서용 원천은 장면 하나(id = 장면 id), 이력서용 원천은 머리 하나(경력·프로젝트·활동, 그 아래 쓸 수 있는 장면을 묶음)와 이력 사실 하나. `contentVersion`은 들어간 행들의 `(id, contentVersion)`을 이은 글의 FNV-1a 32비트 값이다(`versionHash`). 어느 행이 바뀌거나 장면이 더해지고 빠져도 값이 바뀐다
 - **이력서의 이력 사실**(학력·교육 과정·자격·어학·수상·공백)은 코드가 줄을 만들고(`codeLines`) AI에 보내지 않는다. 강조 후보에도 넣지 않는다. 경력 항목의 머리에는 담당 업무 줄(`heading.duties`)을 코드가 붙인다
@@ -69,31 +70,32 @@
   export const GPA_SCALES = ["4.5", "4.3", "4.0"] as const;
   export const EMPLOYMENTS = ["regular", "contract", "intern", "freelance", "parttime"] as const; // 정규직/계약직/인턴/프리랜서/아르바이트
   export const CREDENTIAL_TYPES = ["license", "language", "award"] as const; // 자격증/어학/수상
-  export const AFFILIATIONS = ["job", "personal", "school", "training"] as const; // 경력 소속/개인/학교/교육
+  export const PARENT_KINDS = ["job", "education", "course"] as const satisfies readonly FactKind[]; // 프로젝트가 딸릴 수 있는 조직
+  export type ProjectParent = { kind: (typeof PARENT_KINDS)[number]; id: string } | null; // null = 개인
   export const RECORD_LIMITS = { duties: 8, dutyLength: 100, tools: 10, summary: 200 };
   // 각 배열마다 *_LABELS: Record<값, 한국어>
   export type RecordSource = "manual" | "interview" | "import" | "migrate";
   ```
 - Produces (`record-input.ts`): 메뉴마다 입력 타입과 검사 함수. 검사 함수는 `validateExperience`와 같은 모양 `(raw: unknown) => { ok: true; value: T } | { ok: false; errors: Partial<Record<keyof T, string>> }`
   ```ts
-  export type EducationInput = { schoolName: string; degree: Degree; major: string | null; startMonth: string | null; endMonth: string | null; status: SchoolStatus; gpa: string | null; gpaScale: GpaScale | null };
+  export type EducationInput = { schoolName: string; location: string | null; degree: Degree; major: string | null; startMonth: string | null; endMonth: string | null; status: SchoolStatus; gpa: string | null; gpaScale: GpaScale | null };
   export type CourseInput = { name: string; institution: string | null; startMonth: string | null; endMonth: string | null; hours: number | null; learned: string | null };
   export type JobInput = { company: string; department: string | null; title: string | null; employment: Employment; startMonth: string | null; endMonth: string | null; isOngoing: boolean; duties: string[]; bannedPhrases: string[] };
   export type GapInput = { startMonth: string | null; endMonth: string | null; note: string | null };
   export type CredentialInput = { type: CredentialType; name: string; issuer: string | null; month: string | null; score: string | null };
-  export type ProjectInput = { name: string; jobId: string | null; affiliation: Affiliation; startMonth: string | null; endMonth: string | null; isOngoing: boolean; role: string | null; tools: string[]; summary: string | null; bannedPhrases: string[] };
+  export type ProjectInput = { name: string; parent: ProjectParent; startMonth: string | null; endMonth: string | null; isOngoing: boolean; role: string | null; tools: string[]; summary: string | null; bannedPhrases: string[] };
   export type ActivityInput = { name: string; organization: string | null; startMonth: string | null; endMonth: string | null; isOngoing: boolean; role: string | null };
   export type SceneInput = { head: HeadRef; title: string; startMonth: string | null; endMonth: string | null; isOngoing: boolean; situation: string | null; judgment: string | null; actions: string | null; result: string | null; lessons: string | null; metrics: Metric[]; notDone: string | null; bannedPhrases: string[]; evidenceNote: string | null; tags: string[] };
   export type FactInputs = { education: EducationInput; course: CourseInput; job: JobInput; gap: GapInput; credential: CredentialInput; project: ProjectInput; activity: ActivityInput };
   export function validateFact<K extends FactKind>(kind: K, raw: unknown): { ok: true; value: FactInputs[K] } | { ok: false; errors: Record<string, string> };
   export function validateScene(raw: unknown): { ok: true; value: SceneInput } | { ok: false; errors: Partial<Record<keyof SceneInput, string>> };
-  // 이 칸들이 바뀌면 내용이 바뀐 것(확인을 푼다). project의 jobId는 들어가지 않는다
+  // 이 칸들이 바뀌면 내용이 바뀐 것(확인을 푼다). project의 parent는 들어가지 않는다
   export const FACT_CONTENT_FIELDS: { [K in FactKind]: readonly (keyof FactInputs[K])[] };
   export const SCENE_CONTENT_FIELDS: readonly (keyof SceneInput)[]; // head, title, 기간, 다섯 서술 칸, metrics, notDone
   ```
-  필수: 학교 이름·학위·상태, 과정 이름, 회사 이름·고용 형태, 공백의 시작·끝 월, 자격 종류·이름, 프로젝트 이름, 활동 이름, 장면 제목·머리. 고등학교는 전공을 비워도 된다. 재학·휴학이면 졸업 월을 받지 않는다(null로 둔다). `gpa`는 `^\d(\.\d{1,2})?$`이고 `gpaScale`보다 크지 않다. `gpa`가 있으면 `gpaScale` 필수. `hours`는 1~10000 정수. `affiliation`이 `job`이 아니면 `jobId`는 null로 둔다. 문자열은 앞뒤 공백을 자르고 빈 글은 null, 목록은 빈 줄을 버리고 중복을 없앤다(`input.ts`의 `text`·`stringList`를 내보내 함께 쓴다)
+  필수: 학교 이름·학위·상태, 과정 이름, 회사 이름·고용 형태, 공백의 시작·끝 월, 자격 종류·이름, 프로젝트 이름, 활동 이름, 장면 제목·머리. 고등학교는 전공을 비워도 된다. 재학·휴학이면 졸업 월을 받지 않는다(null로 둔다). `gpa`는 `^\d(\.\d{1,2})?$`이고 `gpaScale`보다 크지 않다. `gpa`가 있으면 `gpaScale` 필수. `hours`는 1~10000 정수. `location`(학교 소재지, 예: "서울")은 선택, 100자. 문자열은 앞뒤 공백을 자르고 빈 글은 null, 목록은 빈 줄을 버리고 중복을 없앤다(`input.ts`의 `text`·`stringList`를 내보내 함께 쓴다)
 - Produces (`schema.ts`): 공통 칸 묶음 `factColumns()` = `id` text pk, `user_id`(cascade, not null), `confirmed_at` timestamptz null, `content_version` int not null default 0, `source` text `RecordSource` not null default 'manual', `track_scopes` jsonb `Record<string, Scope>` not null default `{}`, `moved_from` text null(옛 기록 id, 외래 키 없음), `created_at`, `updated_at`. 표마다 `factColumns()`에 위 입력 칸을 snake_case로 더하고 `index(...).on(userId)`를 둔다. 목록 칸(`duties`, `tools`, `banned_phrases`, `metrics`, `tags`)은 jsonb not null default `[]`
-  - `experiences_projects.job_id` → `experiences_jobs(id)` `on delete set null`
+  - `experiences_projects`: `job_id` → `experiences_jobs(id)`, `education_id` → `experiences_education(id)`, `course_id` → `experiences_courses(id)`, 모두 `on delete set null`, `check("experiences_projects_one_parent", sql\`num_nonnulls(job_id, education_id, course_id) <= 1\`)`
   - `experiences_scenes`: `factColumns()` + `job_id`/`project_id`/`activity_id`(각각 해당 표를 참조, 기본 동작 `no action`) + `check("experiences_scenes_one_head", sql\`num_nonnulls(job_id, project_id, activity_id) = 1\`)` + SceneInput의 나머지 칸 + `rubric` jsonb `StoredRubric` not null, `phrase_candidates`, `dismissed_phrases` jsonb default `[]`, `judged_at` timestamptz null
   - `experiences_record_claims`: `id`, `user_id`(cascade), `scene_id`/`job_id`/`project_id`(각각 `on delete cascade`, 하나만: `num_nonnulls(...) = 1`), `kind`, `quote`, `phrase`, `status`, `origin`, `position`, `created_at`, `updated_at`(지금 `experiences_claims`와 같은 칸)
   - `experiences_moves`: `id`, `user_id`(cascade), `step` text `"record" | "affiliate"`, `old_id` text null(step이 record일 때), `status` text `"pending" | "running" | "done" | "failed"` default 'pending', `attempts` int default 0, `error` text null, `started_at` timestamptz null, `updated_at`. `uniqueIndex("experiences_moves_user_old_idx").on(userId, oldId)`
@@ -105,9 +107,9 @@
   - 월: `"2023-13"` → 오류, 끝 월 `"2023-01"` < 시작 `"2023-03"` → `endMonth` 오류, 재직 중이면 `endMonth`가 null
   - 학력: `status: "enrolled"`이면 `endMonth`를 넣어도 null; `gpa: "4.6", gpaScale: "4.5"` → 오류; `gpa: "3.8"`에 `gpaScale` 없음 → 오류
   - 경력: 담당 업무 9줄 → 오류, 101자 줄 → 오류, 빈 줄은 버려진다
-  - 프로젝트: `affiliation: "personal", jobId: "x"` → `jobId`가 null
+  - 프로젝트: `parent: { kind: "activity", id: "x" }` → 오류; `parent: null`은 개인으로 통과
   - 장면: `head` 없음 → 오류, `head.kind`가 `"education"` → 오류, 긴 칸 4,001자 → 오류, 수치 11개 → 오류
-  - `FACT_CONTENT_FIELDS.project`에 `jobId`가 없다
+  - `FACT_CONTENT_FIELDS.project`에 `parent`가 없다
 - [ ] **Step 2: 돌려서 실패를 본다** — `npx vitest run src/modules/experiences/record-input.test.ts`
 - [ ] **Step 3: 선택지·입력 검사·표·스위치를 만들고 `npm run db:generate`로 마이그레이션을 만든다.** `src/db/test-db.test.ts`가 새 마이그레이션으로도 통과하는지 함께 본다
 - [ ] **Step 4: 돌려서 통과를 본다** — 같은 명령, `npx vitest run src/db`, `npx tsc --noEmit`
@@ -138,8 +140,8 @@
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다** (`facts-repo.test.ts`, `createTestDb()`)
   - 메뉴마다 만들기 → `listFacts`에 그 메뉴로 나오고 미확인; `confirmFact` → 확인됨; 이름만 아닌 내용 칸(예: 학교 전공)을 고치면 미확인으로 돌아가고 `contentVersion`이 1 오른다; 내용이 같으면 그대로
-  - 프로젝트의 `jobId`만 바꾸면 확인이 유지된다
-  - 장면이 없는 경력은 지워진다; 경력을 지우면 딸린 프로젝트의 `jobId`가 null(장면이 달린 경력의 `has_scenes`는 Task 4에서 시험한다)
+  - 프로젝트의 `parent`만 바꾸면 확인이 유지된다; 남의 경력·학교·교육 과정을 `parent`로 주면 `not_found`(`createFact`·`updateFact` 모두)
+  - 장면이 없는 경력은 지워진다; 경력·학교·교육 과정을 지우면 딸린 프로젝트의 `parent`가 null(장면이 달린 경력의 `has_scenes`는 Task 4에서 시험한다)
   - 남의 트랙으로 `setFactTrackScope` → `not_found`; 내 트랙 → `trackScopes`에 들어간다
   - 다른 사용자: `u2`의 `getFact`·`listFacts`·`updateFact`·`deleteFact`·`confirmFact`는 `u1`의 것을 읽거나 바꾸지 못한다
 - [ ] **Step 2: 돌려서 실패를 본다** — `npx vitest run src/modules/experiences/facts-repo.test.ts`
@@ -253,7 +255,7 @@
   - 학력: "학교" 구역과 "교육 과정" 구역, 경력: 경력과 공백을 시작 월 최근 순으로 섞어 보인다, 자격·어학·수상: 한 목록(종류 표시)
   - 카드: 짧은 칸 모두, 상태(미확인·확인됨), 미확인이면 `맞음`·`고치기`, 확인됨이면 `고치기`. 경력·프로젝트에 열린 주장이 있으면 `맞음`이 꺼지고 "줄 확인이 남아 있습니다 N개"와 줄마다 답 버튼(`head-claims.tsx`: 맞음 / 과장임 / 숫자 모름 / 틀림·고칠게요)
   - 아래에 `+ 학교 추가`처럼 구역마다 추가 링크(`/records/facts/education/new`)
-  - 고치기 화면(`fact-form.tsx`): 메뉴마다 칸, 선택지는 버튼·드롭다운, 트랙별 사용 범위(지금 기록 화면과 같은 모양), 저장·지우기. 프로젝트는 소속(경력 고르기 / 개인 / 학교 / 교육)
+  - 고치기 화면(`fact-form.tsx`): 메뉴마다 칸, 선택지는 버튼·드롭다운, 트랙별 사용 범위(지금 기록 화면과 같은 모양), 저장·지우기. 프로젝트는 소속(내 경력·학교·교육 과정 중 하나 고르기 / 개인), 학력은 소재지 칸
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다** (`record-actions.test.ts`. 액션 테스트는 지금 다른 모듈의 액션 테스트처럼 `requireUser`를 `vi.mock`하고 `vi.stubEnv("NEW_RECORDS", "1")`)
   - 스위치가 꺼져 있으면 `saveFactAction` → "아직 열리지 않은 기능입니다"이고 아무것도 저장되지 않는다
@@ -305,20 +307,20 @@
   export type ImportPlan = {
     education: EducationInput[]; courses: CourseInput[]; credentials: CredentialInput[]; gaps: GapInput[];
     jobs: { input: JobInput; claims: PreparedClaims; scenes: PreparedScene[] }[];
-    projects: { input: ProjectInput; claims: PreparedClaims; jobIndex: number | null; scenes: PreparedScene[] }[];
+    projects: { input: ProjectInput; claims: PreparedClaims; parentIndex: { kind: "job" | "education" | "course"; index: number } | null; scenes: PreparedScene[] }[];
     activities: { input: ActivityInput; scenes: PreparedScene[] }[];
   };
   export async function requestRecordImport(db, ai, userId, sourceText: string, options?: { purpose?: "import_records" | "migrate"; hint?: Kind }, now?): Promise<{ ok: true; plan: ImportPlan; skipped: number; more: boolean } | { ok: false; reason: "over_limit" | "nothing_found" | AiFailure }>;
   export async function saveImportPlan(db, userId, plan: ImportPlan, options: { source: "import" | "migrate"; movedFrom?: string; trackScopes?: Record<string, Scope>; carry?: { notDone: string | null; bannedPhrases: string[] } }): Promise<{ created: { kind: FactKind | "scene"; id: string; name: string }[] }>;
   export async function importRecords(db, ai, userId, sourceText, now?): Promise<{ ok: true; created: …; skipped: number; more: boolean } | { ok: false; reason: … }>;
   ```
-  AI 답 스키마는 위 묶음과 같은 모양이다(빈 칸은 빈 글, 경력·프로젝트는 `roleClaims`, 장면은 `roleClaims`와 `bannedPhrases`, 프로젝트는 `jobIndex`). 코드 검사는 지금 `requestImport`와 같다: 한도에 맞춰 자르기(`fitDraft`), 메뉴별 검사 함수를 통과한 것만(아니면 `skipped`), 원본에 없던 숫자가 든 구절은 `needs_fix`, 금지 표현은 원본에 글자 그대로 있는 것만. 한 번에 머리·이력 사실 합쳐 30개, 머리마다 장면 8개까지. `hint`가 있으면(옮기기) 메시지 앞에 "이 글은 예전 기록의 '(구분)' 한 건입니다"를 붙인다. `saveImportPlan`은 한 트랜잭션에서 모두 만들고(모두 미확인), `carry`가 있으면 모든 장면의 "하지 않은 것"(비어 있을 때만)과 금지 표현(합침)에 넣는다. `jobIndex`는 같은 묶음에서 만든 경력의 id로 바꾼다
+  AI 답 스키마는 위 묶음과 같은 모양이다(빈 칸은 빈 글, 경력·프로젝트는 `roleClaims`, 장면은 `roleClaims`와 `bannedPhrases`, 프로젝트는 `parentIndex`). 코드 검사는 지금 `requestImport`와 같다: 한도에 맞춰 자르기(`fitDraft`), 메뉴별 검사 함수를 통과한 것만(아니면 `skipped`), 원본에 없던 숫자가 든 구절은 `needs_fix`, 금지 표현은 원본에 글자 그대로 있는 것만. 한 번에 머리·이력 사실 합쳐 30개, 머리마다 장면 8개까지. `hint`가 있으면(옮기기) 메시지 앞에 "이 글은 예전 기록의 '(구분)' 한 건입니다"를 붙인다. `saveImportPlan`은 한 트랜잭션에서 모두 만들고(모두 미확인), `carry`가 있으면 모든 장면의 "하지 않은 것"(비어 있을 때만)과 금지 표현(합침)에 넣는다. `parentIndex`는 같은 묶음에서 만든 경력·학교·교육 과정의 id로 바꾼다
 - Produces (`record-prompt-check.ts`): `runRecordCheck(db, ai, userId, now?): Promise<CheckRow[]>` — 장면 정리 예시 2개(대화의 장면 하나만 정리, 대화에 없던 숫자 경고), 가져오기 예시 1개(학력·자격·경력+장면 2개·프로젝트가 섞인 글: 메뉴별 개수, 학력에 상황 칸이 없음, 원본에 없는 숫자 없음, 경력 장면이 2개 이상)
 - 화면: `/records/scenes`의 `+ 장면 추가`가 `AI 인터뷰` / `직접 쓰기`를 고르게 한다. `/records/interview/[id]`는 지금 채팅 화면을 다시 쓰고 정리하면 장면 폼(Task 6)을 띄운다. `/records/import`는 지금 가져오기 화면(붙여 넣기·파일·노션 zip)을 다시 쓰고 결과에 메뉴별로 만든 것을 보인다
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다** (`createFakeAi`)
   - `scene-interview.test.ts`: 머리 없이 시작 → `not_found`; 남의 머리 → `not_found`; 시작한 인터뷰의 첫 메시지에 머리의 회사 이름이 있다; 정리한 초안의 `head`가 인터뷰의 머리; 대화에 없던 숫자 → 그 칸 경고
-  - `record-import.test.ts`: 학력 1·자격 1·경력 1(장면 2)·프로젝트 1(`jobIndex: 0`)인 가짜 답 → 계획의 개수가 맞고 프로젝트가 경력을 가리킴; 원본에 없던 숫자가 든 장면 구절 → `needs_fix`; 학력 이름이 비면 `skipped` 1; 원본에 없는 금지 표현은 버려짐; `saveImportPlan` 뒤 모두 미확인이고 `source: "import"`, 주장이 장면·경력에 저장; `carry`를 주면 모든 장면에 금지 표현이 들어간다; AI 실패 → 그 사유, 아무것도 저장 안 됨
+  - `record-import.test.ts`: 학력 1·자격 1·경력 1(장면 2)·프로젝트 1(`parentIndex: { kind: "job", index: 0 }`)인 가짜 답 → 계획의 개수가 맞고 프로젝트가 경력을 가리킴; 원본에 없던 숫자가 든 장면 구절 → `needs_fix`; 학력 이름이 비면 `skipped` 1; 원본에 없는 금지 표현은 버려짐; `saveImportPlan` 뒤 모두 미확인이고 `source: "import"`, 주장이 장면·경력에 저장; `carry`를 주면 모든 장면에 금지 표현이 들어간다; AI 실패 → 그 사유, 아무것도 저장 안 됨
   - `record-prompt-check.test.ts`: 기대대로 답하는 가짜 AI면 모든 줄 통과, 학력에 상황을 넣은 답이면 그 줄 실패
 - [ ] **Step 2: 돌려서 실패를 본다** — `npx vitest run src/modules/experiences/scene-interview.test.ts src/modules/experiences/record-import.test.ts src/modules/experiences/record-prompt-check.test.ts`
 - [ ] **Step 3: 구현한다.** `src/dev/local-ai.ts`에 `import_records`(붙여 넣은 글에서 학력 1·경력 1+장면 1을 만드는 고정 답), `extract_scene`(대화의 첫 답을 상황·한 일로 옮긴 답), `migrate`(Task 8에서 채움, 지금은 `import_records`와 같은 답)를 더한다
@@ -339,7 +341,7 @@
 - Produces (`move-repo.ts`):
   ```ts
   export type MoveProgress = { total: number; done: number; failed: { id: string; name: string; error: string }[]; pending: number };
-  export async function planMoves(db, userId): Promise<void>;        // 옛 기록마다 record 행(없는 것만), 프로젝트와 경력(재직)이 모두 있으면 affiliate 행 하나. 몇 번 불러도 같다
+  export async function planMoves(db, userId): Promise<void>;        // 옛 기록마다 record 행(없는 것만), 프로젝트와 조직이 될 기록(재직·학력·교육)이 모두 있으면 affiliate 행 하나. 몇 번 불러도 같다
   export async function needsMove(db, userId): Promise<boolean>;     // 행이 없는 옛 기록이 있거나 pending·running이 있음
   export async function claimNextMove(db, userId, now: Date): Promise<{ id: string; step: "record" | "affiliate"; oldId: string | null } | null>;
   // pending이거나 started_at이 5분 넘은 running 하나를 한 문장의 update … returning으로 running으로 잡는다. affiliate는 record 행이 모두 done·failed일 때만
@@ -354,10 +356,10 @@
   export async function runNextMove(db, ai, userId, now?): Promise<MoveProgress>; // 하나 잡아 옮기고 진행을 돌려준다. 잡을 것이 없으면 진행만
   ```
   `moveRecord`는 옛 구분에 따라:
-  - `project`·`other`: 코드가 옮긴다. 머리(프로젝트: 이름·역할·기간, 소속 `personal`, 요약 null / 활동: 이름·기관(organization)·역할·기간)와 장면 하나(제목 = 옛 이름, 상황·한 일·결과·수치·하지 않은 것·금지 표현·증빙 메모·태그를 글자 그대로, 판단·배운 점은 비움, 기간은 비워 머리의 기간을 씀). 옛 기록이 **확인됨**이면 장면에 옛 루브릭·`confirmedAt`을 `carry`로 넘기고, 머리도 확인됨으로 만들고, 옛 주장을 상태 그대로 장면 주장으로 복사한다. 아니면 장면은 미확인이고 루브릭은 새로(닫은 수치·증빙은 유지), 주장은 `findClaims(subjectOfScene)` + AI 역할 주장(목적 `migrate`, 첫 줄 `[옮기기: 주장]`, 스키마 `{ quotes: string[] }`)을 `mergeClaims`로 합친다. 옛 주장 답은 옮기지 않는다
+  - `project`·`other`: 코드가 옮긴다. 머리(프로젝트: 이름·역할·기간, 소속 없음(개인), 요약 null / 활동: 이름·기관(organization)·역할·기간)와 장면 하나(제목 = 옛 이름, 상황·한 일·결과·수치·하지 않은 것·금지 표현·증빙 메모·태그를 글자 그대로, 판단·배운 점은 비움, 기간은 비워 머리의 기간을 씀). 옛 기록이 **확인됨**이면 장면에 옛 루브릭·`confirmedAt`을 `carry`로 넘기고, 머리도 확인됨으로 만들고, 옛 주장을 상태 그대로 장면 주장으로 복사한다. 아니면 장면은 미확인이고 루브릭은 새로(닫은 수치·증빙은 유지), 주장은 `findClaims(subjectOfScene)` + AI 역할 주장(목적 `migrate`, 첫 줄 `[옮기기: 주장]`, 스키마 `{ quotes: string[] }`)을 `mergeClaims`로 합친다. 옛 주장 답은 옮기지 않는다
   - `school`·`training`·`certificate`·`gap`·`job`: `requestRecordImport(…, describeExperience(옛 기록), { purpose: "migrate", hint: 옛 구분 })` 뒤 기대한 메뉴에 하나 이상 나왔는지 본다(학력→education, 교육→course, 자격→credential, 공백→gap, 재직→job). 아니면 `{ ok: false, error: "나눌 내용을 찾지 못했습니다" }`. 나왔으면 `saveImportPlan(…, { source: "migrate", movedFrom: oldId, trackScopes: 옛 범위, carry: { notDone, bannedPhrases } })`. 모두 미확인
   - 모든 경우 옛 기록의 트랙별 범위를 새 행들의 `trackScopes`로 복사하고 `movedFrom`에 옛 id를 적는다. 한 기록의 저장은 한 트랜잭션이다(실패하면 아무것도 남지 않는다). 이미 `movedFrom`이 그 옛 id인 행이 있으면 저장하지 않고 ok(두 번 옮기지 않음)
-  `affiliateProjects`: 옮긴 프로젝트(소속이 `personal`)와 경력의 이름·회사·기간을 별명(P1, J1)으로 보내(목적 `migrate`, 첫 줄 `[옮기기: 소속]`, 스키마 `{ links: { project: string; job: string }[] }`) 받은 짝마다 프로젝트의 `jobId`·`affiliation: "job"`을 쓴다. 프로젝트 기간이 경력 기간 밖이면 버린다
+  `affiliateProjects`: 옮긴 프로젝트(소속 없음)와 경력·학교·교육 과정의 이름·기관·기간을 별명(P1, J1, S1, C1)으로 보내(목적 `migrate`, 첫 줄 `[옮기기: 소속]`, 스키마 `{ links: { project: string; parent: string }[] }`) 받은 짝마다 프로젝트의 `parent`를 쓴다. 프로젝트 기간이 그 조직의 기간 밖이면 버린다
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다** (옛 기록은 `createExperience`·`confirmExperience`·`insertClaims`로 넣는다)
   - 확인된 프로젝트(루브릭 모두 met, 주장 하나 confirmed) → 프로젝트 머리 확인됨, 장면 확인됨이고 state confirmed, 루브릭·주장 상태가 같다, AI를 부르지 않는다(가짜 AI 답 0개)
@@ -366,9 +368,9 @@
   - 학력인데 AI가 학력을 하나도 안 냄 → `ok: false`, 새 행 없음
   - 같은 옛 기록을 두 번 → 둘째는 저장 없이 ok
   - `move-repo.test.ts`: `planMoves` 두 번 → 행 수 같음; "동시에 두 번 돌려도 하나만 옮긴다": `Promise.all([claimNextMove, claimNextMove])`가 같은 행을 둘 다 잡지 않는다; "running이 5분 지나면 다시 잡는다": `now`를 6분 뒤로 주면 다시 잡힌다, 4분이면 안 잡힌다; affiliate는 record가 하나라도 pending이면 잡히지 않는다; `retryMove` → pending; `needsMove`는 모두 done·failed면 false; 다른 사용자의 행은 잡지도 보지도 못한다
-  - `affiliateProjects`: 기간 안의 짝은 쓰이고 기간 밖은 버려진다; 확인된 프로젝트에 소속을 써도 확인이 유지된다
+  - `affiliateProjects`: 기간 안의 짝은 쓰이고 기간 밖은 버려진다; 학교에 딸린 짝도 쓰인다; 확인된 프로젝트에 소속을 써도 확인이 유지된다
 - [ ] **Step 2: 돌려서 실패를 본다** — `npx vitest run src/modules/experiences/move.test.ts src/modules/experiences/move-repo.test.ts`
-- [ ] **Step 3: 구현한다.** 프롬프트 점검에 옮기기 예시를 더한다(재직 기록 하나 → 경력 1 + 장면 2개 이상, 원본에 없는 숫자 없음 / 프로젝트 2·경력 1의 소속 짝)
+- [ ] **Step 3: 구현한다.** 프롬프트 점검에 옮기기 예시를 더한다(재직 기록 하나 → 경력 1 + 장면 2개 이상, 원본에 없는 숫자 없음 / 프로젝트 2·경력 1·학교 1의 소속 짝)
 - [ ] **Step 4: 돌려서 통과를 본다** — 같은 명령과 `npx vitest run src/modules/experiences`
 - [ ] **Step 5: 커밋** — `feat: 예전 기록을 새 구조로 옮긴다(스위치 뒤)`
 
@@ -409,8 +411,8 @@
   export async function listRecordEvidence(db, userId, trackId): Promise<EvidenceCandidate[]>;
   export async function recordNames(db, userId): Promise<Map<string, string>>; // 장면 id → 제목, 이력 사실 id → 이름(제출본 얼리기용)
   ```
-  - 자소서 원천: `sceneUsable`인 장면 중 `narrowerScope(머리 범위, 장면 범위) === "use"`. `id` = 장면 id, `name` = 제목, `kind` = 머리가 경력이면 `"job"`, 프로젝트면 `"project"`, 활동이면 `"other"`, `organization` = 회사(경력이면 "회사 · 부서") / 프로젝트 이름 / 활동 이름, `role` = 직급·직책 / 프로젝트 역할 / 활동 역할, 기간 = 장면 기간(비면 머리 기간), `situation`·`actions`·`result`·`notDone`·`bannedPhrases`는 장면 것(판단은 `actions` 앞에 "판단: …"으로, 배운 점은 `result` 뒤에 "배운 점: …"으로 붙인다), `metrics`는 루브릭 수치가 met일 때만, `contentVersion` = `versionHash([장면 id, 장면 version, 머리 id, 머리 version])`. 순서는 기간 시작 월 최근 순
-  - 이력서 원천: 확인된 머리마다 하나(범위가 제외가 아닌 것, `scope`는 머리 범위). 그 아래 장면 중 확인됨이고 장면 범위가 제외가 아닌 것을 `actions`에 "[장면 제목] 상황: … / 한 일: … / 결과: …" 덩어리로 잇는다(장면 범위가 요약만이면 덩어리 끝에 "(요약만)"). 장면이 없어도 머리 하나로 들어간다. 경력은 `duties`, `bannedPhrases`는 머리와 장면의 합, `metrics`는 장면들의 합(루브릭 met만). `contentVersion` = 머리와 들어간 장면들의 `(id, version)`으로 만든 `versionHash`. 확인된 이력 사실(학력·교육 과정·자격·공백, 범위가 제외가 아닌 것)은 하나씩, `kind`는 school / training / certificate / gap, `codeLines`:
+  - 자소서 원천: `sceneUsable`인 장면 중 `narrowerScope(머리 범위, 장면 범위) === "use"`. `id` = 장면 id, `name` = 제목, `kind` = 머리가 경력이면 `"job"`, 프로젝트면 `"project"`, 활동이면 `"other"`, `organization` = 회사(경력이면 "회사 · 부서") / 프로젝트 이름(소속이 있으면 "프로젝트 이름 · 소속 조직 이름") / 활동 이름, `role` = 직급·직책 / 프로젝트 역할 / 활동 역할, 기간 = 장면 기간(비면 머리 기간), `situation`·`actions`·`result`·`notDone`·`bannedPhrases`는 장면 것(판단은 `actions` 앞에 "판단: …"으로, 배운 점은 `result` 뒤에 "배운 점: …"으로 붙인다), `metrics`는 루브릭 수치가 met일 때만, `contentVersion` = `versionHash([장면 id, 장면 version, 머리 id, 머리 version])`. 순서는 기간 시작 월 최근 순
+  - 이력서 원천: 확인된 머리마다 하나(범위가 제외가 아닌 것, `scope`는 머리 범위). 그 아래 장면 중 확인됨이고 장면 범위가 제외가 아닌 것을 `actions`에 "[장면 제목] 상황: … / 한 일: … / 결과: …" 덩어리로 잇는다(장면 범위가 요약만이면 덩어리 끝에 "(요약만)"). 장면이 없어도 머리 하나로 들어간다. 프로젝트의 `organization`은 소속 조직 이름(회사·학교·교육 과정, 없으면 null). 경력은 `duties`, `bannedPhrases`는 머리와 장면의 합, `metrics`는 장면들의 합(루브릭 met만). `contentVersion` = 머리와 들어간 장면들의 `(id, version)`으로 만든 `versionHash`. 확인된 이력 사실(학력·교육 과정·자격·공백, 범위가 제외가 아닌 것)은 하나씩, `kind`는 school / training / certificate / gap, `codeLines`:
     - 학력: `[전공, 학위 이름, 상태 이름].filter(Boolean).join(" · ")` + 학점이 있으면 `" · 학점 3.8/4.5"`
     - 교육 과정: 기관·교육 시간(`"600시간"`) 한 줄, 배운 것이 있으면 둘째 줄
     - 자격·어학·수상: `[종류 이름, 기관, 점수·등급].filter(Boolean).join(" · ")`
