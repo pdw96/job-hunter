@@ -88,7 +88,14 @@ test("스위치가 켜져 있으면 새 원천을 읽는다", async () => {
   expect(await listWritingSources(db, "u1", t1)).toEqual([]); // 새 자소서 원천은 장면만
   const names = await sourceNames(db, "u1");
   expect(names.get(newId)).toBe("새 한국대학교");
-  expect(names.has(oldId)).toBe(false);
+  // 옛 기록을 가리키는 답이 "지운 경험"으로 얼려지지 않도록 옛 이름도 담는다
+  expect(names.get(oldId)).toBe("옛 한국대학교");
+});
+
+test("sourceNames: 스위치가 켜져 있어도 남의 옛 기록 이름은 담지 않는다", async () => {
+  const theirs = await createExperience(db, "u2", { ...school, name: "남의 옛 기록" });
+  vi.stubEnv("NEW_RECORDS", "1");
+  expect((await sourceNames(db, "u1")).has(theirs)).toBe(false);
 });
 
 test("oldRecordIds: 스위치가 켜져 있으면 그 사용자의 옛 표 id(확인 여부 상관없이), 꺼져 있으면 빈 집합", async () => {

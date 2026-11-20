@@ -336,6 +336,16 @@ test("submitPreview: 스위치를 켠 뒤 옛 기록을 가리키는 답·이력
   expect(preview.warnings).toContain("이력서에 표시가 남은 항목: 1개");
 });
 
+test("스위치를 켠 뒤 옛 기록을 근거로 한 답을 제출하면 근거 이름은 옛 기록 이름으로 얼린다", async () => {
+  const exp = await addExperience({ name: "옛 결제 경험" });
+  const postingId = await addPosting();
+  await addQuestionWithDraft(postingId, "지원 동기", ["결제 승인 API를 다시 설계했습니다"], null, [exp]);
+  vi.stubEnv("NEW_RECORDS", "1");
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  const submitted = await getSubmission(db, "u1", postingId, 1);
+  expect(submitted?.content.answers[0].paragraphs[0].sources).toEqual([{ experienceId: exp, name: "옛 결제 경험" }]);
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });

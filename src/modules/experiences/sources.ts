@@ -23,11 +23,14 @@ export async function listEvidenceCandidates(db: Db, userId: string, trackId: st
   return newRecordsOn() ? listRecordEvidence(db, userId, trackId) : listOldEvidence(db, userId, trackId);
 }
 
-// 원천 id → 이름(제출본을 얼릴 때 쓴다)
+// 원천 id → 이름(제출본을 얼릴 때 쓴다). 스위치가 켜져 있어도 옛 기록 이름을 함께 담아,
+// 아직 옛 기록을 가리키는 답이 "지운 경험"으로 얼려지지 않게 한다(겹치면 새 이름)
 export async function sourceNames(db: Db, userId: string): Promise<Map<string, string>> {
-  if (newRecordsOn()) return recordNames(db, userId);
-  const experiences = await listExperiences(db, userId);
-  return new Map(experiences.map((experience) => [experience.id, experience.name]));
+  const legacy = await listExperiences(db, userId);
+  const names = new Map(legacy.map((record) => [record.id, record.name]));
+  if (!newRecordsOn()) return names;
+  for (const [id, name] of await recordNames(db, userId)) names.set(id, name);
+  return names;
 }
 
 // 옛 표(experiences_experiences)의 그 사용자 기록 id. 바꾼 뒤 답·이력서가 옛 기록을 가리키는지 볼 때 쓴다.
