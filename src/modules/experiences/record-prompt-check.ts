@@ -1,5 +1,5 @@
 import type { Db } from "@/db/types";
-import type { AiClient } from "@/modules/ai/client";
+import { type AiClient, runAi } from "@/modules/ai/client";
 import type { ExperienceInput } from "./input";
 import { type AffiliationInput, requestAffiliation } from "./move";
 import type { CheckRow } from "./prompt-check";
@@ -8,9 +8,12 @@ import type { SceneInput } from "./record-input";
 import { requestRecordImport } from "./record-import";
 import type { SceneHead } from "./scene-head";
 import { requestSceneDraft } from "./scene-interview";
+import type { Judgement } from "./judge";
+import { RUBRIC_ITEM_LABELS } from "./options";
+import { sceneJudgeRequest } from "./scene-judge";
 import type { InterviewMessage } from "./schema";
 
-// 새 기록 구조의 프롬프트 점검. 장면 정리(extract_scene), 새 가져오기(import_records), 옮기기(migrate)를 실제 AI에 돌려 기대대로 동작하는지 본다.
+// 새 기록 구조의 프롬프트 점검. 장면 판정(judge), 장면 정리(extract_scene), 새 가져오기(import_records), 옮기기(migrate)를 실제 AI에 돌려 기대대로 동작하는지 본다.
 // prompt-check.ts와 같은 줄 모양(CheckRow)을 돌려주고, 관리자 화면이 함께 보인다.
 
 const talk = (pairs: [string, string][]): InterviewMessage[] =>
@@ -74,6 +77,127 @@ export const SCENE_SAMPLES: SceneSample[] = [
     ],
   },
 ];
+
+// ---- 장면 판정 ----
+// 옛 경험 기록의 판정 예시(5-4 전 prompt-check.ts)를 장면 모양으로 옮겼다. 기대도 같다.
+// judgeScene과 같은 요청(sceneJudgeRequest: describeScene + JUDGE_SYSTEM + judgementSchema)을 보낸다
+
+type JudgeItem = "role" | "level" | "metrics" | "evidence";
+type SceneJudgeSample = {
+  name: string;
+  head: SceneHead;
+  scene: SceneInput;
+  expect: Partial<Record<JudgeItem, "met" | "unmet">>;
+  candidates?: "some" | "none";
+};
+
+const orderHead = sampleHead("job", [["회사", "가나다 주식회사"], ["부서", "개발팀"], ["직급", "백엔드 개발"]], {
+  startMonth: "2021-03",
+  endMonth: null,
+  isOngoing: true,
+});
+
+const orderScene: SceneInput = {
+  head: orderHead.ref,
+  title: "주문 조회 API 개선",
+  startMonth: "2023-03",
+  endMonth: "2023-11",
+  isOngoing: false,
+  // 본문에 근거 없는 숫자를 두지 않는다. 실제 AI는 본문의 숫자에도 근거를 요구한다(2026-11-17 점검에서 확인)
+  situation: "주문 조회 화면이 느리다는 고객 문의가 꾸준히 들어왔다.",
+  judgment: null,
+  actions:
+    "주문 조회 API 3개의 쿼리를 직접 분석해 인덱스 2개를 추가하고, 한 번에 불러오던 목록을 페이지 단위로 나누도록 구현했다. 설계 방향은 팀장이 정했고 나는 구현과 부하 테스트를 맡았다.",
+  result: "조회 응답 시간이 줄어 관련 문의가 줄었다.",
+  lessons: null,
+  metrics: [{ text: "평균 응답 시간 2.1초에서 0.6초", basis: "사내 모니터링 도구의 개선 전후 각 2주 평균" }],
+  notDone: "API 설계 방향 결정과 프론트엔드 수정은 하지 않았다.",
+  bannedPhrases: [],
+  evidenceNote: "사내 모니터링 대시보드 캡처와 작업 티켓 목록을 보관하고 있다.",
+  tags: [],
+};
+
+const storeHead = sampleHead("job", [["회사", "동네 편의점"], ["부서", null], ["직급", "야간 근무"]], {
+  startMonth: "2019-03",
+  endMonth: "2019-12",
+  isOngoing: false,
+});
+
+export const SCENE_JUDGE_SAMPLES: SceneJudgeSample[] = [
+  {
+    name: "구체적인 기록",
+    head: orderHead,
+    scene: orderScene,
+    expect: { role: "met", level: "met", metrics: "met", evidence: "met" },
+    candidates: "some", // 설계를 하지 않았다고 했으므로 과장 후보가 나와야 한다
+  },
+  {
+    name: "본인 역할이 흐린 기록",
+    head: orderHead,
+    scene: { ...orderScene, actions: "주문 조회 성능 개선 프로젝트에 참여하여 성능 개선에 기여했다.", notDone: null },
+    expect: { role: "unmet" },
+  },
+  {
+    name: "수치에 근거가 없는 기록",
+    head: orderHead,
+    scene: { ...orderScene, metrics: [{ text: "응답 속도 70% 개선", basis: null }] },
+    expect: { role: "met", metrics: "unmet" },
+  },
+  {
+    name: "수치가 없는 기록",
+    head: orderHead,
+    scene: { ...orderScene, situation: "주문 조회 화면이 느리다는 문의가 있었다.", metrics: [] },
+    expect: { metrics: "met" }, // 없는 수치를 요구하지 않는다
+  },
+  {
+    name: "증빙이 없는 기록",
+    head: orderHead,
+    scene: { ...orderScene, evidenceNote: null },
+    expect: { evidence: "unmet", role: "met" },
+  },
+  {
+    name: "평범하지만 분명한 기록",
+    head: storeHead,
+    scene: {
+      ...orderScene,
+      head: storeHead.ref,
+      title: "편의점 야간 근무",
+      startMonth: null,
+      endMonth: null,
+      situation: "야간에 혼자 매장을 맡았다.",
+      actions: "계산, 상품 진열, 유통기한 확인과 폐기 등록을 혼자 했다. 발주는 점주가 했고 나는 하지 않았다.",
+      result: "근무한 10개월 동안 무단결근 없이 일했다.",
+      metrics: [],
+      notDone: "발주와 정산은 하지 않았다.",
+      evidenceNote: "근로계약서와 급여 이체 내역이 있다.",
+    },
+    expect: { role: "met", level: "met", evidence: "met" }, // 대단한 성과가 아니어도 분명하면 충족
+    candidates: "some",
+  },
+];
+
+const VERDICT_LABELS = { met: "충족", unmet: "미달" } as const;
+
+function judgeRows(sample: SceneJudgeSample, judgement: Judgement): CheckRow[] {
+  const rows: CheckRow[] = (Object.keys(sample.expect) as JudgeItem[]).map((item) => ({
+    sample: sample.name,
+    check: RUBRIC_ITEM_LABELS[item],
+    expected: VERDICT_LABELS[sample.expect[item]!],
+    actual: VERDICT_LABELS[judgement[item].status] + (judgement[item].note ? ` (${judgement[item].note})` : ""),
+    pass: judgement[item].status === sample.expect[item],
+  }));
+  if (sample.candidates) {
+    const count = judgement.phraseCandidates.length;
+    rows.push({
+      sample: sample.name,
+      check: "과장 표현 후보",
+      expected: sample.candidates === "some" ? "1개 이상" : "없음",
+      actual: count === 0 ? "없음" : judgement.phraseCandidates.join(", "),
+      pass: sample.candidates === "some" ? count > 0 : count === 0,
+    });
+  }
+  return rows;
+}
 
 // 학력·자격·경력(장면 둘)·프로젝트가 섞인 글. 메뉴별로 나누고, 학력에 서술을 넣지 않는지 본다
 export const RECORD_IMPORT_SAMPLE = {
@@ -232,6 +356,11 @@ function affiliateRows(links: Extract<Awaited<ReturnType<typeof requestAffiliati
 const failed = (sample: string, reason: string): CheckRow[] => [{ sample, check: "AI 호출", expected: "성공", actual: reason, pass: false }];
 
 export async function runRecordCheck(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<CheckRow[]> {
+  const judged = SCENE_JUDGE_SAMPLES.map(async (sample) => {
+    const result = await runAi(db, ai, userId, sceneJudgeRequest(sample.scene, sample.head), now);
+    return result.ok ? judgeRows(sample, result.value) : failed(sample.name, result.reason);
+  });
+
   const extracted = SCENE_SAMPLES.map(async (sample) => {
     const result = await requestSceneDraft(db, ai, userId, sample.messages, sample.head, null, now);
     if (!result.ok) return failed(sample.name, result.reason);
@@ -265,5 +394,5 @@ export async function runRecordCheck(db: Db, ai: AiClient, userId: string, now: 
     return result.ok ? affiliateRows(result.links) : failed(AFFILIATE_SAMPLE.name, result.reason);
   })();
 
-  return (await Promise.all([...extracted, imported, moved, affiliated])).flat();
+  return (await Promise.all([...judged, ...extracted, imported, moved, affiliated])).flat();
 }
