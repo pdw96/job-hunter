@@ -489,6 +489,32 @@
 
 ---
 
+# 추가: 옮기기 다시 하기 (배포 뒤, 2026-11-20 사용자 결정)
+
+바꾸기 배포 뒤 사용자의 옛 기록 37개에 같은 기록이 두 번씩 있고(노션 가져오기), 성과 사례(STAR) 5개와 AI ERP 관련 5개가 각각 따로 프로젝트로 옮겨졌다. 「결정」(사용자) 옮겨서 생긴 새 기록을 지우고, 옮기기를 고쳐 다시 돌린다. 옮긴 새 기록 48개는 모두 `source = migrate`이고 사용자가 고친 것은 없다(확인된 것은 이어받은 프로젝트 1개).
+
+## Task 13: 옮기기 전에 기록 전체를 보고 정리한다
+
+**Files:** `src/modules/experiences/move.ts`, `move-repo.ts`, `schema.ts`(+ `drizzle/0018_*`), `prompts.ts`, `record-prompt-check.ts`, `src/dev/local-ai.ts`와 각 테스트
+
+- `experiences_moves`에 칸 둘: `role` text null(`fact` | `head` | `scene` | `duplicate`), `ref` text null(scene이면 머리가 될 옛 기록 id, duplicate면 남길 옛 기록 id). `step`에 `"classify"`를 더한다. 사용자마다 classify 행 하나(부분 고유 색인)
+- 정리(classify): 옛 기록 전부를 별명(R1…)으로 한 번에 보낸다(목적 `migrate`, 첫 줄 `[옮기기: 정리]`). 기록마다 이름·구분·소속·역할·기간·본문 앞 300자. 답 스키마 `{ records: { record: string; role: "fact" | "head" | "scene" | "duplicate"; ref: string | null }[] }`. 코드 검사: 모든 별명이 정확히 한 번, scene의 ref는 role이 head인 기록, duplicate의 ref는 같은 구분의 duplicate가 아닌 기록, 학력·교육·자격·공백은 fact 또는 duplicate만, 재직은 head 또는 duplicate만. 어긋나면 그 기록만 기본값(지금의 구분별 길: 프로젝트·기타는 head, 나머지는 fact)으로 둔다. AI 실패 → classify 행 failed(다시 시도 가능), 기록 행은 기다림
+- 같은 기록 둘 중 무엇을 남길지는 코드가 다시 정한다: 확인된 것 → 본문이 긴 것 → 먼저 만든 것. AI의 ref는 짝만 알려 준다
+- `claimNextMove` 순서: classify → fact·head → scene → affiliate. scene은 머리 기록이 done일 때만 잡힌다(머리가 failed면 scene도 "소속 기록을 옮기지 못했습니다"로 failed, 머리를 다시 시도하면 scene도 pending으로)
+- 기록 옮기기: duplicate → 아무것도 만들지 않고 done, 메모 "같은 기록이 있어 하나만 옮겼습니다". fact → 지금과 같다. head → 지금과 같다, 단 재직 머리에 scene 기록이 딸려 있으면 재직 글을 사례로 나누지 않고 경력 머리(담당 업무 줄까지)만 만든다(사례가 겹치지 않게). scene → 그 기록 글을 칸에 그대로 옮긴 사례 하나를 머리 기록이 옮겨 만든 머리 아래에 만든다(지금 프로젝트·기타의 사례 만들기와 같다. 확인됐던 기록은 확인 상태·루브릭·주장 답을 이어 감). 프로젝트·기타 머리는 지금처럼 머리 + 자기 사례 하나
+- 프롬프트 점검에 정리 예시 하나(같은 학력 둘 → 하나는 duplicate, 성과 사례 둘 → 재직 머리의 scene, 같은 이름 프로젝트 셋 → 하나 head + 둘 scene)
+- 테스트: 위 규칙마다. 특히 "옛 기록 37개 모양의 예시에서 새 학력 1·교육 1·자격 3·공백 2·경력 1"
+
+## Task 14: 옮긴 기록을 지우고 다시 옮기기
+
+**Files:** `src/modules/experiences/move-repo.ts`(`resetMoves`), `move-commands.ts`, `move-actions.ts`, `src/app/(app)/records/page.tsx` 또는 `/moving` 화면과 테스트
+
+- `resetMoves(db, userId)`: 한 트랜잭션에서 그 사용자의 `moved_from`이 있는 새 행(사례 → 주장 cascade → 머리·이력 사실)을 지우고 옮기기 행을 지운다. 옮기기로 만들지 않은 행(직접 넣은 것)이 옮긴 머리에 딸려 있으면 지우지 않고 `{ ok: false, reason: "in_use" }`("직접 넣은 사례가 옮긴 기록에 딸려 있어 다시 옮길 수 없습니다"). 옛 표는 건드리지 않는다
+- 화면: 경험 기록 화면 아래(옮긴 기록이 있을 때만) `옮기기를 처음부터 다시 하기` 버튼. 확인 창: "옮겨서 만든 기록 N개를 지우고 예전 기록에서 다시 옮깁니다. 직접 넣은 기록은 지우지 않습니다." 누르면 `/moving`으로
+- `/moving`의 줄에 "같은 기록이라 옮기지 않음 N개"를 보인다
+- 테스트: 지운 뒤 옮기기 행이 없고 needsMove가 true, 직접 넣은 기록은 남음, 다른 사용자 것은 그대로, in_use
+
+
 ## 구현하다 달라진 점
 
 PR 1 (Task 1~4)
