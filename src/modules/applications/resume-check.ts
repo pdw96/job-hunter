@@ -41,12 +41,13 @@ export function checkResume(
     return {
       unavailable: false,
       structureChanged: false,
-      // 코드 줄 원천은 다시 써도 같은 줄이라 빈 줄을 표시하지 않는다
+      // 코드 줄 원천은 다시 써도 같은 줄이라, 담당 업무가 있는 항목은 머리에 할 일이 보이므로 빈 줄을 표시하지 않는다
       empty:
         entry.detail === "full" &&
         entry.kind !== "school" &&
         entry.kind !== "certificate" &&
         current.codeLines === undefined &&
+        (entry.heading.duties?.length ?? 0) === 0 &&
         entry.lines.length === 0,
       stale: entry.contentVersion !== current.contentVersion,
       scopeChanged: isCommon && entry.detail !== detailFor(current.scope),

@@ -118,6 +118,13 @@ describe("checkResume 빈 줄", () => {
   it("자세히 항목에 줄이 없으면 empty", () => {
     expect(first(content([entry({ lines: [] })]), [source()]).empty).toBe(true);
   });
+  it("담당 업무가 있는 경력 항목은 줄이 없어도 empty가 아니다", () => {
+    const heading = { name: "가나다 주식회사", organization: null, role: null, period: "2022.03 ~ 2024.08" };
+    const job = source({ kind: "job" });
+    expect(first(content([entry({ kind: "job", lines: [], heading: { ...heading, duties: ["결제 서버 운영"] } })]), [job]).empty).toBe(false);
+    expect(first(content([entry({ kind: "job", lines: [], heading: { ...heading, duties: [] } })]), [job]).empty).toBe(true);
+    expect(first(content([entry({ kind: "job", lines: [], heading })]), [job]).empty).toBe(true);
+  });
   it("줄이 있으면 아니다", () => {
     expect(first(content([entry()]), [source()]).empty).toBe(false);
   });
