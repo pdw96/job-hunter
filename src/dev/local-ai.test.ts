@@ -2,6 +2,9 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import { ai } from "./local-ai";
 
+// DB를 쓰는 시험은 파일에서 처음 PGlite에 마이그레이션을 적용하고 모듈을 늦게 불러와, 느린 CI에서 기본 5초를 넘는다
+const DB_TEST_TIMEOUT = 30_000;
+
 // 로컬 미리보기의 가짜 맞대기. 실제 analyze.ts가 보내는 글 모양 그대로 넣는다
 const message = (rawText: string) =>
   [
@@ -55,7 +58,7 @@ test("새 가져오기 흉내는 학력 하나와 경력 하나(장면 하나)�
     expect(result.plan.jobs.map((j) => j.input.company)).toEqual(["가나다커머스 마케팅팀"]);
     expect(result.plan.jobs[0].scenes).toHaveLength(1);
   }
-});
+}, DB_TEST_TIMEOUT);
 
 test("사례 정리 흉내는 첫 답을 상황과 한 일로 옮긴다", async () => {
   const { sceneDraftSchema } = await import("@/modules/experiences/scene-interview");
@@ -124,7 +127,7 @@ test("옮기기 흉내는 첫 줄로 나누기·주장·소속 답을 고른다"
   expect(facts.project.map((p) => p.value.name)).toEqual(["브랜드 리뉴얼 TF"]);
   // 경력 장면 하나와 프로젝트 장면 하나
   expect(await listScenes(db, "u1")).toHaveLength(2);
-});
+}, DB_TEST_TIMEOUT);
 
 test("옮기기 정리 흉내는 구분과 이름이 같은 기록을 앞의 것의 duplicate로, 나머지는 구분별 기본값으로 답한다", async () => {
   const { createTestDb } = await import("@/db/test-db");
@@ -152,4 +155,4 @@ test("옮기기 정리 흉내는 구분과 이름이 같은 기록을 앞의 것
       { role: "head", ref: null },
     ],
   });
-});
+}, DB_TEST_TIMEOUT);
