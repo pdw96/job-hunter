@@ -112,6 +112,15 @@ export async function retryMove(
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
 }
 
+// 한도처럼 모두에게 해당하는 까닭으로 멈출 때, 남은 pending 행(소속 잇기 포함)을 같은 문구로 실패 처리한다.
+// 그러면 needsMove가 거짓이 되어 사용자가 앱에 들어올 수 있고, 다시 시도는 기록 화면의 띠에서 한다
+export async function failPendingMoves(db: Db, userId: string, error: string, now: Date = new Date()): Promise<void> {
+  await db
+    .update(moves)
+    .set({ status: "failed", error, startedAt: null, updatedAt: now })
+    .where(and(eq(moves.userId, userId), eq(moves.status, "pending")));
+}
+
 // 소속 잇기가 끝난 뒤 프로젝트나 조직을 늦게 옮겼으면 소속 잇기를 다시 돌게 한다.
 // affiliateProjects는 소속이 아직 없는 옮긴 프로젝트만 건드리므로 다시 돌아도 안전하다
 export async function reopenAffiliate(db: Db, userId: string, now: Date = new Date()): Promise<void> {
@@ -149,7 +158,7 @@ export type KindMove = {
   // 옮겼지만 일부를 옮기지 못했거나 비웠다는 글(done 행의 error 칸)
   notes: string[];
 };
-export type MoveSummary = { kinds: KindMove[]; affiliate: { id: string; status: "pending" | "running" | "done" | "failed"; error: string } | null };
+export type MoveSummary = { kinds: KindMove[]; recordTotal: number; recordDone: number; recordFailed: number; affiliate: { id: string; status: "pending" | "running" | "done" | "failed"; error: string } | null };
 
 export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> {
   const [rows, old] = await Promise.all([
@@ -176,5 +185,13 @@ export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> 
     }
     kinds.set(item.kind, entry);
   }
-  return { kinds: [...kinds.values()], affiliate };
+  const lines = [...kinds.values()];
+  const sum = (pick: (line: KindMove) => number) => lines.reduce((acc, line) => acc + pick(line), 0);
+  return {
+    kinds: lines,
+    recordTotal: sum((l) => l.total),
+    recordDone: sum((l) => l.done),
+    recordFailed: sum((l) => l.failed.length),
+    affiliate,
+  };
 }

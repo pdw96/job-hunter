@@ -83,28 +83,41 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
   const failed = [...summary.kinds.flatMap((line) => line.failed), ...(summary.affiliate?.status === "failed" ? [{ id: summary.affiliate.id }] : [])];
 
   async function retry(ids: string[]) {
-    for (const id of ids) await retryMoveAction(id);
+    for (const id of ids) {
+      const result = await retryMoveAction(id);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+    }
     setProgress((current) => ({ ...current, pending: current.pending + ids.length }));
     await run();
   }
 
+  // 화면의 개수는 옛 기록만 센다(소속 제안은 따로 한 줄). 서버가 새로 읽어 준 summary를 쓴다
   const finished = !running && progress.pending === 0 && !error;
-  const handled = progress.total - progress.pending;
-  const percent = progress.total === 0 ? 100 : Math.round((handled / progress.total) * 100);
+  const handled = summary.recordDone + summary.recordFailed;
+  const percent = summary.recordTotal === 0 ? 100 : Math.round((handled / summary.recordTotal) * 100);
   const lines = [...summary.kinds].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
+  const idle = !running && progress.pending === 0;
+  const affiliate = summary.affiliate;
+  const affiliateLabel = affiliate?.status === "done" ? "옮김" : affiliate?.status === "failed" ? "옮기지 못함" : "기다림";
 
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold">기록을 새 구조로 옮기는 중</h1>
+        <h1 className="text-2xl font-bold">{idle ? "기록을 새 구조로 옮겼습니다" : "기록을 새 구조로 옮기는 중"}</h1>
         <p className="text-sm text-foreground/70">개편 뒤 처음 들어왔을 때 한 번만 돕니다. 옮긴 뒤 화면에서 고칠 수 있습니다.</p>
+        {idle && summary.recordFailed > 0 && (
+          <p className="text-sm font-medium">{summary.recordFailed}개를 옮기지 못했습니다. 아래에서 다시 시도할 수 있습니다</p>
+        )}
       </div>
 
       <div className="space-y-2">
         <div
           role="progressbar"
           aria-valuemin={0}
-          aria-valuemax={progress.total}
+          aria-valuemax={summary.recordTotal}
           aria-valuenow={handled}
           aria-label="옮기는 진행"
           className="h-2.5 overflow-hidden rounded-full bg-foreground/10"
@@ -112,7 +125,7 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
           <div className="h-full rounded-full bg-foreground transition-all" style={{ width: `${percent}%` }} />
         </div>
         <p className="text-sm">
-          {progress.total}개 중 {progress.done}개 옮김
+          {summary.recordTotal}개 중 {summary.recordDone}개 옮김
         </p>
       </div>
 
@@ -122,6 +135,9 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
           <button type="button" className={button} disabled={running} onClick={() => retry(failed.map((item) => item.id))}>
             다시 시도
           </button>
+          <a href="/records" className={`${button} inline-block`}>
+            기록 보기
+          </a>
         </div>
       )}
 
@@ -152,15 +168,19 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
             ))}
           </li>
         ))}
-        {summary.affiliate?.status === "failed" && (
+        {affiliate && (
           <li className="flex items-start justify-between gap-3 rounded-lg border border-foreground/15 p-4 text-sm">
-            <p className="text-foreground/70">
-              프로젝트 소속 잇기
-              {summary.affiliate.error && <span className="block text-foreground/60">{summary.affiliate.error}</span>}
+            <p className="font-medium">
+              프로젝트 소속 제안
+              {affiliate.status === "failed" && affiliate.error && <span className="block font-normal text-foreground/60">{affiliate.error}</span>}
             </p>
-            <button type="button" className={button} disabled={running} onClick={() => retry([summary.affiliate!.id])}>
-              다시 시도
-            </button>
+            {affiliate.status === "failed" ? (
+              <button type="button" className={button} disabled={running} onClick={() => retry([affiliate.id])}>
+                다시 시도
+              </button>
+            ) : (
+              <span className="shrink-0 text-foreground/70">{affiliateLabel}</span>
+            )}
           </li>
         )}
       </ul>

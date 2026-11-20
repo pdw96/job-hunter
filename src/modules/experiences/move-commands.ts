@@ -1,7 +1,7 @@
 import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
 import { OVER_LIMIT_MESSAGE, runNextMove } from "./move";
-import { type MoveProgress, moveProgress, planMoves, retryMove } from "./move-repo";
+import { failPendingMoves, type MoveProgress, moveProgress, planMoves, retryMove } from "./move-repo";
 import type { SimpleResult } from "./record-commands";
 import { newRecordsOn } from "./switch";
 
@@ -20,6 +20,8 @@ export async function moveNext(db: Db, ai: AiClient, userId: string, now: Date =
   const progress = await runNextMove(db, ai, userId, now);
   // 이번 호출에서 새로 실패한 행이 한도 때문이면 알린다(이전에 실패해 둔 행은 다시 알리지 않는다)
   if (progress.failed.some((item) => !before.has(item.id) && item.error === OVER_LIMIT_MESSAGE)) {
+    // 남은 것도 같은 까닭으로 실패 처리해, 사용자가 앱에 들어와 나중에 다시 시도할 수 있게 한다
+    await failPendingMoves(db, userId, OVER_LIMIT_MESSAGE, now);
     return { ok: false, message: OVER_LIMIT_MESSAGE };
   }
   return { ok: true, progress };
