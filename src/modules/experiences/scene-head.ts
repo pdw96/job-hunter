@@ -12,6 +12,7 @@ type Tx = Pick<Db, "select">;
 export type SceneHead = {
   ref: HeadRef;
   isConfirmed: boolean;
+  contentVersion: number; // 머리의 내용 버전. 판정하는 사이 머리가 바뀌었는지 본다
   period: HeadPeriod;
   labels: [string, string | null][]; // AI에게 보낼 머리의 이름 칸(연락처는 없다)
 };
@@ -29,10 +30,11 @@ export async function loadHead(db: Tx, userId: string, ref: HeadRef): Promise<Sc
   return row && toHead(ref, row, [["활동", row.name], ["기관", row.organization]]);
 }
 
-function toHead(ref: HeadRef, row: HeadPeriod & { confirmedAt: Date | null }, labels: SceneHead["labels"]): SceneHead {
+function toHead(ref: HeadRef, row: HeadPeriod & { confirmedAt: Date | null; contentVersion: number }, labels: SceneHead["labels"]): SceneHead {
   return {
     ref,
     isConfirmed: row.confirmedAt !== null,
+    contentVersion: row.contentVersion,
     period: { startMonth: row.startMonth, endMonth: row.endMonth, isOngoing: row.isOngoing },
     labels,
   };

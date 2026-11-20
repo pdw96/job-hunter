@@ -3,7 +3,7 @@ import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { createFakeAi } from "@/modules/ai/fake-client";
 import { user } from "@/modules/auth/schema";
-import { createFact } from "./facts-repo";
+import { createFact, updateFact } from "./facts-repo";
 import type { JobInput, SceneInput } from "./record-input";
 import { approveScenePhrase, dismissScenePhrase, judgeScene, listSceneEvidenceTodos } from "./scene-judge";
 import { closeSceneRubricItem, confirmScene, createScene, getScene, updateScene } from "./scenes-repo";
@@ -174,4 +174,32 @@ test("증빙 할 일은 본인의 증빙 미달 장면만 보완 방안과 함�
     { id: a, name: "결제 장애 대응", note: "장애 보고서가 어디에 있는지 적어 주세요" },
   ]);
   expect(await listSceneEvidenceTodos(db, "u2")).toEqual([]);
+});
+
+test("판정하는 사이 증빙 메모를 고치면 changed이고 아무것도 반영되지 않는다", async () => {
+  const id = await make();
+  const ai = createFakeAi([
+    async () => {
+      await updateScene(db, "u1", id, scene({ kind: "job", id: jobId }, { evidenceNote: "새 증빙 위치" }));
+      return mixed;
+    },
+  ]);
+  expect(await judgeScene(db, ai, "u1", id, now)).toEqual({ ok: false, reason: "changed" });
+  const found = await getScene(db, "u1", id);
+  expect(found?.rubric.evidence.status).toBe("unjudged");
+  expect(found?.judgedAt).toBeNull();
+});
+
+test("판정하는 사이 머리의 내용이 바뀌면 changed이고 아무것도 반영되지 않는다", async () => {
+  const id = await make();
+  const ai = createFakeAi([
+    async () => {
+      await updateFact(db, "u1", "job", jobId, { ...job, company: "다른 회사" });
+      return mixed;
+    },
+  ]);
+  expect(await judgeScene(db, ai, "u1", id, now)).toEqual({ ok: false, reason: "changed" });
+  const found = await getScene(db, "u1", id);
+  expect(found?.rubric.role.status).toBe("unjudged");
+  expect(found?.judgedAt).toBeNull();
 });

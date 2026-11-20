@@ -242,3 +242,23 @@ test("다른 사용자의 장면은 읽히지 않고 바뀌지 않는다", async
   expect(await deleteScene(db, "u2", id)).toEqual({ ok: false, reason: "not_found" });
   expect((await getScene(db, "u1", id))?.isConfirmed).toBe(false);
 });
+
+test("증빙 메모만 고치면 증빙 판정이 처음으로 돌아가지만 확인과 내용 버전은 그대로다", async () => {
+  const id = await make();
+  await confirmScene(db, "u1", id);
+  const set = async (evidence: { status: "unmet" | "met" | "closed"; note: string | null }) =>
+    db.update(scenes).set({ rubric: { ...(await getScene(db, "u1", id))!.rubric, evidence }, judgedAt: new Date() }).where(eq(scenes.id, id));
+  await set({ status: "unmet", note: "자료 필요" });
+  await updateScene(db, "u1", id, scene({ kind: "job", id: jobId }, { evidenceNote: "보고서 공유 드라이브" }));
+  let found = await getScene(db, "u1", id);
+  expect(found?.rubric.evidence).toEqual({ status: "unjudged", note: null });
+  expect(found?.judgedAt).toBeNull();
+  expect(found?.isConfirmed).toBe(true);
+  expect(found?.contentVersion).toBe(0);
+
+  await set({ status: "closed", note: null });
+  await updateScene(db, "u1", id, scene({ kind: "job", id: jobId }, { evidenceNote: "다른 메모" }));
+  found = await getScene(db, "u1", id);
+  expect(found?.rubric.evidence.status).toBe("closed");
+  expect(found?.judgedAt).toBeNull();
+});

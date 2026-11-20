@@ -143,6 +143,7 @@ export async function updateScene(db: Db, userId: string, id: string, input: Sce
     // 내용 칸(머리 포함)이 바뀌었으면 본인 확인을 풀고 다시 판정하게 한다
     const before = sceneInputOf(current) as unknown as Record<string, unknown>;
     const after = input as unknown as Record<string, unknown>;
+    const evidenceNoteChanged = !sameValue(current.evidenceNote, input.evidenceNote);
     const changed = SCENE_CONTENT_FIELDS.some((key) => !sameValue(before[key], after[key]));
 
     await tx
@@ -164,7 +165,18 @@ export async function updateScene(db: Db, userId: string, id: string, input: Sce
         evidenceNote: input.evidenceNote,
         tags: input.tags,
         updatedAt: new Date(),
-        ...(changed ? sceneContentResetFields(current.rubric, scenePeriodStatus(input, head.period)) : {}),
+        ...(changed
+          ? sceneContentResetFields(current.rubric, scenePeriodStatus(input, head.period))
+          : evidenceNoteChanged
+            ? {
+                // 증빙 메모만 바뀌었으면 확인과 내용 버전은 두고, 증빙 판정만 처음으로 돌린다(닫은 것은 그대로)
+                judgedAt: null,
+                rubric: sql`jsonb_set(${scenes.rubric}, '{evidence}'::text[],
+                  case when ${scenes.rubric} -> 'evidence' ->> 'status' = 'closed'
+                    then ${scenes.rubric} -> 'evidence'
+                    else '{"status":"unjudged","note":null}'::jsonb end)`,
+              }
+            : {}),
       })
       .where(mine(userId, id));
 
