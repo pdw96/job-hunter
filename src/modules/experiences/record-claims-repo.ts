@@ -53,7 +53,7 @@ export async function listRecordClaims(db: Tx, userId: string, owner: ClaimOwner
 }
 
 // 기록을 만들 때 주장을 넣는다. 처음부터 고쳐야 하는 것(원본에 없던 숫자)은 needs_fix로 시작한다
-// 주인 기록이 사용자 것인지는 부르는 쪽이 만든 직후라 확인하지 않는다(user_id는 함께 적는다)
+// 주인 기록이 사용자 것이 아니면 아무것도 넣지 않는다
 export async function insertRecordClaims(
   db: Tx,
   userId: string,
@@ -61,7 +61,7 @@ export async function insertRecordClaims(
   found: (FoundClaim & { status?: ClaimStatus })[],
   startPosition = 0,
 ): Promise<void> {
-  if (found.length === 0) return;
+  if (found.length === 0 || !(await owns(db, userId, owner))) return;
   await db.insert(recordClaims).values(
     found.map((claim, index) => ({
       id: randomUUID(),

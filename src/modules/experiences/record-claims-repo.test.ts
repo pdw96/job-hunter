@@ -148,3 +148,10 @@ test("직접 만든 경력은 고쳐도 주장을 만들지 않는다", async ()
   expect(await db.select().from(recordClaims).where(eq(recordClaims.jobId, r.id))).toEqual([]);
   expect(await confirmFact(db, "u1", "job", r.id)).toEqual({ ok: true });
 });
+
+test("남의 경력에는 주장을 넣을 수 없다", async () => {
+  const jobId = await importJob();
+  await insertRecordClaims(db, "u2", { kind: "job", id: jobId }, [{ kind: "metric", quote: "거래처 12곳", phrase: null, origin: "code" }]);
+  expect(await db.select().from(recordClaims).where(eq(recordClaims.jobId, jobId))).toHaveLength(1);
+  expect(await countOpenRecordClaims(db, "u2")).toEqual({});
+});
