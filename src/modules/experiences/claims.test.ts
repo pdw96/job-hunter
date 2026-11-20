@@ -1,5 +1,15 @@
 import { expect, test } from "vitest";
-import { blocksConfirmation, claimsAfterEdit, type Claim, findClaims, mergeClaims, stillPresent } from "./claims";
+import {
+  blocksConfirmation,
+  claimsAfterEdit,
+  type Claim,
+  findClaims,
+  mergeClaims,
+  stillPresent,
+  subjectOfJob,
+  subjectOfProject,
+  subjectOfScene,
+} from "./claims";
 import type { ExperienceInput } from "./input";
 
 const base: ExperienceInput = {
@@ -226,5 +236,60 @@ test("AI가 짚은 구절이 이미 수치로 묻는 구절과 같으면 주장�
   expect(merged.map((claim) => [claim.kind, claim.quote, claim.phrase, claim.origin])).toEqual([
     ["period", "2023-03 ~ 2023-11", null, "code"],
     ["metric", "핵심 역할로 매출 30% 향상", "핵심 역할로 매출 30% 향상", "code"],
+  ]);
+});
+
+test("경력의 담당 업무 줄에서 숫자와 과장 낱말이 든 줄을 수치 주장으로 낸다", () => {
+  const job = {
+    company: "가나다",
+    department: null,
+    title: null,
+    employment: "regular" as const,
+    startMonth: "2022-01",
+    endMonth: null,
+    isOngoing: true,
+    duties: ["물류센터 출고 일정 관리", "주간 보고서 30건 작성 주도"],
+    bannedPhrases: [],
+  };
+  expect(findClaims(subjectOfJob(job)).map((c) => [c.kind, c.quote, c.phrase])).toEqual([["metric", "주간 보고서 30건 작성 주도", "주도"]]);
+});
+
+test("프로젝트 요약에 숫자도 과장 낱말도 없으면 주장이 없다", () => {
+  const project = {
+    name: "결제 개편",
+    parent: null,
+    startMonth: null,
+    endMonth: null,
+    isOngoing: false,
+    role: null,
+    tools: [],
+    summary: "결제 승인 구조를 개편했다.",
+    bannedPhrases: [],
+  };
+  expect(findClaims(subjectOfProject(project))).toEqual([]);
+  expect(findClaims(subjectOfProject({ ...project, summary: null }))).toEqual([]);
+});
+
+test("장면은 배운 점 칸의 숫자도 주장이 되고, 기간이 있으면 기간 주장도 낸다", () => {
+  const scene = {
+    head: { kind: "job" as const, id: "j" },
+    title: "출고 개선",
+    startMonth: "2023-03",
+    endMonth: "2023-05",
+    isOngoing: false,
+    situation: null,
+    judgment: null,
+    actions: null,
+    result: null,
+    lessons: "점검표를 쓰니 누락이 3건으로 줄었다.",
+    metrics: [],
+    notDone: null,
+    bannedPhrases: [],
+    evidenceNote: null,
+    tags: [],
+  };
+  expect(findClaims(subjectOfScene(scene)).map((c) => [c.kind, c.quote])).toEqual([
+    ["period", "2023-03 ~ 2023-05"],
+    ["metric", "점검표를 쓰니 누락이 3건으로 줄었다."],
   ]);
 });

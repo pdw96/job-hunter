@@ -1,5 +1,6 @@
 import { numbersIn } from "./grounding";
-import type { ExperienceInput } from "./input";
+import type { ExperienceInput, Metric } from "./input";
+import type { JobInput, ProjectInput, SceneInput } from "./record-input";
 
 // 가져온 기록의 "주장" 규칙. 화면과 DB를 모르는 순수 함수만 둔다.
 // 가져온 자료는 AI가 쓴 것일 수 있어, 내용을 사실이 아니라 확인이 필요한 주장으로 다룬다.
@@ -19,7 +20,9 @@ const MAX_QUOTE = 200;
 // 실제보다 역할이 크게 들리기 쉬운 낱말
 const INFLATING = ["주도", "총괄", "리드", "리딩", "단독", "전담", "책임", "이끌", "혼자", "주관", "진두지휘"];
 
-const PROSE_FIELDS = ["situation", "actions", "result"] as const;
+// 주장을 찾을 글 묶음. 기록 종류마다 칸이 달라도 같은 규칙으로 훑는다
+// period 기간을 나타내는 글(없으면 null) / prose 숫자와 과장 낱말을 훑는 글 / other 훑지는 않지만 구절이 남았는지 볼 글 / metrics 수치 줄
+export type ClaimSubject = { period: string | null; prose: (string | null)[]; other: (string | null)[]; metrics: Metric[] };
 
 // 문장이나 줄 단위로 나눈다. 글머리 기호는 뗀다
 export function sentences(text: string | null): string[] {
@@ -62,24 +65,50 @@ function withoutDates(sentence: string): string {
 const numbersOf = (sentence: string) => numbersIn(withoutDates(sentence));
 const hasNumber = (sentence: string) => /\d/.test(withoutDates(sentence));
 
-function periodQuote(input: ExperienceInput): string | null {
-  if (!input.startMonth) return null;
-  if (input.kind === "certificate") return `${input.startMonth} 취득`;
-  if (input.isOngoing) return `${input.startMonth} ~ 진행 중`;
-  return `${input.startMonth} ~ ${input.endMonth ?? "?"}`;
+function periodText(range: { startMonth: string | null; endMonth: string | null; isOngoing: boolean }): string | null {
+  if (!range.startMonth) return null;
+  if (range.isOngoing) return `${range.startMonth} ~ 진행 중`;
+  return `${range.startMonth} ~ ${range.endMonth ?? "?"}`;
 }
+
+export function subjectOfExperience(input: ExperienceInput): ClaimSubject {
+  return {
+    period: input.kind === "certificate" ? (input.startMonth ? `${input.startMonth} 취득` : null) : periodText(input),
+    prose: [input.situation, input.actions, input.result],
+    other: [input.name, input.organization, input.role, input.notDone, input.evidenceNote],
+    metrics: input.metrics,
+  };
+}
+
+export function subjectOfScene(input: SceneInput): ClaimSubject {
+  return {
+    period: periodText(input),
+    prose: [input.situation, input.judgment, input.actions, input.result, input.lessons],
+    other: [input.title, input.notDone, input.evidenceNote],
+    metrics: input.metrics,
+  };
+}
+
+export const subjectOfJob = (input: JobInput): ClaimSubject => ({ period: null, prose: input.duties, other: [], metrics: [] });
+
+export const subjectOfProject = (input: ProjectInput): ClaimSubject => ({ period: null, prose: [input.summary], other: [], metrics: [] });
+
+// 옛 기록(ExperienceInput)을 그대로 넘겨도 받는다
+type SubjectLike = ClaimSubject | ExperienceInput;
+const subjectOf = (value: SubjectLike): ClaimSubject => ("prose" in value ? value : subjectOfExperience(value));
 
 const sameClaim = (a: { kind: ClaimKind; quote: string }, b: { kind: ClaimKind; quote: string }) =>
   a.kind === b.kind && a.quote === b.quote;
 
 // 코드가 찾는 주장: 기간, 수치(수치 칸과 본문의 숫자), 과장되기 쉬운 낱말
-export function findClaims(input: ExperienceInput): FoundClaim[] {
+export function findClaims(source: SubjectLike): FoundClaim[] {
+  const input = subjectOf(source);
   const found: FoundClaim[] = [];
   const add = (claim: FoundClaim) => {
     if (!found.some((existing) => sameClaim(existing, claim))) found.push(claim);
   };
 
-  const period = periodQuote(input);
+  const period = input.period;
   if (period) add({ kind: "period", quote: period, phrase: null, origin: "code" });
 
   for (const metric of input.metrics) {
@@ -92,8 +121,8 @@ export function findClaims(input: ExperienceInput): FoundClaim[] {
   // 문장의 숫자가 모두 수치 줄에 이미 있으면 그 문장의 숫자는 수치 줄로 묻고,
   // 숫자와 과장 낱말이 한 문장에 있으면 수치 주장 하나로 묻는다(과장임 답을 고를 수 있게 낱말을 함께 둔다)
   const asked = new Set(input.metrics.flatMap((metric) => numbersOf(metric.text)));
-  for (const field of PROSE_FIELDS) {
-    for (const sentence of sentences(input[field])) {
+  for (const text of input.prose) {
+    for (const sentence of sentences(text)) {
       const word = INFLATING.find((candidate) => sentence.includes(candidate)) ?? null;
       const numbers = numbersOf(sentence);
       const newNumber = numbers.some((number) => !asked.has(number)) || (numbers.length === 0 && hasNumber(sentence));
@@ -106,26 +135,18 @@ export function findClaims(input: ExperienceInput): FoundClaim[] {
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
-// 구절이 남아 있는지 볼 때 살피는 칸
-export type ClaimTexts = Pick<
-  ExperienceInput,
-  "name" | "organization" | "role" | "situation" | "actions" | "result" | "metrics" | "notDone" | "evidenceNote"
->;
-// 주장으로 훑지는 않지만, 가져올 때 원본에 없던 숫자가 있으면 주장이 될 수 있는 칸
+// 주장으로 훑지는 않지만, 가져올 때 원본에 없던 숫자가 있으면 주장이 될 수 있는 옛 기록의 칸
 export const OTHER_FIELDS = ["name", "organization", "role", "notDone", "evidenceNote"] as const;
 
-export function proseContains(input: ClaimTexts, quote: string): boolean {
+export function proseContains(source: SubjectLike, quote: string): boolean {
+  const subject = subjectOf(source);
   const needle = squash(quote);
-  const texts = [
-    ...PROSE_FIELDS.map((field) => input[field]),
-    ...OTHER_FIELDS.map((field) => input[field]),
-    ...input.metrics.map((metric) => metric.text),
-  ];
+  const texts = [...subject.prose, ...subject.other, ...subject.metrics.map((metric) => metric.text)];
   return texts.some((text) => text !== null && squash(text).includes(needle));
 }
 
 // AI가 짚은 구절을 더한다. 본문에 실제로 있는 구절만 받고, 이미 있는 것과 겹치면 넣지 않는다
-export function mergeClaims(code: FoundClaim[], aiQuotes: string[], input: ExperienceInput): FoundClaim[] {
+export function mergeClaims(code: FoundClaim[], aiQuotes: string[], input: SubjectLike): FoundClaim[] {
   const merged = code.map((claim) => ({ ...claim }));
   for (const raw of aiQuotes) {
     const quote = raw.trim().slice(0, MAX_QUOTE);
@@ -144,8 +165,9 @@ export function mergeClaims(code: FoundClaim[], aiQuotes: string[], input: Exper
 }
 
 // 그 구절(기간이면 그 기간)이 기록에 아직 있는가
-export function stillPresent(claim: { kind: ClaimKind; quote: string }, input: ExperienceInput): boolean {
-  return claim.kind === "period" ? periodQuote(input) === claim.quote : proseContains(input, claim.quote);
+export function stillPresent(claim: { kind: ClaimKind; quote: string }, source: SubjectLike): boolean {
+  const input = subjectOf(source);
+  return claim.kind === "period" ? input.period === claim.quote : proseContains(input, claim.quote);
 }
 
 export function blocksConfirmation(claims: { status: ClaimStatus }[]): boolean {
@@ -155,8 +177,9 @@ export function blocksConfirmation(claims: { status: ClaimStatus }[]): boolean {
 // 기록을 고친 뒤 주장을 어떻게 바꿀지 정한다
 export function claimsAfterEdit(
   existing: Claim[],
-  input: ExperienceInput,
+  source: SubjectLike,
 ): { updates: { id: string; status: ClaimStatus }[]; deletes: string[]; adds: FoundClaim[] } {
+  const input = subjectOf(source);
   const updates: { id: string; status: ClaimStatus }[] = [];
   const deletes: string[] = [];
 

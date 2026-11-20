@@ -3,8 +3,10 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "../tracks/repo";
+import { subjectOfJob, subjectOfProject } from "./claims";
 import type { Scope } from "./options";
-import { FACT_CONTENT_FIELDS, type FactInputs, type ProjectInput } from "./record-input";
+import { type ClaimOwner, hasOpenRecordClaims, syncRecordClaimsAfterEdit } from "./record-claims-repo";
+import { FACT_CONTENT_FIELDS, type FactInputs, type JobInput, type ProjectInput } from "./record-input";
 import { FACT_KINDS, type FactKind, type ProjectParent, type RecordSource } from "./record-options";
 import { activities, courses, credentials, education, gaps, jobs, projects, scenes } from "./schema";
 
@@ -127,6 +129,9 @@ async function ownsParent(db: Db, userId: string, parent: ProjectParent): Promis
   return rows.length > 0;
 }
 
+// 주장이 딸리는 이력 사실(경력·프로젝트)이면 그 주인
+const claimOwnerOf = (kind: FactKind, id: string): ClaimOwner | null => (kind === "job" || kind === "project" ? { kind, id } : null);
+
 const parentOf = (kind: FactKind, input: FactInputs[FactKind]): ProjectParent =>
   kind === "project" ? (input as ProjectInput).parent : null;
 
@@ -182,24 +187,35 @@ export async function updateFact<K extends FactKind>(
   id: string,
   input: FactInputs[K],
 ): Promise<Ok | NotFound> {
-  const [row] = await db.select().from(tableOf(kind)).where(mine(kind, userId, id)).limit(1);
-  if (!row) return { ok: false, reason: "not_found" };
-  if (!(await ownsParent(db, userId, parentOf(kind, input)))) return { ok: false, reason: "not_found" };
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(tableOf(kind)).where(mine(kind, userId, id)).limit(1);
+    if (!row) return { ok: false as const, reason: "not_found" as const };
+    if (!(await ownsParent(tx as unknown as Db, userId, parentOf(kind, input)))) return { ok: false as const, reason: "not_found" as const };
 
-  // 내용 칸이 바뀐 때만 본인 확인을 풀고 내용 버전을 올린다
-  const before = row as unknown as Row;
-  const after = input as unknown as Record<string, unknown>;
-  const changed = (FACT_CONTENT_FIELDS[kind] as readonly string[]).some((key) => !sameValue(before[key], after[key]));
+    // 내용 칸이 바뀐 때만 본인 확인을 풀고 내용 버전을 올린다
+    const before = row as unknown as Row;
+    const after = input as unknown as Record<string, unknown>;
+    const changed = (FACT_CONTENT_FIELDS[kind] as readonly string[]).some((key) => !sameValue(before[key], after[key]));
 
-  await db
-    .update(tableOf(kind))
-    .set({
-      ...toValues(kind, input),
-      ...(changed ? { confirmedAt: null, contentVersion: sql`${tableOf(kind).contentVersion} + 1` } : {}),
-      updatedAt: new Date(),
-    } as never)
-    .where(mine(kind, userId, id));
-  return { ok: true };
+    await tx
+      .update(tableOf(kind))
+      .set({
+        ...toValues(kind, input),
+        ...(changed ? { confirmedAt: null, contentVersion: sql`${tableOf(kind).contentVersion} + 1` } : {}),
+        updatedAt: new Date(),
+      } as never)
+      .where(mine(kind, userId, id));
+
+    // 가져온 경력·프로젝트는 고친 내용에 맞춰 주장을 맞추고, 열린 주장이 남으면 확인을 풀어 둔다
+    const owner = claimOwnerOf(kind, id);
+    if (owner && (before.source === "import" || before.source === "migrate")) {
+      await syncRecordClaimsAfterEdit(tx, owner, owner.kind === "job" ? subjectOfJob(input as JobInput) : subjectOfProject(input as ProjectInput));
+      if (await hasOpenRecordClaims(tx, owner)) {
+        await tx.update(tableOf(kind)).set({ confirmedAt: null } as never).where(mine(kind, userId, id));
+      }
+    }
+    return { ok: true as const };
+  });
 }
 
 export async function deleteFact(
@@ -219,7 +235,12 @@ export async function confirmFact(
   kind: FactKind,
   id: string,
 ): Promise<Ok | { ok: false; reason: "not_found" | "claims_pending" }> {
-  // claims_pending(확인 안 된 주장이 남은 경우)은 Task 3에서 더한다
+  // 열린 주장(대기, 고쳐야 함)이 남은 경력·프로젝트는 맞음으로 확인하지 않는다
+  const owner = claimOwnerOf(kind, id);
+  if (owner && (await hasOpenRecordClaims(db, owner))) {
+    const [owned] = await db.select({ id: tableOf(kind).id }).from(tableOf(kind)).where(mine(kind, userId, id)).limit(1);
+    return owned ? { ok: false, reason: "claims_pending" } : { ok: false, reason: "not_found" };
+  }
   const updated = await db
     .update(tableOf(kind))
     .set({ confirmedAt: new Date(), updatedAt: new Date() })
