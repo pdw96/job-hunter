@@ -204,6 +204,35 @@ test("자소서 원천은 기간 시작 월 최근 순이다", async () => {
   expect((await listSceneWritingSources(db, "u1", t1)).map((s) => s.id)).toEqual([recent, old]);
 });
 
+test("소속 조직이 미확인이면 그 이름을 원천에 담지 않고, 확인하면 담으며 contentVersion이 바뀐다", async () => {
+  const jobId = await fact("job", { ...job, company: "미확인 회사", department: null }, false);
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } });
+  const sceneId = await addScene(scene({ kind: "project", id: projectId }));
+  const [writing] = await listSceneWritingSources(db, "u1", t1);
+  const resume = (await listRecordResumeSources(db, "u1", t1)).find((s) => s.id === projectId)!;
+  expect(writing.organization).toBe("사내 정산 도구");
+  expect(resume.organization).toBeNull();
+  expect(JSON.stringify([writing, resume])).not.toContain("미확인 회사");
+
+  await confirmFact(db, "u1", "job", jobId);
+  const [writingAfter] = await listSceneWritingSources(db, "u1", t1);
+  const resumeAfter = (await listRecordResumeSources(db, "u1", t1)).find((s) => s.id === projectId)!;
+  expect(writingAfter.id).toBe(sceneId);
+  expect(writingAfter.organization).toBe("사내 정산 도구 · 미확인 회사");
+  expect(resumeAfter.organization).toBe("미확인 회사");
+  expect(writingAfter.contentVersion).not.toBe(writing.contentVersion);
+  expect(resumeAfter.contentVersion).not.toBe(resume.contentVersion);
+});
+
+test("장면 범위를 사용과 요약만 사이에서 바꾸면 이력서 머리 원천의 contentVersion이 바뀐다", async () => {
+  const jobId = await fact("job", job);
+  const sceneId = await addScene(scene({ kind: "job", id: jobId }));
+  const [before] = await listRecordResumeSources(db, "u1", t1);
+  await setSceneTrackScope(db, "u1", sceneId, t1, "summary");
+  const [after] = await listRecordResumeSources(db, "u1", t1);
+  expect(after.contentVersion).not.toBe(before.contentVersion);
+});
+
 // 이력서 원천
 
 test("확인된 경력과 장면 2개(하나는 요약만)는 원천 하나로 모인다", async () => {

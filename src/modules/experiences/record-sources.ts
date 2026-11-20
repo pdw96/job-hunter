@@ -111,7 +111,9 @@ function headsOf(facts: FactsByKind): Map<string, Head> {
   const parents = new Map<string, Fact>([...facts.job, ...facts.education, ...facts.course].map((fact) => [fact.id, fact]));
   for (const fact of facts.project) {
     const v: ProjectInput = fact.value;
-    const parent = v.parent ? parents.get(v.parent.id) : undefined;
+    // 소속 조직은 확인된 것만 쓴다. 미확인이면(고쳐서 확인이 풀림, 가져와 주장이 남음) 개인 프로젝트처럼 다룬다
+    const found = v.parent ? parents.get(v.parent.id) : undefined;
+    const parent = found?.isConfirmed ? found : undefined;
     const parentName = parent ? factName(parent) : null;
     heads.set(fact.id, {
       ...base(fact, v),
@@ -120,8 +122,9 @@ function headsOf(facts: FactsByKind): Map<string, Head> {
       organization: parentName,
       sceneOrganization: joined([v.name, parentName], " · ") ?? v.name,
       role: v.role,
-      // 소속 조직은 내용 칸이 아니어서 프로젝트 버전이 오르지 않는다. 소속이나 그 이름이 바뀌어도 버전이 바뀌게 함께 넣는다
-      versionParts: [fact.id, fact.contentVersion, ...(parent ? [parent.id, parent.contentVersion] : [])],
+      // 소속 조직은 내용 칸이 아니어서 프로젝트 버전이 오르지 않는다. 소속이 바뀌거나, 이름이 바뀌거나, 확인이 풀리거나
+      // 다시 확인되어도 버전이 바뀌게 쓴 소속의 (id, 버전, 확인)을 함께 넣는다
+      versionParts: [fact.id, fact.contentVersion, ...(parent ? [parent.id, parent.contentVersion, "confirmed"] : [])],
       bannedPhrases: v.bannedPhrases,
     });
   }
@@ -287,7 +290,8 @@ export async function listRecordResumeSources(db: Db, userId: string, trackId: s
         "\n",
       ),
       bannedPhrases: unique([...head.bannedPhrases, ...included.flatMap(({ row }) => row.bannedPhrases)]),
-      contentVersion: versionHash([...head.versionParts, ...included.flatMap(({ row }) => [row.id, row.contentVersion])]),
+      // 장면의 범위(사용·요약만)도 넣는다. 범위를 바꾸면 덩어리의 "(요약만)"이 바뀌므로 이력서 항목을 다시 써야 한다
+      contentVersion: versionHash([...head.versionParts, ...included.flatMap(({ row, scope: sceneScope }) => [row.id, row.contentVersion, sceneScope])]),
       metrics: included.flatMap(({ row }) => sceneMetrics(row)),
       scope: scope === "summary" ? "summary" : "use",
       ...(head.duties ? { duties: head.duties } : {}),
