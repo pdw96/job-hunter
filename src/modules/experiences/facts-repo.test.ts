@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { beforeEach, expect, test } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
@@ -16,6 +17,7 @@ import {
   updateFact,
 } from "./facts-repo";
 import { createScene, deleteScene, getScene } from "./scenes-repo";
+import { gaps, projects } from "./schema";
 import { FACT_KINDS, type FactKind } from "./record-options";
 import type { FactInputs, ProjectInput, SceneInput } from "./record-input";
 
@@ -281,4 +283,20 @@ test("다른 사용자의 것은 읽히지 않고 고치기·지우기·확인�
     expect(await unconfirmFact(db, "u2", kind, id)).toEqual(notFound);
     expect(await getFact(db, "u1", kind, id)).toMatchObject({ value: INPUTS[kind], isConfirmed: false });
   }
+});
+
+test("확인된 때(confirmedAt)를 주면 그 시각으로 확인된 채 만든다", async () => {
+  const at = new Date("2024-05-01T00:00:00Z");
+  const created = await createFact(db, "u1", "project", INPUTS.project, { confirmedAt: at });
+  if (!created.ok) throw new Error(created.reason);
+  const [row] = await db.select({ confirmedAt: projects.confirmedAt }).from(projects).where(eq(projects.id, created.id));
+  expect(row.confirmedAt).toEqual(at);
+});
+
+test("공백은 끝 월이나 두 월이 모두 없어도 저장된다", async () => {
+  const open = await createFact(db, "u1", "gap", { startMonth: "2024-03", endMonth: null, note: null });
+  const none = await createFact(db, "u1", "gap", { startMonth: null, endMonth: null, note: "준비" });
+  expect(open.ok && none.ok).toBe(true);
+  const rows = await db.select().from(gaps).where(eq(gaps.userId, "u1"));
+  expect(rows.map((row) => [row.startMonth, row.endMonth]).sort()).toEqual([["2024-03", null], [null, null]].sort());
 });

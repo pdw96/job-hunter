@@ -186,7 +186,6 @@ function migrate(text: string) {
   }
   if (kind === "교육") return { ...empty, courses: [{ name, institution: field("소속·기관"), startMonth, endMonth, hours: "", learned: "" }] };
   if (kind === "자격") return { ...empty, credentials: [{ type: "license", name, issuer: field("소속·기관"), month: startMonth, score: "" }] };
-  if (kind === "공백") return { ...empty, gaps: [{ startMonth, endMonth, note: name }] };
   if (kind !== "재직") return importNewRecords(text);
   const actions = field("본인이 한 일");
   const blankScene = { startMonth: "", endMonth: "", isOngoing: false, situation: field("상황"), judgment: "", result: field("결과"), lessons: "", metrics: [], notDone: "", evidenceNote: "", tags: [], roleClaims: [], bannedPhrases: [] };

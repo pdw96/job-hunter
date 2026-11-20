@@ -180,8 +180,8 @@ export const gaps = pgTable(
   "experiences_gaps",
   {
     ...factColumns(),
-    startMonth: text("start_month").notNull(),
-    endMonth: text("end_month").notNull(),
+    startMonth: text("start_month"), // 없으면 기간 없음
+    endMonth: text("end_month"), // 없으면 진행 중
     note: text("note"),
   },
   (t) => [index("experiences_gaps_user_idx").on(t.userId)],

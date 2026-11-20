@@ -1,5 +1,5 @@
 {
-  "id": "56d20278-175a-4545-8a76-5dc059387bbe",
+  "id": "dbff50b6-33b9-4ade-abd0-a00e5d662cf9",
   "prevId": "d2074905-1fa4-41d5-9709-8a459d5313d7",
   "version": "7",
   "dialect": "postgresql",
@@ -1707,13 +1707,13 @@
           "name": "start_month",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "end_month": {
           "name": "end_month",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "note": {
           "name": "note",

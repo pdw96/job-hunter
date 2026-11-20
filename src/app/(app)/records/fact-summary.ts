@@ -66,7 +66,9 @@ export function cardOf(fact: Fact, parentLabel?: string | null): CardData {
     }
     case "gap": {
       const v = fact.value as FactInputs["gap"];
-      return { ...base, title: "공백", lines: compact([periodText(v.startMonth, v.endMonth), v.note]) };
+      // 공백은 끝 월이 없으면 진행 중이다
+      const period = v.startMonth || v.endMonth ? periodText(v.startMonth, v.endMonth, v.startMonth !== null && v.endMonth === null) : "기간 없음";
+      return { ...base, title: "공백", lines: compact([period, v.note]) };
     }
     case "credential": {
       const v = fact.value as FactInputs["credential"];

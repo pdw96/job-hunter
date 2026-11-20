@@ -524,6 +524,10 @@ PR 3 (Task 8~)
 - 소속 잇기에는 새 프로젝트에 없는 칸인 옛 기록의 소속(organization)을 함께 보낸다. 조직의 끝 월이 없거나 재직 중이면 끝이 열린 것으로 본다. 묻기는 `requestAffiliation`으로 나눠 프롬프트 점검도 쓴다
 - `describeExperience`는 `ExperienceInput`을 받는다(프롬프트 점검 예시가 옛 기록 모양의 입력만으로 부른다)
 - 프롬프트 점검에 옮기기 예시 2개(재직 기록 나누기, 소속 짝)를 더해 호출이 23번이다
+- (작업 검토) 공백은 끝 월이 없으면 진행 중, 두 월이 모두 없으면 기간 없음으로 둔다(`validateGap`이 두 월을 요구하지 않음, `experiences_gaps`의 두 월 칸에서 not null을 뺐다. 마이그레이션 0017에 함께). 공백 카드는 "2024.03 ~ 진행 중"·"기간 없음", 폼의 끝 월에 "비우면 진행 중"
+- (작업 검토) 옛 공백은 AI 없이 코드가 옮긴다(진행 중이면 끝 월 없음, 메모는 한 일·상황·결과 중 처음 글이 있는 칸을 한 줄로 줄여 100자 안). 나누기 경로에서 공백을 뺐다
+- (작업 검토) 나누기에서 검사에 빠진 것(skipped)이나 지어낸 숫자로 비운 칸(inventedDropped)이 있으면 통과한 것은 옮기고, 옮기기 행을 done으로 두되 `error` 칸에 메모를 남긴다(Task 9 화면이 보여 줌)
+- (작업 검토) 기록 하나의 저장 트랜잭션은 `pg_advisory_xact_lock(hashtextextended('experiences_move:<사용자>:<옛 id>', 0))`를 잡은 뒤 moved_from을 다시 본다. 소속 잇기가 끝난 뒤 프로젝트·재직·학력·교육 기록이 늦게 옮겨지면 affiliate 행을 pending으로 되돌린다(`reopenAffiliate`). 확인된 머리는 옛 기록의 확인 시각으로 만든다(`createFact`의 `confirmedAt` 옵션)
 
 ## 판단 기록
 

@@ -4,7 +4,7 @@ import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
 import type { ExperienceInput } from "./input";
-import { claimNextMove, finishMove, moveProgress, needsMove, planMoves, retryMove } from "./move-repo";
+import { claimNextMove, finishMove, moveProgress, needsMove, planMoves, reopenAffiliate, retryMove } from "./move-repo";
 import type { Kind } from "./options";
 import { createExperience } from "./repo";
 import { moves } from "./schema";
@@ -215,4 +215,31 @@ test("다른 사용자의 행은 잡지도 보지도 못한다", async () => {
   // u2가 planMoves를 불러도 u1의 기록으로 행을 만들지 않는다
   await planMoves(db, "u2");
   expect(await rowsOf("u2")).toEqual([]);
+});
+
+test("finishMove는 ok여도 메모가 있으면 error 칸에 남기고, finishMove·retryMove는 받은 시각을 쓴다", async () => {
+  await createExperience(db, "u1", old("가나다상사", "job"));
+  await planMoves(db, "u1");
+  const claimed = await claimNextMove(db, "u1", t0);
+  await finishMove(db, "u1", claimed!.id, { ok: true, note: "1개는 검사를 통과하지 못해 옮기지 못했습니다" }, minutes(1));
+  let [row] = await rowsOf("u1");
+  expect(row).toMatchObject({ status: "done", error: "1개는 검사를 통과하지 못해 옮기지 못했습니다", updatedAt: minutes(1) });
+  expect(await moveProgress(db, "u1")).toMatchObject({ done: 1, failed: [] });
+
+  await db.update(moves).set({ status: "failed" }).where(eq(moves.id, claimed!.id));
+  await retryMove(db, "u1", claimed!.id, minutes(2));
+  [row] = await rowsOf("u1");
+  expect(row).toMatchObject({ status: "pending", updatedAt: minutes(2) });
+});
+
+test("reopenAffiliate는 끝난 affiliate 행만 pending으로 되돌린다", async () => {
+  await createExperience(db, "u1", old("결제 개편", "project"));
+  await createExperience(db, "u1", old("가나다상사", "job"));
+  await planMoves(db, "u1");
+  await db.update(moves).set({ status: "done" }).where(eq(moves.userId, "u1"));
+  await reopenAffiliate(db, "u1", t0);
+  await reopenAffiliate(db, "u2", t0);
+  const rows = await rowsOf("u1");
+  expect(rows.find((row) => row.step === "affiliate")?.status).toBe("pending");
+  expect(rows.filter((row) => row.step === "record").every((row) => row.status === "done")).toBe(true);
 });

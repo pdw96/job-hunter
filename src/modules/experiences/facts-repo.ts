@@ -145,7 +145,8 @@ export async function createFact<K extends FactKind>(
   userId: string,
   kind: K,
   input: FactInputs[K],
-  options: { source?: RecordSource; movedFrom?: string; confirmed?: boolean; trackScopes?: Record<string, Scope> } = {},
+  // confirmedAt: 확인된 때를 정해서 넣는다(옮기기가 옛 기록의 확인 시각을 넘길 때). confirmed보다 앞선다
+  options: { source?: RecordSource; movedFrom?: string; confirmed?: boolean; confirmedAt?: Date; trackScopes?: Record<string, Scope> } = {},
 ): Promise<{ ok: true; id: string } | NotFound> {
   if (!(await ownsParent(db, userId, parentOf(kind, input)))) return { ok: false, reason: "not_found" };
   const id = randomUUID();
@@ -155,7 +156,7 @@ export async function createFact<K extends FactKind>(
     ...toValues(kind, input),
     source: options.source ?? "manual",
     movedFrom: options.movedFrom ?? null,
-    confirmedAt: options.confirmed ? new Date() : null,
+    confirmedAt: options.confirmedAt ?? (options.confirmed ? new Date() : null),
     trackScopes: options.trackScopes ?? {},
   } as never);
   return { ok: true, id };

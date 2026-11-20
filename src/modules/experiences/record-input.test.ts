@@ -19,10 +19,12 @@ describe("validateFact", () => {
     expect(r.ok && r.value.endMonth).toBeNull();
   });
 
-  it("공백은 시작·끝 월이 필수", () => {
-    const r = validateFact("gap", {});
-    expect(err(r).startMonth).toBeTruthy();
-    expect(err(r).endMonth).toBeTruthy();
+  it("공백은 끝 월이 없으면 진행 중, 둘 다 없으면 기간 없음이다", () => {
+    const open = validateFact("gap", { startMonth: "2024-03" });
+    expect(open.ok && open.value).toEqual({ startMonth: "2024-03", endMonth: null, note: null });
+    const none = validateFact("gap", { note: "준비" });
+    expect(none.ok && none.value).toEqual({ startMonth: null, endMonth: null, note: "준비" });
+    expect(err(validateFact("gap", { startMonth: "2024-03", endMonth: "2024-01" })).endMonth).toBeTruthy();
   });
 
   it("학력: 재학이면 졸업 월을 받지 않는다", () => {

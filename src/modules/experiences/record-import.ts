@@ -433,7 +433,7 @@ export async function saveImportPlan(
     for (const input of plan.education) ids.education.push(await fact("education", input, input.schoolName));
     for (const input of plan.courses) ids.course.push(await fact("course", input, input.name));
     for (const input of plan.credentials) await fact("credential", input, input.name);
-    for (const input of plan.gaps) await fact("gap", input, `공백 ${input.startMonth ?? ""} ~ ${input.endMonth ?? ""}`.trim());
+    for (const input of plan.gaps) await fact("gap", input, input.startMonth ? `공백 ${input.startMonth} ~ ${input.endMonth ?? "진행 중"}` : "공백");
     for (const job of plan.jobs) {
       const id = await fact("job", job.input, job.input.company);
       ids.job.push(id);

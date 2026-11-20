@@ -48,7 +48,11 @@ export async function needsMove(db: Db, userId: string): Promise<boolean> {
   return rows.some((row) => row.status === "pending" || row.status === "running");
 }
 
-// 할 일 하나를 running으로 잡는다. 고르기와 바꾸기를 한 문장으로 해서, 동시에 불러도 같은 행을 둘이 잡지 않는다
+// 할 일 하나를 running으로 잡는다. 고르기와 바꾸기를 한 문장으로 해서, 동시에 불러도 같은 행을 둘이 잡지 않는다.
+// 실제 Postgres(READ COMMITTED)에서 왜 안전한가: 두 호출이 같은 스냅숏으로 같은 행 A를 고르면, UPDATE가 A의 행 잠금을 먼저 잡은
+// 쪽만 바꾸고 다른 쪽은 그 트랜잭션이 끝날 때까지 기다린다. 기다린 쪽은 A의 새 값(running, 방금 시작)으로 바깥 WHERE의
+// claimable을 다시 평가하고(EvalPlanQual), 조건에 맞지 않아 0행을 바꾸고 null을 돌려준다. 그래서 같은 행을 둘이 잡지 않는다.
+// PGlite 테스트는 연결이 하나라 이 경합을 재현하지 못하므로 이 설명으로 남긴다
 export async function claimNextMove(db: Db, userId: string, now: Date): Promise<ClaimedMove | null> {
   const stale = new Date(now.getTime() - STALE_MS);
   const claimable = or(eq(moves.status, "pending"), and(eq(moves.status, "running"), lt(moves.startedAt, stale)));
@@ -78,27 +82,43 @@ export async function finishMove(
   db: Db,
   userId: string,
   id: string,
-  result: { ok: true } | { ok: false; error: string },
+  // ok여도 note가 있으면(일부를 옮기지 못함) error 칸에 남겨 화면이 보여 주게 한다
+  result: { ok: true; note?: string } | { ok: false; error: string },
+  now: Date = new Date(),
 ): Promise<void> {
   await db
     .update(moves)
     .set({
       status: result.ok ? "done" : "failed",
-      error: result.ok ? null : result.error,
+      error: result.ok ? (result.note ?? null) : result.error,
       attempts: sql`${moves.attempts} + 1`,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(and(eq(moves.id, id), eq(moves.userId, userId)));
 }
 
 // 실패한 것만 다시 pending으로 돌린다
-export async function retryMove(db: Db, userId: string, id: string): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
+export async function retryMove(
+  db: Db,
+  userId: string,
+  id: string,
+  now: Date = new Date(),
+): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
   const updated = await db
     .update(moves)
-    .set({ status: "pending", error: null, startedAt: null, updatedAt: new Date() })
+    .set({ status: "pending", error: null, startedAt: null, updatedAt: now })
     .where(and(eq(moves.id, id), eq(moves.userId, userId), eq(moves.status, "failed")))
     .returning({ id: moves.id });
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+}
+
+// 소속 잇기가 끝난 뒤 프로젝트나 조직을 늦게 옮겼으면 소속 잇기를 다시 돌게 한다.
+// affiliateProjects는 소속이 아직 없는 옮긴 프로젝트만 건드리므로 다시 돌아도 안전하다
+export async function reopenAffiliate(db: Db, userId: string, now: Date = new Date()): Promise<void> {
+  await db
+    .update(moves)
+    .set({ status: "pending", error: null, startedAt: null, updatedAt: now })
+    .where(and(eq(moves.userId, userId), eq(moves.step, "affiliate"), eq(moves.status, "done")));
 }
 
 export async function moveProgress(db: Db, userId: string): Promise<MoveProgress> {

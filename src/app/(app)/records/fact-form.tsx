@@ -26,7 +26,7 @@ type Option = { value: string; label: string };
 
 type Spec =
   | { key: string; label: string; type: "text" | "number"; hint?: string; max?: number }
-  | { key: string; label: string; type: "month"; end?: boolean }
+  | { key: string; label: string; type: "month"; end?: boolean; hint?: string }
   | { key: string; label: string; type: "area"; hint?: string; rows?: number }
   | { key: string; label: string; type: "choice"; options: Option[]; optional?: boolean }
   | { key: string; label: string; type: "parent" };
@@ -71,7 +71,7 @@ const SPECS: Record<FactKind, Spec[]> = {
   ],
   gap: [
     { key: "startMonth", label: "시작 월", type: "month" },
-    { key: "endMonth", label: "끝 월", type: "month", end: true },
+    { key: "endMonth", label: "끝 월", type: "month", end: true, hint: "비우면 진행 중" },
     { key: "note", label: "메모", type: "text", hint: "예: 취업 준비" },
   ],
   credential: [
@@ -268,7 +268,7 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
             if (spec.type === "month") {
               const disabled = spec.end === true && noEnd;
               return (
-                <Field key={spec.key} label={spec.label} error={error}>
+                <Field key={spec.key} label={spec.label} hint={spec.hint} error={error}>
                   <input
                     type="month"
                     min="1950-01"

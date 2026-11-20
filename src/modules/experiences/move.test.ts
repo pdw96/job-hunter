@@ -11,12 +11,12 @@ import { insertClaims } from "./claims-repo";
 import { createFact, getFact, listFacts } from "./facts-repo";
 import type { ExperienceInput } from "./input";
 import { affiliateProjects, moveRecord, runNextMove } from "./move";
-import { planMoves } from "./move-repo";
+import { claimNextMove, planMoves, retryMove } from "./move-repo";
 import type { Kind } from "./options";
 import { listRecordClaims } from "./record-claims-repo";
 import type { ProjectInput } from "./record-input";
 import { closeRubricItem, confirmExperience, createExperience, setTrackScope } from "./repo";
-import { experiences, type StoredRubric } from "./schema";
+import { experiences, moves, projects, type StoredRubric } from "./schema";
 import { getScene, listScenes } from "./scenes-repo";
 
 let db: Db;
@@ -141,6 +141,10 @@ test("확인된 프로젝트는 머리·장면이 확인됨으로 옮겨지고 �
   expect(project.source).toBe("migrate");
   expect(project.movedFrom).toBe(oldId);
   expect(project.trackScopes).toEqual({ [trackResult.id]: "exclude" });
+  // 머리도 옛 기록이 확인된 시각으로 확인된다
+  const [oldRow] = await db.select({ confirmedAt: experiences.confirmedAt }).from(experiences).where(eq(experiences.id, oldId));
+  const [headRow] = await db.select({ confirmedAt: projects.confirmedAt }).from(projects).where(eq(projects.id, project.id));
+  expect(headRow.confirmedAt).toEqual(oldRow.confirmedAt);
   expect(project.value).toMatchObject({
     name: "결제 시스템 개편",
     role: "백엔드 개발",
@@ -441,4 +445,99 @@ test("runNextMove는 하나씩 옮기고 진행을 돌려준다. 실패한 것�
   expect(await runNextMove(db, ai, "u1", now)).toEqual(progress);
   expect(ai.requests).toHaveLength(1);
   expect(ai.requests[0].messages[0].text).not.toContain("u1");
+});
+
+// ---- 공백·나누기 메모·늦은 옮기기 (작업 검토) ----
+
+test("진행 중인 옛 공백은 AI 없이 끝 월 없는 공백으로 옮긴다", async () => {
+  const oldId = await createExperience(
+    db,
+    "u1",
+    old({ kind: "gap", name: "이직 준비", startMonth: "2024-03", endMonth: null, isOngoing: true, situation: "쉬었다", actions: "  자격증  공부와\n 포트폴리오 정리 ", metrics: [] }),
+  );
+  const ai = createFakeAi([]);
+  expect(await moveRecord(db, ai, "u1", oldId, now)).toEqual({ ok: true });
+  expect(ai.requests).toHaveLength(0);
+  const facts = await listFacts(db, "u1");
+  expect(facts.gap).toHaveLength(1);
+  expect(facts.gap[0]).toMatchObject({
+    value: { startMonth: "2024-03", endMonth: null, note: "자격증 공부와 포트폴리오 정리" },
+    isConfirmed: false,
+    source: "migrate",
+    movedFrom: oldId,
+  });
+});
+
+test("월이 없는 옛 공백도 옮기고, 긴 메모는 100자 안으로 자른다", async () => {
+  const oldId = await createExperience(
+    db,
+    "u1",
+    old({ kind: "gap", name: "공백", startMonth: null, endMonth: null, situation: "가".repeat(150), actions: "   ", result: null, metrics: [] }),
+  );
+  expect(await moveRecord(db, createFakeAi([]), "u1", oldId, now)).toEqual({ ok: true });
+  const [gap] = (await listFacts(db, "u1")).gap;
+  expect(gap.value.startMonth).toBeNull();
+  expect(gap.value.endMonth).toBeNull();
+  expect(gap.value.note).toHaveLength(100);
+  expect(gap.value.note?.endsWith("…")).toBe(true);
+});
+
+test("같은 옛 기록을 동시에 옮겨도 한 번만 저장한다", async () => {
+  const oldId = await createExperience(db, "u1", old({ kind: "gap", name: "공백", startMonth: "2024-03", endMonth: "2024-08", metrics: [] }));
+  const results = await Promise.all([moveRecord(db, createFakeAi([]), "u1", oldId, now), moveRecord(db, createFakeAi([]), "u1", oldId, now)]);
+  expect(results).toEqual([{ ok: true }, { ok: true }]);
+  expect((await listFacts(db, "u1")).gap).toHaveLength(1);
+});
+
+test("나누기에서 검사를 통과하지 못한 사례가 있으면 통과한 것은 옮기고 메모를 돌려준다", async () => {
+  const oldId = await createExperience(db, "u1", old({ kind: "job", name: "가나다상사 영업", startMonth: "2020-03", endMonth: "2022-02", metrics: [] }));
+  // 제목이 빈 사례는 검사에서 빠진다
+  const answer = { ...jobImport, jobs: [{ ...jobImport.jobs[0], scenes: [...jobImport.jobs[0].scenes, { ...blankScene, title: "" }] }] };
+  const result = await moveRecord(db, createFakeAi([answer]), "u1", oldId, now);
+  expect(result).toEqual({ ok: true, note: "1개는 검사를 통과하지 못해 옮기지 못했습니다" });
+  expect((await listFacts(db, "u1")).job).toHaveLength(1);
+  expect(await listScenes(db, "u1")).toHaveLength(2);
+});
+
+test("원본에 없던 숫자로 칸을 비웠으면 메모를 돌려준다", async () => {
+  const oldId = await createExperience(db, "u1", old({ kind: "job", name: "가나다상사 영업", startMonth: "2020-03", endMonth: "2022-02", metrics: [] }));
+  const answer = { ...jobImport, jobs: [{ ...jobImport.jobs[0], department: "영업 7팀" }] };
+  const result = await moveRecord(db, createFakeAi([answer]), "u1", oldId, now);
+  expect(result).toEqual({ ok: true, note: "원본에 없던 숫자가 있어 일부 칸을 비웠습니다" });
+});
+
+test("runNextMove는 나누기 메모를 done 행의 error 칸에 남긴다", async () => {
+  await createExperience(db, "u1", old({ kind: "job", name: "가나다상사 영업", startMonth: "2020-03", endMonth: "2022-02", metrics: [] }));
+  await planMoves(db, "u1");
+  const answer = { ...jobImport, jobs: [{ ...jobImport.jobs[0], scenes: [...jobImport.jobs[0].scenes, { ...blankScene, title: "" }] }] };
+  const progress = await runNextMove(db, createFakeAi([answer]), "u1", now);
+  expect(progress).toMatchObject({ total: 1, done: 1, pending: 0, failed: [] });
+  const [row] = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  expect(row).toMatchObject({ status: "done", error: "1개는 검사를 통과하지 못해 옮기지 못했습니다" });
+});
+
+test("소속 잇기가 끝난 뒤 프로젝트를 늦게 옮기면 소속 잇기를 다시 돈다", async () => {
+  const projectId = await createExperience(db, "u1", old({ kind: "project" }));
+  await createExperience(db, "u1", old({ kind: "job", name: "가나다상사 영업", startMonth: "2020-03", endMonth: "2022-02", metrics: [] }));
+  await planMoves(db, "u1");
+  let claimsAsked = 0;
+  const answer = (request: AiRequest<unknown>) => {
+    const first = request.messages[0].text.split("\n")[0];
+    if (first === "[옮기기: 주장]") return (claimsAsked += 1) === 1 ? { fail: "unavailable" as const } : { quotes: [] };
+    if (first === "[옮기기: 소속]") return { links: [] };
+    return jobImport;
+  };
+  const ai = createFakeAi(Array.from({ length: 6 }, () => answer));
+  for (let i = 0; i < 3; i += 1) await runNextMove(db, ai, "u1", now);
+  const rows = async () => db.select().from(moves).where(eq(moves.userId, "u1"));
+  const affiliateStatus = async () => (await rows()).find((row) => row.step === "affiliate")?.status;
+  expect(await affiliateStatus()).toBe("done");
+  const failed = (await rows()).find((row) => row.oldId === projectId);
+  expect(failed?.status).toBe("failed");
+
+  await retryMove(db, "u1", failed!.id, now);
+  await runNextMove(db, ai, "u1", now);
+  expect((await rows()).find((row) => row.oldId === projectId)?.status).toBe("done");
+  expect(await affiliateStatus()).toBe("pending");
+  expect((await claimNextMove(db, "u1", now))?.step).toBe("affiliate");
 });
