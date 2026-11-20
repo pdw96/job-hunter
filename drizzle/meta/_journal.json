@@ -127,6 +127,13 @@
       "when": 1795176341343,
       "tag": "0017_flashy_toad",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795191682163,
+      "tag": "0018_public_frank_castle",
+      "breakpoints": true
     }
   ]
 }

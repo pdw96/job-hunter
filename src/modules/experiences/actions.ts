@@ -68,7 +68,7 @@ export async function answerClaimAction(): Promise<SimpleResult> {
   return refuse();
 }
 
-// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 19번, 비용 발생)
+// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 20번, 비용 발생)
 export async function runPromptCheckAction(): Promise<
   { ok: true; rows: CheckRow[] } | { ok: false; message: string }
 > {

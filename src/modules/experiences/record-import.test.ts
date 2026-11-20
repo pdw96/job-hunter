@@ -117,6 +117,8 @@ test("메뉴별로 나눈 답을 계획으로 만든다. 프로젝트는 같은 
   const ai = createFakeAi([answer()]);
   const result = await requestRecordImport(db, ai, "u1", SOURCE, {}, now);
   expect(ai.requests[0]).toMatchObject({ purpose: "import_records" });
+  // Anthropic SDK는 스트리밍 없이 답 길이를 크게 잡으면 보내기 전에 거절한다(2026-11-20 실서비스 옮기기 실패). 다른 기능처럼 16000 이하
+  expect(ai.requests[0].maxTokens).toBeLessThanOrEqual(16000);
   expect(ai.requests[0].messages[0].text).toContain(SOURCE);
   expect(result.ok).toBe(true);
   if (!result.ok) return;

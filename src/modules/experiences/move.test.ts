@@ -11,12 +11,12 @@ import { insertClaims } from "./claims-repo";
 import { createFact, getFact, listFacts, updateFact } from "./facts-repo";
 import type { ExperienceInput } from "./input";
 import { affiliateProjects, moveRecord, runNextMove } from "./move";
-import { claimNextMove, planMoves, retryMove } from "./move-repo";
+import { claimNextMove, failPendingMoves, moveSummary, planMoves, resetMoves, retryMove } from "./move-repo";
 import type { Kind } from "./options";
 import { listRecordClaims } from "./record-claims-repo";
 import type { ProjectInput } from "./record-input";
 import { closeRubricItem, confirmExperience, createExperience, setTrackScope } from "./repo";
-import { experiences, moves, projects, type StoredRubric } from "./schema";
+import { experiences, moves, projects, scenes as sceneRows, type StoredRubric } from "./schema";
 import { getScene, listScenes } from "./scenes-repo";
 
 let db: Db;
@@ -429,22 +429,21 @@ test("runNextMove는 하나씩 옮기고 진행을 돌려준다. 실패한 것�
   await confirmedOld(old({ kind: "project" }));
   await createExperience(db, "u1", old({ kind: "school", name: "한국대학교 컴퓨터공학과", startMonth: "2015-03", endMonth: "2019-02" }));
   await planMoves(db, "u1");
-  // 확인된 프로젝트는 AI를 부르지 않고, 학력은 AI가 실패한다. 소속 잇기는 조직이 없어 AI를 부르지 않는다
-  const ai = createFakeAi([{ fail: "unavailable" }]);
+  // 정리는 빈 답(모두 기본값), 확인된 프로젝트는 AI를 부르지 않고, 학력은 AI가 실패한다. 소속 잇기는 조직이 없어 AI를 부르지 않는다
+  const ai = createFakeAi([{ records: [] }, { fail: "unavailable" }]);
 
   let progress = await runNextMove(db, ai, "u1", now);
-  expect(progress.total).toBe(3);
-  progress = await runNextMove(db, ai, "u1", now);
-  progress = await runNextMove(db, ai, "u1", now);
-  expect(progress).toMatchObject({ total: 3, done: 2, pending: 0 });
+  expect(progress.total).toBe(4);
+  for (let i = 0; i < 3; i += 1) progress = await runNextMove(db, ai, "u1", now);
+  expect(progress).toMatchObject({ total: 4, done: 3, pending: 0 });
   expect(progress.failed).toHaveLength(1);
   expect(progress.failed[0].name).toBe("한국대학교 컴퓨터공학과");
   expect(progress.failed[0].error).toContain("AI");
 
   // 잡을 것이 없으면 진행만 돌려준다
   expect(await runNextMove(db, ai, "u1", now)).toEqual(progress);
-  expect(ai.requests).toHaveLength(1);
-  expect(ai.requests[0].messages[0].text).not.toContain("u1");
+  expect(ai.requests).toHaveLength(2);
+  expect(ai.requests.every((request) => !request.messages[0].text.includes("u1"))).toBe(true);
 });
 
 // ---- 공백·나누기 메모·늦은 옮기기 (작업 검토) ----
@@ -525,10 +524,11 @@ test("소속 잇기가 끝난 뒤 프로젝트를 늦게 옮기면 소속 잇기
     const first = request.messages[0].text.split("\n")[0];
     if (first === "[옮기기: 주장]") return (claimsAsked += 1) === 1 ? { fail: "unavailable" as const } : { quotes: [] };
     if (first === "[옮기기: 소속]") return { links: [] };
+    if (first === "[옮기기: 정리]") return { records: [] };
     return jobImport;
   };
-  const ai = createFakeAi(Array.from({ length: 6 }, () => answer));
-  for (let i = 0; i < 3; i += 1) await runNextMove(db, ai, "u1", now);
+  const ai = createFakeAi(Array.from({ length: 7 }, () => answer));
+  for (let i = 0; i < 4; i += 1) await runNextMove(db, ai, "u1", now);
   const rows = async () => db.select().from(moves).where(eq(moves.userId, "u1"));
   const affiliateStatus = async () => (await rows()).find((row) => row.step === "affiliate")?.status;
   expect(await affiliateStatus()).toBe("done");
@@ -599,4 +599,409 @@ test("나누기에서 사례가 너무 많아 다 담지 못했으면 담은 것
   const [row] = await db.select().from(moves).where(eq(moves.userId, "u1"));
   expect(row).toMatchObject({ status: "done", error: "내용이 많아 일부를 옮기지 못했습니다. 경험 사례에서 더 추가해 주세요" });
   expect((await listFacts(db, "u1")).job[0].movedFrom).toBe(oldId);
+});
+
+// ---- 옮기기 전에 기록 전체를 보고 정리한다 (Task 13) ----
+
+// 보낸 정리 글에서 이름으로 별명을 모두 찾는다(같은 이름이 둘이면 둘 다)
+const aliasesOf = (text: string, name: string) =>
+  [...text.matchAll(/^(R\d+) \| 이름: (.+?) \| /gm)].filter((match) => match[2] === name).map((match) => match[1]);
+
+// 나누기 흉내: 구분마다 그 메뉴 하나로. 재직은 사례 둘을 함께 내어, 머리만 만들 때 버려지는지 본다
+function splitAnswer(text: string) {
+  const name = text.match(/\[이름\]\n(.+)/)?.[1] ?? "";
+  const kind = text.match(/이 글은 예전 기록의 '(.+?)' 한 건입니다/)?.[1];
+  if (kind === "학력") {
+    return { ...emptyImport, education: [{ schoolName: name, location: "", degree: "bachelor", major: "", startMonth: "", endMonth: "", status: "graduated", gpa: "", gpaScale: "" }] };
+  }
+  if (kind === "교육") return { ...emptyImport, courses: [{ name, institution: "", startMonth: "", endMonth: "", hours: "", learned: "" }] };
+  if (kind === "자격") return { ...emptyImport, credentials: [{ type: "license", name, issuer: "", month: "", score: "" }] };
+  return { ...jobImport, jobs: [{ ...jobImport.jobs[0], company: "한빛전자", department: "", startMonth: "", endMonth: "" }] };
+}
+
+type Answerer = (request: AiRequest<unknown>) => unknown;
+// 첫 줄로 옮기기 요청을 가려 답한다. 정리는 classify가 답한다
+const movingAi = (classify: Answerer, count = 60) =>
+  createFakeAi(
+    Array.from({ length: count }, () => (request: AiRequest<unknown>) => {
+      const text = request.messages[0].text;
+      const first = text.split("\n")[0];
+      if (first === "[옮기기: 정리]") return classify(request);
+      if (first === "[옮기기: 주장]") return { quotes: [] };
+      if (first === "[옮기기: 소속]") return { links: [] };
+      return splitAnswer(text);
+    }),
+  );
+
+async function runAll(ai: ReturnType<typeof createFakeAi>) {
+  await planMoves(db, "u1");
+  for (let i = 0; i < 60; i += 1) {
+    const progress = await runNextMove(db, ai, "u1", now);
+    if (progress.pending === 0) return progress;
+  }
+  throw new Error("끝나지 않았다");
+}
+
+const minute = (n: number) => new Date(now.getTime() + n * 60_000);
+
+// 옛 기록 37개(노션 가져오기)와 같은 모양의 작은 예시. 같은 기록 짝, 회사의 성과 사례(STAR), 한 프로젝트의 단계 기록, 구분마다 확인된 것 하나
+async function seedNotionShape() {
+  const at = new Map<string, number>(); // 만든 순서를 createdAt으로 분명하게 둔다
+  let order = 0;
+  const make = async (input: ExperienceInput, confirm = false) => {
+    const id = confirm ? await confirmedOld(input) : await createExperience(db, "u1", input, "import");
+    order += 1;
+    at.set(id, order);
+    await db.update(experiences).set({ createdAt: minute(order) }).where(eq(experiences.id, id));
+    return id;
+  };
+  const none = { metrics: [], notDone: null, bannedPhrases: [], evidenceNote: null, tags: [] };
+  const fact = (kind: Kind, name: string, over: Partial<ExperienceInput> = {}) =>
+    old({ kind, name, organization: null, role: null, situation: null, actions: null, result: null, ...none, ...over });
+  const ids = {
+    school: [await make(fact("school", "한빛대학교 경영학과", { situation: "경영학을 전공했다. 학생회 활동도 했다" })), await make(fact("school", "한빛대학교 경영학과"), true)],
+    training: [await make(fact("training", "데이터 분석 부트캠프")), await make(fact("training", "데이터 분석 부트캠프", { actions: "파이썬으로 분석 과제를 했다" }))],
+    certA: [await make(fact("certificate", "정보처리기사", { startMonth: "2021-06", endMonth: null })), await make(fact("certificate", "정보처리기사", { startMonth: "2021-06", endMonth: null }))],
+    certB: [await make(fact("certificate", "컴퓨터활용능력 1급", { startMonth: "2020-03", endMonth: null })), await make(fact("certificate", "컴퓨터활용능력 1급", { startMonth: "2020-03", endMonth: null }))],
+    certC: await make(fact("certificate", "SQLD", { startMonth: "2022-09", endMonth: null }), true),
+    gapA: [await make(fact("gap", "이직 준비", { startMonth: "2019-03", endMonth: "2019-12" })), await make(fact("gap", "이직 준비 기간", { startMonth: "2019-03", endMonth: "2019-12" }))],
+    gapB: [await make(fact("gap", "구직", { startMonth: "2024-03", endMonth: null, isOngoing: true })), await make(fact("gap", "구직 중", { startMonth: "2024-03", endMonth: null, isOngoing: true }))],
+    jobs: [
+      await make(old({ kind: "job", name: "한빛전자 영업 총괄", organization: "한빛전자", startMonth: "2020-03", endMonth: "2024-02", metrics: [] })),
+      await make(old({ kind: "job", name: "한빛전자 영업 전담", organization: "한빛전자", startMonth: "2020-03", endMonth: "2024-02", actions: "거래처 관리와 신규 거래처 발굴, 월별 매출 보고서 작성을 맡았다", metrics: [] })),
+    ],
+    other: await make(old({ kind: "other", name: "지역 아동센터 봉사", organization: "아동센터", metrics: [] })),
+    dashboard: [
+      await make(old({ kind: "project", name: "고객 문의 대시보드", metrics: [], actions: "문의 현황을 대시보드로 만들었다. 매주 팀에 공유했다" })),
+      await make(old({ kind: "project", name: "고객 문의 대시보드 구축", metrics: [], actions: "대시보드를 만들었다" })),
+    ],
+    star: [
+      await make(old({ kind: "project", name: "성과 사례 · 재고 정리 (STAR)", organization: "한빛전자", startMonth: "2021-03", endMonth: "2021-08" }), true),
+      await make(old({ kind: "project", name: "성과 사례 · 거래처 재계약 (STAR)", organization: "한빛전자", startMonth: "2022-03", endMonth: "2022-06", metrics: [] })),
+    ],
+    erp: [
+      await make(old({ kind: "project", name: "AI 기반 ERP 구축", startMonth: "2023-01", endMonth: "2023-12", metrics: [] })),
+      await make(old({ kind: "project", name: "AI 기반 ERP 구축 · 1단계 설계", startMonth: "2023-01", endMonth: "2023-04", metrics: [] })),
+      await make(old({ kind: "project", name: "AI 기반 ERP 구축 · 2단계 개발", startMonth: "2023-05", endMonth: "2023-12", metrics: [] })),
+    ],
+  };
+  return ids;
+}
+
+// 사람이 보듯 답하는 정리: 같은 이름(또는 같은 것)은 duplicate, 성과 사례는 재직의 scene, ERP 단계는 ERP 머리의 scene.
+// 짝은 일부러 남겨야 할 것의 반대쪽을 가리키게 둔다(남길 것은 코드가 정한다)
+function notionClassify(request: AiRequest<unknown>) {
+  const text = request.messages[0].text;
+  const one = (name: string) => aliasesOf(text, name)[0];
+  const pair = (name: string) => aliasesOf(text, name);
+  const records: { record: string; role: string; ref: string | null }[] = [];
+  const add = (record: string, role: string, ref: string | null = null) => records.push({ record, role, ref });
+  for (const name of ["한빛대학교 경영학과", "데이터 분석 부트캠프", "정보처리기사", "컴퓨터활용능력 1급"]) {
+    const [a, b] = pair(name);
+    add(b, "fact");
+    add(a, "duplicate", b);
+  }
+  add(one("SQLD"), "fact");
+  add(one("이직 준비"), "fact");
+  add(one("이직 준비 기간"), "duplicate", one("이직 준비"));
+  add(one("구직"), "fact");
+  add(one("구직 중"), "duplicate", one("구직"));
+  add(one("한빛전자 영업 총괄"), "head");
+  add(one("한빛전자 영업 전담"), "duplicate", one("한빛전자 영업 총괄"));
+  add(one("지역 아동센터 봉사"), "head");
+  add(one("고객 문의 대시보드 구축"), "head");
+  add(one("고객 문의 대시보드"), "duplicate", one("고객 문의 대시보드 구축"));
+  add(one("성과 사례 · 재고 정리 (STAR)"), "scene", one("한빛전자 영업 총괄"));
+  add(one("성과 사례 · 거래처 재계약 (STAR)"), "scene", one("한빛전자 영업 총괄"));
+  add(one("AI 기반 ERP 구축"), "head");
+  add(one("AI 기반 ERP 구축 · 1단계 설계"), "scene", one("AI 기반 ERP 구축"));
+  add(one("AI 기반 ERP 구축 · 2단계 개발"), "scene", one("AI 기반 ERP 구축"));
+  return { records };
+}
+
+test("옛 기록 37개 모양의 예시에서 새 학력 1·교육 1·자격 3·공백 2·경력 1이 되고, 사례는 머리 아래로 모인다", async () => {
+  const ids = await seedNotionShape();
+  const ai = movingAi(notionClassify);
+  const progress = await runAll(ai);
+  expect(progress.failed).toEqual([]);
+
+  // 정리는 한 번, 맨 먼저
+  const classify = ai.requests.filter((r) => r.messages[0].text.startsWith("[옮기기: 정리]"));
+  expect(classify).toHaveLength(1);
+  expect(ai.requests[0]).toBe(classify[0]);
+
+  const facts = await listFacts(db, "u1");
+  expect(facts.education).toHaveLength(1);
+  expect(facts.course).toHaveLength(1);
+  expect(facts.credential).toHaveLength(3);
+  expect(facts.gap).toHaveLength(2);
+  expect(facts.job).toHaveLength(1);
+  expect(facts.activity).toHaveLength(1);
+  expect(facts.project.map((p) => p.value.name).sort()).toEqual(["AI 기반 ERP 구축", "고객 문의 대시보드"]);
+
+  // 남길 것은 코드가 정한다: 확인된 것 → 본문이 긴 것 → 먼저 만든 것
+  expect(facts.education[0].movedFrom).toBe(ids.school[1]); // 확인됨
+  expect(facts.course[0].movedFrom).toBe(ids.training[1]); // 본문이 김
+  expect(facts.credential.map((c) => c.movedFrom).sort()).toEqual([ids.certA[0], ids.certB[0], ids.certC].sort()); // 먼저 만든 것
+  expect(facts.job[0].movedFrom).toBe(ids.jobs[1]); // 본문이 김
+  expect(facts.project.find((p) => p.value.name === "고객 문의 대시보드")?.movedFrom).toBe(ids.dashboard[0]);
+
+  // 재직은 머리(담당 업무 줄까지)만, 사례는 성과 사례 둘
+  const job = facts.job[0];
+  expect(job.value.duties).toEqual(["거래처 관리"]);
+  const scenes = await listScenes(db, "u1");
+  const under = (kind: string, id: string) => scenes.filter((s) => s.head.kind === kind && s.head.id === id).map((s) => s.title).sort();
+  expect(under("job", job.id)).toEqual(["성과 사례 · 거래처 재계약 (STAR)", "성과 사례 · 재고 정리 (STAR)"]);
+  const erp = facts.project.find((p) => p.value.name === "AI 기반 ERP 구축")!;
+  expect(under("project", erp.id)).toEqual(["AI 기반 ERP 구축", "AI 기반 ERP 구축 · 1단계 설계", "AI 기반 ERP 구축 · 2단계 개발"]);
+  expect(scenes).toHaveLength(7); // 재직 2 + ERP 3 + 대시보드 1 + 봉사 1
+  // 머리만 만들 때는 사례를 만들지 말라고 알린다
+  const jobRequest = ai.requests.find((r) => r.messages[0].text.includes("'재직' 한 건"));
+  expect(jobRequest?.messages[0].text).toContain("사례는 따로 옮깁니다");
+
+  // 확인됐던 성과 사례는 경력 아래에서 확인 상태와 주장 답을 이어 간다
+  const confirmedStar = scenes.find((s) => s.title === "성과 사례 · 재고 정리 (STAR)")!;
+  const star = await getScene(db, "u1", confirmedStar.id);
+  expect(star).toMatchObject({ isConfirmed: true, state: "confirmed", movedFrom: ids.star[0], head: { kind: "job", id: job.id } });
+  // 다른 머리의 사례는 머리와 다른 자기 기간을 장면에 둔다
+  expect(star).toMatchObject({ startMonth: "2021-03", endMonth: "2021-08" });
+  expect(star?.rubric).toEqual(allMet);
+  const claims = await listRecordClaims(db, "u1", { kind: "scene", id: confirmedStar.id });
+  expect(claims.map((claim) => claim.status)).toEqual(["confirmed", "fixed"]);
+
+  // 같은 기록 행은 아무것도 만들지 않고 메모와 함께 done. 화면의 개수는 옛 기록 모두
+  const rows = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  const duplicates = rows.filter((row) => row.role === "duplicate");
+  expect(duplicates).toHaveLength(8);
+  expect(duplicates.every((row) => row.status === "done" && row.error === "같은 기록이 있어 하나만 옮겼습니다")).toBe(true);
+  expect(rows.find((row) => row.oldId === ids.school[0])).toMatchObject({ role: "duplicate", ref: ids.school[1] });
+  const summary = await moveSummary(db, "u1");
+  expect(summary).toMatchObject({ recordTotal: 23, recordDone: 23, recordFailed: 0, classify: { status: "done" } });
+});
+
+test("정리에 실패하면 classify 행만 실패하고 기록 행은 기다리며, 다시 시도하면 정리부터 이어 간다", async () => {
+  await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드 구축" }));
+  await planMoves(db, "u1");
+  let calls = 0;
+  const ai = movingAi(() => ((calls += 1) === 1 ? { fail: "unavailable" } : { records: [] }));
+  const progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.pending).toBe(0);
+  expect(progress.failed.map((item) => item.name)).toEqual(["같은 기록·사례 정리"]);
+  const rows = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  expect(rows.filter((row) => row.step === "record").every((row) => row.status === "pending")).toBe(true);
+  expect(await listFacts(db, "u1").then((f) => f.project)).toHaveLength(0);
+
+  await retryMove(db, "u1", progress.failed[0].id, now);
+  for (let i = 0; i < 3; i += 1) await runNextMove(db, ai, "u1", now);
+  // 빈 답이면 모두 기본값(프로젝트는 머리)
+  expect((await listFacts(db, "u1")).project).toHaveLength(2);
+});
+
+test("장면의 머리가 그 사이 지워졌으면 장면 기록을 자기 머리로 옮긴다", async () => {
+  const head = await createExperience(db, "u1", old({ kind: "project", name: "AI 기반 ERP 구축" }));
+  const scene = await createExperience(db, "u1", old({ kind: "project", name: "AI 기반 ERP 구축 · 1단계" }));
+  const ai = movingAi((request) => {
+    const text = request.messages[0].text;
+    const of = (name: string) => aliasesOf(text, name)[0];
+    return { records: [{ record: of("AI 기반 ERP 구축"), role: "head", ref: null }, { record: of("AI 기반 ERP 구축 · 1단계"), role: "scene", ref: of("AI 기반 ERP 구축") }] };
+  });
+  await planMoves(db, "u1");
+  await runNextMove(db, ai, "u1", now); // 정리
+  await runNextMove(db, ai, "u1", now); // 머리
+  const [moved] = (await listFacts(db, "u1")).project;
+  expect(moved.movedFrom).toBe(head);
+  await db.delete(sceneRows).where(eq(sceneRows.projectId, moved.id));
+  await db.delete(projects).where(eq(projects.id, moved.id));
+  await runNextMove(db, ai, "u1", now);
+  const [own] = (await listFacts(db, "u1")).project;
+  expect(own.movedFrom).toBe(scene);
+  expect((await listScenes(db, "u1")).map((s) => s.head.id)).toEqual([own.id]);
+});
+
+test("같은 기록 행은 AI를 부르지 않고 아무것도 만들지 않는다", async () => {
+  const a = await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  const result = await moveRecord(db, createFakeAi([]), "u1", a, now, { role: "duplicate", ref: "other" });
+  expect(result).toEqual({ ok: true, note: "같은 기록이 있어 하나만 옮겼습니다" });
+  expect((await listFacts(db, "u1")).project).toHaveLength(0);
+});
+
+test("정리가 한도 밖의 까닭으로 두 번 실패하면 모두 기본값으로 정리를 끝내고 메모를 남기며, 기록은 하나씩 옮겨진다", async () => {
+  const a = await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  const b = await createExperience(db, "u1", old({ kind: "school", name: "한빛대학교", organization: "한빛대학교" }));
+  await planMoves(db, "u1");
+  const ai = movingAi(() => ({ fail: "invalid" }));
+  let progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.failed.map((item) => item.name)).toEqual(["같은 기록·사례 정리"]);
+  await retryMove(db, "u1", progress.failed[0].id, now);
+  progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.failed).toEqual([]);
+  const rows = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  expect(rows.find((row) => row.step === "classify")).toMatchObject({ status: "done", attempts: 2, error: "기록 정리를 하지 못해 하나씩 옮겼습니다" });
+  expect(rows.find((row) => row.oldId === a)).toMatchObject({ role: "head", ref: null, status: "pending" });
+  expect(rows.find((row) => row.oldId === b)).toMatchObject({ role: "fact", ref: null, status: "pending" });
+  // 기록 행이 이어서 잡힌다
+  expect((await claimNextMove(db, "u1", now))?.step).toBe("record");
+});
+
+test("정리가 한도에 걸리면 두 번째여도 기본값으로 넘기지 않고 실패로 둔다", async () => {
+  await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  await createExperience(db, "u1", old({ kind: "project", name: "재고 시스템" }));
+  await planMoves(db, "u1");
+  await db.update(moves).set({ attempts: 1 }).where(eq(moves.step, "classify"));
+  process.env.AI_MONTHLY_LIMIT_USD = "0";
+  const progress = await runNextMove(db, movingAi(() => ({ records: [] })), "u1", now);
+  expect(progress.failed.map((item) => item.name)).toEqual(["같은 기록·사례 정리"]);
+  expect(progress.failed[0].error).toBe("이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 시도해 주세요");
+});
+
+// ---- 작업 검토 (Task 13) ----
+
+test("정리가 한도로 모두 실패한 뒤 기록 하나만 다시 시도해도, 정리가 그것을 실패한 머리의 장면으로 정하면 머리를 되살려 끝까지 옮긴다", async () => {
+  const job = await createExperience(db, "u1", old({ kind: "job", name: "한빛전자 영업", organization: "한빛전자", startMonth: "2020-03", endMonth: "2024-02", metrics: [] }));
+  const star = await createExperience(db, "u1", old({ kind: "project", name: "성과 사례 · 재고 정리 (STAR)", organization: "한빛전자", metrics: [] }));
+  await planMoves(db, "u1");
+  process.env.AI_MONTHLY_LIMIT_USD = "0";
+  const ai = movingAi((request) => {
+    const text = request.messages[0].text;
+    const of = (name: string) => aliasesOf(text, name)[0];
+    return { records: [{ record: of("한빛전자 영업"), role: "head", ref: null }, { record: of("성과 사례 · 재고 정리 (STAR)"), role: "scene", ref: of("한빛전자 영업") }] };
+  });
+  await runNextMove(db, ai, "u1", now); // 정리가 한도에 걸린다
+  await failPendingMoves(db, "u1", "한도", now); // moveNext가 하는 것처럼 남은 것도 실패로
+  delete process.env.AI_MONTHLY_LIMIT_USD;
+
+  // 다음 달: 사례 기록 하나만 다시 시도한다(정리도 함께 pending)
+  const starRow = (await db.select().from(moves).where(eq(moves.oldId, star)))[0];
+  await retryMove(db, "u1", starRow.id, now);
+  let progress = await runNextMove(db, ai, "u1", now); // 정리 → 사례는 실패한 재직의 장면이 된다
+  const jobRow = (await db.select().from(moves).where(eq(moves.oldId, job)))[0];
+  expect(jobRow).toMatchObject({ status: "pending" }); // 머리를 되살렸다
+  for (let i = 0; i < 5 && progress.pending > 0; i += 1) progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.pending).toBe(0);
+  const [moved] = (await listFacts(db, "u1")).job;
+  expect((await listScenes(db, "u1")).map((s) => [s.title, s.head.id])).toEqual([["성과 사례 · 재고 정리 (STAR)", moved.id]]);
+});
+
+test("기본값으로 넘기는 것은 한도 밖의 실패만 센다: 한도 한 번 + 실패 한 번은 아직 실패, 실패 두 번째에 넘긴다", async () => {
+  await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  await createExperience(db, "u1", old({ kind: "project", name: "재고 시스템" }));
+  await planMoves(db, "u1");
+  const classifyRow = async () => (await db.select().from(moves).where(eq(moves.step, "classify")))[0];
+  const ai = movingAi(() => ({ fail: "unavailable" }));
+  process.env.AI_MONTHLY_LIMIT_USD = "0";
+  await runNextMove(db, ai, "u1", now);
+  delete process.env.AI_MONTHLY_LIMIT_USD;
+  expect(await classifyRow()).toMatchObject({ status: "failed", attempts: 0 });
+  await retryMove(db, "u1", (await classifyRow()).id, now);
+  await runNextMove(db, ai, "u1", now);
+  expect(await classifyRow()).toMatchObject({ status: "failed", attempts: 1 });
+  await retryMove(db, "u1", (await classifyRow()).id, now);
+  await runNextMove(db, ai, "u1", now);
+  expect(await classifyRow()).toMatchObject({ status: "done", error: "기록 정리를 하지 못해 하나씩 옮겼습니다" });
+});
+
+test("정리 중 예외가 나도 실패로 세어 두 번째에 기본값으로 넘긴다", async () => {
+  await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  await createExperience(db, "u1", old({ kind: "project", name: "재고 시스템" }));
+  await planMoves(db, "u1");
+  const ai = movingAi(() => {
+    throw new Error("연결 끊김");
+  });
+  let progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.failed.map((item) => item.name)).toEqual(["같은 기록·사례 정리"]);
+  await retryMove(db, "u1", progress.failed[0].id, now);
+  progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.failed).toEqual([]);
+  expect((await db.select().from(moves).where(eq(moves.step, "classify")))[0]).toMatchObject({ status: "done", error: "기록 정리를 하지 못해 하나씩 옮겼습니다" });
+});
+
+test("사례가 자기 머리로 옮겨지면(머리가 지워짐) 끝난 소속 잇기를 다시 돌게 한다", async () => {
+  await createExperience(db, "u1", old({ kind: "job", name: "한빛전자 영업", organization: "한빛전자", startMonth: "2020-03", endMonth: "2024-02", metrics: [] }));
+  await createExperience(db, "u1", old({ kind: "project", name: "AI 기반 ERP 구축" }));
+  await createExperience(db, "u1", old({ kind: "project", name: "AI 기반 ERP 구축 · 1단계" }));
+  const ai = movingAi((request) => {
+    const text = request.messages[0].text;
+    const of = (name: string) => aliasesOf(text, name)[0];
+    return {
+      records: [
+        { record: of("한빛전자 영업"), role: "head", ref: null },
+        { record: of("AI 기반 ERP 구축"), role: "head", ref: null },
+        { record: of("AI 기반 ERP 구축 · 1단계"), role: "scene", ref: of("AI 기반 ERP 구축") },
+      ],
+    };
+  });
+  await planMoves(db, "u1");
+  for (let i = 0; i < 3; i += 1) await runNextMove(db, ai, "u1", now); // 정리, 재직, 머리 프로젝트
+  const head = (await listFacts(db, "u1")).project[0];
+  await db.delete(sceneRows).where(eq(sceneRows.projectId, head.id));
+  await db.delete(projects).where(eq(projects.id, head.id));
+  await db.update(moves).set({ status: "done" }).where(eq(moves.step, "affiliate"));
+  await runNextMove(db, ai, "u1", now); // 사례가 자기 머리로
+  expect((await db.select().from(moves).where(eq(moves.step, "affiliate")))[0].status).toBe("pending");
+});
+
+test("옮긴 기록을 모두 지우고 다시 옮기면 같은 정리된 구조가 나온다(중복 없이)", async () => {
+  const ids = await seedNotionShape();
+  await runAll(movingAi(notionClassify));
+  const snapshot = async () => {
+    const facts = await listFacts(db, "u1");
+    return {
+      counts: [facts.education, facts.course, facts.credential, facts.gap, facts.job, facts.project, facts.activity].map((list) => list.length),
+      scenes: (await listScenes(db, "u1")).map((s) => s.title).sort(),
+      moved: [...facts.education, ...facts.job].map((f) => f.movedFrom).sort(),
+    };
+  };
+  const first = await snapshot();
+
+  expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+  expect(await listScenes(db, "u1")).toEqual([]);
+  expect(await db.select().from(moves).where(eq(moves.userId, "u1"))).toEqual([]);
+
+  const progress = await runAll(movingAi(notionClassify));
+  expect(progress.failed).toEqual([]);
+  expect(await snapshot()).toEqual(first);
+  expect(first.counts).toEqual([1, 1, 3, 2, 1, 2, 1]);
+  expect(first.moved).toEqual([ids.school[1], ids.jobs[1]].sort());
+  expect((await moveSummary(db, "u1")).duplicateDone).toBe(8);
+});
+
+test("AI 답을 기다리는 사이 다른 탭에서 다시 옮기기를 하면, 늦게 온 답은 저장하지 않는다(새로 옮기는 것만 남는다)", async () => {
+  await createExperience(db, "u1", old({ kind: "school", name: "한국대학교 컴퓨터공학과", startMonth: "2015-03", endMonth: "2019-02" }));
+  await planMoves(db, "u1");
+  const school = {
+    ...emptyImport,
+    education: [
+      { schoolName: "한국대학교", location: "", degree: "bachelor", major: "컴퓨터공학과", startMonth: "2015-03", endMonth: "2019-02", status: "graduated", gpa: "", gpaScale: "" },
+    ],
+  };
+  const stale = createFakeAi([
+    async () => {
+      expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+      return school;
+    },
+  ]);
+  await runNextMove(db, stale, "u1", now);
+  expect((await listFacts(db, "u1")).education).toHaveLength(0);
+
+  await planMoves(db, "u1");
+  await runNextMove(db, createFakeAi([school]), "u1", now);
+  expect((await listFacts(db, "u1")).education).toHaveLength(1);
+});
+
+test("정리 답을 기다리는 사이 다시 옮기기를 하면, 늦게 온 정리는 새 기록 행의 역할을 바꾸지 않는다", async () => {
+  await createExperience(db, "u1", old({ kind: "school", name: "한국대학교", startMonth: "2015-03", endMonth: "2019-02" }));
+  await createExperience(db, "u1", old({ kind: "school", name: "한국대학교", startMonth: "2015-03", endMonth: "2019-02" }));
+  await planMoves(db, "u1");
+  const stale = createFakeAi([
+    async () => {
+      expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+      await planMoves(db, "u1");
+      return { records: [{ record: "R1", role: "fact", ref: null }, { record: "R2", role: "duplicate", ref: "R1" }] };
+    },
+  ]);
+  await runNextMove(db, stale, "u1", now);
+  const rows = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  expect(rows.filter((row) => row.step === "record").map((row) => row.role)).toEqual([null, null]);
+  expect(rows.find((row) => row.step === "classify")?.status).toBe("pending");
 });

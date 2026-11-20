@@ -2,6 +2,7 @@ import type { Db } from "@/db/types";
 import { type AiClient, runAi } from "@/modules/ai/client";
 import type { ExperienceInput } from "./input";
 import { type AffiliationInput, requestAffiliation } from "./move";
+import { type ClassifyRecord, requestClassify, type RoleChoice } from "./move-classify";
 import type { CheckRow } from "./prompt-check";
 import { describeExperience } from "./prompts";
 import type { SceneInput } from "./record-input";
@@ -13,7 +14,7 @@ import { RUBRIC_ITEM_LABELS } from "./options";
 import { sceneJudgeRequest } from "./scene-judge";
 import type { InterviewMessage } from "./schema";
 
-// 새 기록 구조의 프롬프트 점검. 장면 판정(judge), 장면 정리(extract_scene), 새 가져오기(import_records), 옮기기(migrate)를 실제 AI에 돌려 기대대로 동작하는지 본다.
+// 새 기록 구조의 프롬프트 점검. 장면 판정(judge), 장면 정리(extract_scene), 새 가져오기(import_records), 옮기기(migrate: 나누기·소속·정리)를 실제 AI에 돌려 기대대로 동작하는지 본다.
 // prompt-check.ts와 같은 줄 모양(CheckRow)을 돌려주고, 관리자 화면이 함께 보인다.
 
 const talk = (pairs: [string, string][]): InterviewMessage[] =>
@@ -353,6 +354,79 @@ function affiliateRows(links: Extract<Awaited<ReturnType<typeof requestAffiliati
   ];
 }
 
+// 옮기기 전 정리: 같은 학력 둘, 재직 하나와 그 회사의 성과 사례 둘, 같은 이름 프로젝트 셋, 같은 학교의 석사(같은 기록이 아님).
+// 석사는 기간을 비워 코드의 기간 검사가 아니라 프롬프트가 가려내는지 본다
+const classifyRecord = (over: Partial<ClassifyRecord> & Pick<ClassifyRecord, "name" | "kind">): ClassifyRecord => ({
+  organization: null,
+  role: null,
+  startMonth: null,
+  endMonth: null,
+  isOngoing: false,
+  body: "",
+  ...over,
+});
+export const CLASSIFY_SAMPLE = {
+  name: "옮기기 전 기록 정리",
+  records: [
+    classifyRecord({ name: "한빛대학교 경영학과", kind: "school", organization: "한빛대학교", startMonth: "2015-03", endMonth: "2019-02", body: "경영학을 전공했다." }),
+    classifyRecord({ name: "한빛대학교 경영학과 졸업", kind: "school", organization: "한빛대학교", startMonth: "2015-03", endMonth: "2019-02" }),
+    classifyRecord({
+      name: "한빛전자 영업 담당",
+      kind: "job",
+      organization: "한빛전자",
+      role: "영업팀 사원",
+      startMonth: "2019-07",
+      endMonth: "2023-12",
+      body: "거래처 관리와 주문 처리를 맡았다. 재고 정리와 재계약 자료 작성도 했다.",
+    }),
+    classifyRecord({
+      name: "성과 사례 · 재고 정리 (STAR)",
+      kind: "project",
+      organization: "한빛전자",
+      startMonth: "2021-03",
+      endMonth: "2021-08",
+      body: "상황: 창고 재고가 장부와 맞지 않았다. 한 일: 품목별로 실사 표를 만들어 매주 맞췄다. 결과: 장부 차이가 줄었다.",
+    }),
+    classifyRecord({
+      name: "성과 사례 · 거래처 재계약 (STAR)",
+      kind: "project",
+      organization: "한빛전자",
+      startMonth: "2022-03",
+      endMonth: "2022-06",
+      body: "상황: 큰 거래처의 계약 만료가 다가왔다. 한 일: 거래 내역을 정리해 재계약 자료를 만들었다. 결과: 재계약됐다.",
+    }),
+    classifyRecord({
+      name: "AI 기반 ERP 구축",
+      kind: "project",
+      role: "기획",
+      startMonth: "2024-01",
+      endMonth: "2024-12",
+      body: "사내 ERP에 AI 요약 기능을 붙이는 프로젝트. 요구사항 정리부터 시험 운영까지 맡았다.",
+    }),
+    classifyRecord({ name: "AI 기반 ERP 구축 · 1단계 요구사항 정리", kind: "project", startMonth: "2024-01", endMonth: "2024-04", body: "부서별 면담으로 요구사항을 정리했다." }),
+    classifyRecord({ name: "AI 기반 ERP 구축 · 2단계 시험 운영", kind: "project", startMonth: "2024-05", endMonth: "2024-12", body: "영업팀에서 시험 운영하고 의견을 모았다." }),
+    classifyRecord({ name: "한빛대학교 경영대학원 석사", kind: "school", organization: "한빛대학교", body: "경영학 석사 과정을 마쳤다." }),
+  ],
+};
+
+function classifyRows(roles: RoleChoice[]): CheckRow[] {
+  const sample = CLASSIFY_SAMPLE.name;
+  const label = (index: number) => `R${index + 1}`;
+  const show = (indexes: number[]) => indexes.map((i) => `${label(i)} ${roles[i].role}${roles[i].ref === null ? "" : `→${label(roles[i].ref!)}`}`).join(", ");
+  const [a, b] = [roles[0], roles[1]];
+  const schoolPaired = (a.role === "duplicate" && a.ref === 1 && b.role === "fact") || (b.role === "duplicate" && b.ref === 0 && a.role === "fact");
+  const starScenes = roles[2].role === "head" && [3, 4].every((i) => roles[i].role === "scene" && roles[i].ref === 2);
+  const erp = [5, 6, 7];
+  const heads = erp.filter((i) => roles[i].role === "head");
+  const erpGrouped = heads.length === 1 && erp.filter((i) => i !== heads[0]).every((i) => roles[i].role === "scene" && roles[i].ref === heads[0]);
+  return [
+    { sample, check: "같은 학력 둘은 하나만 남긴다", expected: "R1·R2 중 하나가 다른 하나의 duplicate", actual: show([0, 1]), pass: schoolPaired },
+    { sample, check: "회사의 성과 사례는 그 재직의 장면이다", expected: "R3 head, R4·R5 scene→R3", actual: show([2, 3, 4]), pass: starScenes },
+    { sample, check: "같은 이름 프로젝트 셋은 머리 하나와 장면 둘이다", expected: "하나 head, 둘 scene→그 head", actual: show(erp), pass: erpGrouped },
+    { sample, check: "같은 학교의 학사와 석사는 같은 기록이 아니다", expected: "R9 fact", actual: show([8]), pass: roles[8].role === "fact" },
+  ];
+}
+
 const failed = (sample: string, reason: string): CheckRow[] => [{ sample, check: "AI 호출", expected: "성공", actual: reason, pass: false }];
 
 export async function runRecordCheck(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<CheckRow[]> {
@@ -394,5 +468,10 @@ export async function runRecordCheck(db: Db, ai: AiClient, userId: string, now: 
     return result.ok ? affiliateRows(result.links) : failed(AFFILIATE_SAMPLE.name, result.reason);
   })();
 
-  return (await Promise.all([...judged, ...extracted, imported, moved, affiliated])).flat();
+  const classified = (async () => {
+    const result = await requestClassify(db, ai, userId, CLASSIFY_SAMPLE.records, now);
+    return result.ok ? classifyRows(result.roles) : failed(CLASSIFY_SAMPLE.name, result.reason);
+  })();
+
+  return (await Promise.all([...judged, ...extracted, imported, moved, affiliated, classified])).flat();
 }

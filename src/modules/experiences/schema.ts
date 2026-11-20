@@ -304,8 +304,12 @@ export const moves = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    step: text("step").$type<"record" | "affiliate">().notNull(),
+    // classify(정리) → record(옛 기록 하나) → affiliate(소속 잇기)
+    step: text("step").$type<"classify" | "record" | "affiliate">().notNull(),
     oldId: text("old_id"), // step이 record일 때 옛 기록 id
+    // 정리가 정한 record 행의 역할. 비어 있으면 구분별 기본 길(프로젝트·기타·재직은 머리, 나머지는 이력 사실)
+    role: text("role").$type<"fact" | "head" | "scene" | "duplicate">(),
+    ref: text("ref"), // scene이면 머리가 될 옛 기록 id, duplicate면 남길 옛 기록 id
     status: text("status").$type<"pending" | "running" | "done" | "failed">().notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     error: text("error"),
@@ -317,5 +321,7 @@ export const moves = pgTable(
     uniqueIndex("experiences_moves_user_old_idx").on(t.userId, t.oldId),
     // old_id가 빈 affiliate 행은 위 색인이 막지 못한다. 사용자마다 하나뿐이게 한다
     uniqueIndex("experiences_moves_user_affiliate_idx").on(t.userId).where(sql`${t.step} = 'affiliate'`),
+    // classify 행도 사용자마다 하나
+    uniqueIndex("experiences_moves_user_classify_idx").on(t.userId).where(sql`${t.step} = 'classify'`),
   ],
 );

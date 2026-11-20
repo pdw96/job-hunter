@@ -1,7 +1,7 @@
 import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
 import { OVER_LIMIT_MESSAGE, runNextMove } from "./move";
-import { failPendingMoves, type MoveProgress, moveProgress, planMoves, retryMove } from "./move-repo";
+import { failPendingMoves, type MoveProgress, moveProgress, planMoves, resetMoves, retryMove } from "./move-repo";
 import type { SimpleResult } from "./record-commands";
 import { newRecordsOn } from "./switch";
 
@@ -31,4 +31,14 @@ export async function retryMoveCommand(db: Db, userId: string, id: string): Prom
   if (!newRecordsOn()) return { ok: false, message: OFF };
   const result = await retryMove(db, userId, id);
   return result.ok ? { ok: true } : { ok: false, message: NOT_FOUND };
+}
+
+const IN_USE = "직접 넣은 사례가 옮긴 기록에 딸려 있어 다시 옮길 수 없습니다";
+const EDITED = "옮긴 뒤 고치거나 확인한 기록이 있어 다시 옮길 수 없습니다";
+
+// 옮겨서 만든 기록을 지우고 옮기기를 처음부터 다시 하게 한다(다시 옮기기는 /moving이 한다)
+export async function resetMovesCommand(db: Db, userId: string): Promise<SimpleResult> {
+  if (!newRecordsOn()) return { ok: false, message: OFF };
+  const result = await resetMoves(db, userId);
+  return result.ok ? { ok: true } : { ok: false, message: result.reason === "edited" ? EDITED : IN_USE };
 }

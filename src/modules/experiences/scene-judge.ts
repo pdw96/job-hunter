@@ -96,6 +96,7 @@ export async function approveScenePhrase(db: Db, userId: string, id: string, phr
     .set({
       phraseCandidates: scene.phraseCandidates.filter((candidate) => candidate !== phrase),
       bannedPhrases: [...new Set([...scene.bannedPhrases, phrase])],
+      updatedAt: new Date(),
     })
     .where(mine(userId, id));
   return { ok: true };
@@ -110,6 +111,7 @@ export async function dismissScenePhrase(db: Db, userId: string, id: string, phr
     .set({
       phraseCandidates: scene.phraseCandidates.filter((candidate) => candidate !== phrase),
       dismissedPhrases: [...new Set([...scene.dismissedPhrases, phrase])].slice(-100),
+      updatedAt: new Date(),
     })
     .where(mine(userId, id));
   return { ok: true };
