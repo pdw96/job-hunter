@@ -66,7 +66,18 @@ describe("checkResume 금지 표현", () => {
 describe("checkResume 쓸 수 없음·바뀜", () => {
   it("경험이 목록에 없으면 unavailable이고 나머지는 비운다", () => {
     const out = first(content([entry({ lines: [{ text: "처리량 40% 개선", edited: false }] })]), []);
-    expect(out).toEqual({ unavailable: true, empty: false, stale: false, scopeChanged: false, banned: [], ungrounded: [] });
+    expect(out).toEqual({ unavailable: true, structureChanged: false, empty: false, stale: false, scopeChanged: false, banned: [], ungrounded: [] });
+  });
+  it("항목 id가 oldIds에 있으면 structureChanged이고 unavailable은 아니다", () => {
+    const old = entry({ experienceId: "old1", lines: [{ text: "처리량 40% 개선", edited: false }] });
+    const out = checkResume(content([old, entry()]), [source()], null, { oldIds: new Set(["old1"]) });
+    expect(out.entries[0]).toEqual({ unavailable: false, structureChanged: true, empty: false, stale: false, scopeChanged: false, banned: [], ungrounded: [] });
+    expect(out.entries[1].structureChanged).toBe(false);
+  });
+  it("oldIds가 없으면 옛 id 항목은 지금처럼 unavailable", () => {
+    const old = entry({ experienceId: "old1" });
+    expect(first(content([old]), [source()]).unavailable).toBe(true);
+    expect(checkResume(content([old]), [source()], null, { oldIds: new Set() }).entries[0]).toMatchObject({ unavailable: true, structureChanged: false });
   });
   it("버전이 다르면 stale", () => {
     expect(first(content([entry()]), [source({ contentVersion: 2 })]).stale).toBe(true);
@@ -88,6 +99,18 @@ describe("checkResume 빠진 것", () => {
     expect(checkResume(content([entry()], 2), [source()], 3).commonChanged).toBe(true);
     expect(checkResume(content([entry()], 2), [source()], 2).commonChanged).toBe(false);
     expect(checkResume(content([entry()]), [source()], null).commonChanged).toBe(false);
+  });
+});
+
+describe("checkResume 코드 줄", () => {
+  it("코드 줄의 숫자는 근거가 있는 숫자로 본다", () => {
+    const school = source({ kind: "school", codeLines: ["산업공학과 · 학사 · 졸업 · 학점 3.8/4.5"], metrics: [] });
+    const out = first(content([entry({ kind: "school", lines: [{ text: "산업공학과 · 학사 · 졸업 · 학점 3.8/4.5", edited: false }] })]), [school]);
+    expect(out.ungrounded).toEqual([]);
+  });
+  it("코드 줄 원천의 자세히 항목은 줄이 없어도 empty가 아니다", () => {
+    const gap = source({ kind: "gap", codeLines: [], metrics: [] });
+    expect(first(content([entry({ kind: "gap", lines: [] })]), [gap]).empty).toBe(false);
   });
 });
 

@@ -1,10 +1,11 @@
 import { eq } from "drizzle-orm";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { createFakeAi } from "@/modules/ai/fake-client";
 import { aiUsage } from "@/modules/ai/schema";
 import { user } from "@/modules/auth/schema";
+import { createFact } from "@/modules/experiences/facts-repo";
 import type { ExperienceInput } from "@/modules/experiences/input";
 import { confirmExperience, createExperience, setTrackScope } from "@/modules/experiences/repo";
 import { experiences } from "@/modules/experiences/schema";
@@ -508,4 +509,68 @@ test("만드는 사이 제출하면 selectEmphasis와 buildTailored는 submitted
   ]);
   expect(await buildTailored(db, second, "u1", postingId, [a], null, now)).toEqual({ ok: false, reason: "submitted" });
   expect(await getTailoredResume(db, "u1", postingId)).toBeNull();
+});
+
+// ── 새 기록(스위치 켬): 코드 줄 원천은 강조 후보가 아니고, 직접 올리면 맨 위로만 옮긴다 ──
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+async function newCommon() {
+  vi.stubEnv("NEW_RECORDS", "1");
+  const school = await createFact(
+    db,
+    "u1",
+    "education",
+    { schoolName: "한국대학교", location: null, degree: "bachelor", major: "산업공학과", startMonth: "2016-03", endMonth: "2020-02", status: "graduated", gpa: null, gpaScale: null },
+    { confirmed: true },
+  );
+  const job = await createFact(
+    db,
+    "u1",
+    "job",
+    { company: "가나다 주식회사", department: null, title: null, employment: "regular", startMonth: "2022-03", endMonth: "2024-08", isOngoing: false, duties: [], bannedPhrases: [] },
+    { confirmed: true },
+  );
+  const course = await createFact(
+    db,
+    "u1",
+    "course",
+    { name: "클라우드 과정", institution: "가나다 아카데미", startMonth: "2021-03", endMonth: "2021-08", hours: 600, learned: null },
+    { confirmed: true },
+  );
+  if (!school.ok || !job.ok || !course.ok) throw new Error("기록을 만들지 못함");
+  const made = await startCommonResume(db, createFakeAi([lineReply(["E1", ["결제 서버를 운영했다"]])]), "u1", trackId, now);
+  if (!made.ok) throw new Error(made.reason);
+  return { schoolId: school.id, jobId: job.id };
+}
+
+test("코드 줄이 있는 원천(이력 사실)은 강조 후보로 AI에 보내지 않는다", async () => {
+  const { jobId } = await newCommon();
+  const postingId = await addPosting();
+  const ai = createFakeAi([pickReply(["E1", "공고의 Java 경력과 겹칩니다"])]);
+
+  const result = await selectEmphasis(db, ai, "u1", postingId, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain("- 이름: 가나다 주식회사");
+  expect(sent).not.toContain("한국대학교");
+  expect(sent).not.toContain("클라우드 과정");
+  expect(sent).not.toContain("E2");
+  expect(result.value.picks.map((p) => p.experienceId)).toEqual([jobId]);
+});
+
+test("코드 줄 원천을 직접 올리면 AI 없이 맨 위로만 옮긴다", async () => {
+  const { schoolId } = await newCommon();
+  const postingId = await addPosting();
+  const ai = createFakeAi([]);
+
+  const result = await buildTailored(db, ai, "u1", postingId, [schoolId], null, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(ai.requests).toHaveLength(0);
+  const school = result.value.entries.find((e) => e.experienceId === schoolId);
+  expect(school).toMatchObject({ emphasized: true, lines: [{ text: "산업공학과 · 학사 · 졸업", edited: false }] });
 });

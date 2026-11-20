@@ -154,6 +154,26 @@ describe("근거 검사", () => {
   });
 });
 
+describe("옛 기록을 가리키는 근거", () => {
+  it("근거가 oldIds에 있으면 structureChanged이고 staleSource는 아니다", () => {
+    const d = draft([paragraph({ sources: ["old1"], text: "처리량 40% 개선" }), paragraph()], {
+      basedOn: [
+        { experienceId: "old1", contentVersion: 3 },
+        { experienceId: "e1", contentVersion: 1 },
+      ],
+    });
+    const out = checkDraft(d, question, [source()], { oldIds: new Set(["old1"]) });
+    expect(out.paragraphs[0]).toMatchObject({ structureChanged: true, staleSource: false, ungrounded: [], noSource: false });
+    expect(out.paragraphs[1]).toMatchObject({ structureChanged: false, staleSource: false });
+  });
+
+  it("oldIds가 없으면 지금과 같다(사라진 근거는 staleSource)", () => {
+    const d = draft([paragraph({ sources: ["old1"] })], { basedOn: [{ experienceId: "old1", contentVersion: 3 }] });
+    expect(checkDraft(d, question, [source()]).paragraphs[0]).toMatchObject({ structureChanged: false, staleSource: true });
+    expect(checkDraft(d, question, [source()], { oldIds: new Set() }).paragraphs[0]).toMatchObject({ structureChanged: false, staleSource: true });
+  });
+});
+
 describe("문항 변경", () => {
   it("문항 version이 다르면 questionChanged", () => {
     expect(checkDraft(draft([paragraph()]), { ...question, version: 2 }, [source()]).questionChanged).toBe(true);

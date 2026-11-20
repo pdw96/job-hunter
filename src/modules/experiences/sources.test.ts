@@ -7,7 +7,7 @@ import type { SurveyInput } from "@/modules/tracks/survey";
 import { createFact } from "./facts-repo";
 import type { ExperienceInput } from "./input";
 import { confirmExperience, createExperience } from "./repo";
-import { listEvidenceCandidates, listResumeSources, listWritingSources, sourceNames } from "./sources";
+import { listEvidenceCandidates, listResumeSources, listWritingSources, oldRecordIds, sourceNames } from "./sources";
 
 let db: Db;
 let t1: string;
@@ -46,7 +46,10 @@ const survey: SurveyInput = {
 
 beforeEach(async () => {
   db = await createTestDb();
-  await db.insert(user).values([{ id: "u1", name: "A", email: "u1@example.com" }]);
+  await db.insert(user).values([
+    { id: "u1", name: "A", email: "u1@example.com" },
+    { id: "u2", name: "B", email: "u2@example.com" },
+  ]);
   const track = await createTrack(db, "u1", survey);
   if (!track.ok) throw new Error(track.reason);
   t1 = track.id;
@@ -86,4 +89,16 @@ test("스위치가 켜져 있으면 새 원천을 읽는다", async () => {
   const names = await sourceNames(db, "u1");
   expect(names.get(newId)).toBe("새 한국대학교");
   expect(names.has(oldId)).toBe(false);
+});
+
+test("oldRecordIds: 스위치가 켜져 있으면 그 사용자의 옛 표 id(확인 여부 상관없이), 꺼져 있으면 빈 집합", async () => {
+  const draft = await createExperience(db, "u1", { ...school, name: "미확인 옛 기록" });
+  const theirs = await createExperience(db, "u2", { ...school, name: "남의 옛 기록" });
+  vi.stubEnv("NEW_RECORDS", "1");
+  const ids = await oldRecordIds(db, "u1");
+  expect([...ids].sort()).toEqual([oldId, draft].sort());
+  expect(ids.has(theirs)).toBe(false);
+  expect(ids.has(newId)).toBe(false);
+  vi.stubEnv("NEW_RECORDS", "");
+  expect((await oldRecordIds(db, "u1")).size).toBe(0);
 });

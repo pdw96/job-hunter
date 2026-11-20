@@ -76,6 +76,9 @@ export async function emphasisText(
 
 type Failure = "not_found" | "not_apply" | "submitted" | "no_common";
 
+// 강조해도 다시 쓸 것이 없는 원천: 코드 줄이 있는 이력 사실, 옛 표의 학력·자격
+const factOnly = (s: ResumeSource) => s.codeLines !== undefined || s.kind === "school" || s.kind === "certificate";
+
 // 공고가 내 것이고 지원인지, 공통본이 있는지 본다. 맞춤본 저장은 늘 공고의 트랙으로 한다
 async function loadBase(db: Db, userId: string, postingId: string) {
   const posting = await getPosting(db, userId, postingId);
@@ -98,11 +101,12 @@ export async function selectEmphasis(
   if (!base.ok) return base;
   const { posting, commonContent } = base;
 
-  // 후보: 공통본에 있고 지금 "사용"인 경험(공통본 순서). 학력·자격은 요건 충족만 보여 줄 뿐 자세히 쓸 내용이 없어 뺀다(직접 체크는 buildTailored가 받는다)
+  // 후보: 공통본에 있고 지금 "사용"인 경험(공통본 순서). 코드 줄이 있는 원천(이력 사실)과 옛 학력·자격은 요건 충족만 보여 줄 뿐
+  // 자세히 쓸 내용이 없어 뺀다(직접 체크는 buildTailored가 받는다)
   const listed = new Map((await listResumeSources(db, userId, posting.trackId)).map((s) => [s.id, s]));
   const sources = commonContent.entries.flatMap((entry) => {
     const s = listed.get(entry.experienceId);
-    return s && s.scope === "use" && s.kind !== "school" && s.kind !== "certificate" ? [s] : [];
+    return s && s.scope === "use" && !factOnly(s) ? [s] : [];
   });
 
   const selected = await emphasisText(
@@ -164,11 +168,11 @@ export async function buildTailored(
   );
   if (!written.ok) return written;
 
-  // AI가 답에서 뺀 경험은 공통본 항목을 그대로 두고 강조만 켠다(줄을 비우지 않는다)
+  // AI가 답에서 뺀 경험과 코드 줄 원천은 공통본 항목을 그대로 두고 강조만 켠다(줄을 비우지 않는다, 맨 위로만 옮긴다)
   const inCommon = new Map(commonContent.entries.map((e) => [e.experienceId, e]));
   const entries = chosen.map((s) => {
     const kept = inCommon.get(s.id);
-    if (kept && !written.answered.has(s.id)) return { ...kept, emphasized: true };
+    if (kept && (!written.answered.has(s.id) || s.codeLines !== undefined)) return { ...kept, emphasized: true };
     return buildEntry(s, "full", true, written.value[s.id] ?? [], now);
   });
   const content = emphasize(commonContent, entries, common.version);

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
-import { listResumeSources, type ResumeSource } from "@/modules/experiences/sources";
+import { listResumeSources, oldRecordIds, type ResumeSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { editBlock, withEditLock } from "./submission-repo";
 import { ownsTrack } from "@/modules/tracks/repo";
@@ -13,7 +13,8 @@ import { describeSource, postingTextOf, requirementsOf } from "./select";
 import { resolveAlias } from "./text";
 import type { ResumeContent, ResumeDetail } from "./types";
 
-// 확인된 경험으로 이력서 줄을 쓴다. 머리(이름·소속·역할·기간)는 코드가 기록에서 만들고, AI는 줄만 쓴다.
+// 확인된 경험으로 이력서 줄을 쓴다. 머리(이름·소속·역할·기간·담당 업무)는 코드가 기록에서 만들고, AI는 줄만 쓴다.
+// 코드 줄이 있는 원천(학력·자격 같은 이력 사실)은 AI에 보내지 않고 그 줄을 그대로 쓴다.
 // AI에게는 경험의 실제 id 대신 E1, E2 같은 별명만 보내고, 답의 별명은 코드가 실제 id로 바꾼다.
 // 숫자·금지 표현은 저장 뒤 checkResume이 표시한다(저장은 막지 않는다).
 
@@ -59,7 +60,11 @@ export async function writeLines(
   input: { requests: LineRequest[]; posting: ResumePostingContext | null },
   now: Date = new Date(),
 ): Promise<{ ok: true; value: Record<string, string[]>; answered: Set<string> } | { ok: false; reason: "over_limit" | AiFailure }> {
-  if (input.requests.length === 0) return { ok: true, value: {}, answered: new Set() };
+  // 코드 줄 원천은 AI에 보내지 않고 그 줄을 답으로 친다. AI에 보낼 원천이 없으면 AI를 부르지 않는다
+  const coded = input.requests.filter((r) => r.source.codeLines !== undefined);
+  const requests = input.requests.filter((r) => r.source.codeLines === undefined);
+  const value: Record<string, string[]> = Object.fromEntries(coded.map((r) => [r.source.id, [...(r.source.codeLines ?? [])]]));
+  if (requests.length === 0) return { ok: true, value, answered: new Set(Object.keys(value)) };
 
   const result = await runAi(
     db,
@@ -68,7 +73,7 @@ export async function writeLines(
     {
       purpose: "resume_write",
       system: RESUME_WRITE_SYSTEM,
-      messages: [{ role: "user", text: buildMessage(input.requests, input.posting) }],
+      messages: [{ role: "user", text: buildMessage(requests, input.posting) }],
       schema: resumeSchema,
       effort: "medium",
       maxTokens: 16000,
@@ -78,8 +83,7 @@ export async function writeLines(
   if (!result.ok) return { ok: false, reason: result.reason };
 
   // 요청에 없는 별명은 버리고, 같은 별명은 처음 것만 쓴다. 빠뜨린 경험은 빈 줄이다
-  const named = input.requests.map((r) => ({ name: r.source.name, request: r }));
-  const value: Record<string, string[]> = {};
+  const named = requests.map((r) => ({ name: r.source.name, request: r }));
   let matched = 0;
   const seen = new Set<string>();
   for (const item of result.value.entries) {
@@ -91,7 +95,7 @@ export async function writeLines(
   }
   if (matched === 0) return { ok: false, reason: "invalid" };
   const answered = new Set(Object.keys(value));
-  for (const { source } of input.requests) value[source.id] ??= [];
+  for (const { source } of requests) value[source.id] ??= [];
   return { ok: true, value, answered };
 }
 
@@ -144,19 +148,24 @@ export async function rewriteEntries(
     const block = await editBlock(db, userId, posting);
     if (block) return { ok: false, reason: block };
   }
-  const content = resume.content;
-  if (!content || resume.version !== expectedVersion) return { ok: false, reason: "changed" };
+  if (!resume.content || resume.version !== expectedVersion) return { ok: false, reason: "changed" };
 
   // 화면이 보낸 id 중 지금 쓸 수 있는 경험만 받는다
   const listed = await listResumeSources(db, userId, resume.trackId);
   const byId = new Map(listed.map((s) => [s.id, s]));
+  // 옛 표의 기록을 가리키는 항목은 빼고, 대신 아직 없는 새 구조의 기록을 모두 넣는다(스위치가 꺼져 있으면 oldIds는 비어 있다)
+  const oldIds = await oldRecordIds(db, userId);
+  const dropped = new Set(experienceIds.filter((id) => oldIds.has(id)));
+  const content: ResumeContent = { ...resume.content, entries: resume.content.entries.filter((e) => !dropped.has(e.experienceId)) };
+  const removed = content.entries.length < resume.content.entries.length;
   const existing = new Map(content.entries.map((e) => [e.experienceId, e]));
   // 있는 항목은 모두 다시 쓸 수 있고, 새 항목은 40개까지 남은 자리만큼만 받는다(목록 순서대로)
   const wanted = new Set(experienceIds.filter((id) => byId.has(id)));
+  if (removed) for (const s of listed) if (!existing.has(s.id)) wanted.add(s.id);
   const room = Math.max(0, RESUME_LIMITS.entries - content.entries.length);
   const fresh = listed.filter((s) => wanted.has(s.id) && !existing.has(s.id));
   const sources = [...listed.filter((s) => wanted.has(s.id) && existing.has(s.id)), ...fresh.slice(0, room)];
-  if (sources.length === 0) return { ok: false, reason: fresh.length > 0 ? "full" : "none_selected" };
+  if (sources.length === 0 && !removed) return { ok: false, reason: fresh.length > 0 ? "full" : "none_selected" };
 
   const requests: LineRequest[] = sources.map((source) => {
     const entry = existing.get(source.id);

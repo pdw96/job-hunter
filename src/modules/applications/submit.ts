@@ -1,5 +1,5 @@
 import type { Db } from "@/db/types";
-import { listResumeSources, listWritingSources, sourceNames } from "@/modules/experiences/sources";
+import { listResumeSources, listWritingSources, oldRecordIds, sourceNames } from "@/modules/experiences/sources";
 import { getPosting, type Posting } from "@/modules/postings/repo";
 import { checkDraft } from "./check";
 import { listQuestions, type Question } from "./repo";
@@ -99,11 +99,12 @@ export async function submitPreview(
   userId: string,
   posting: Posting,
 ): Promise<{ resumeFrom: "tailored" | "common" | null; questionCount: number; warnings: string[] }> {
-  const [questions, writingSources, resumeSources, picked] = await Promise.all([
+  const [questions, writingSources, resumeSources, picked, oldIds] = await Promise.all([
     listQuestions(db, userId, posting.id),
     listWritingSources(db, userId, posting.trackId),
     listResumeSources(db, userId, posting.trackId),
     pickResume(db, userId, posting),
+    oldRecordIds(db, userId),
   ]);
   const ordered = [...questions].sort((a, b) => a.position - b.position);
   const warnings: string[] = [];
@@ -119,9 +120,11 @@ export async function submitPreview(
       empty.push(index + 1);
       return;
     }
-    const check = checkDraft(draft, question, writingSources);
+    const check = checkDraft(draft, question, writingSources, { oldIds });
     if (check.length.over) over.push(index + 1);
-    if (check.questionChanged || check.paragraphs.some((p) => p.banned.length > 0 || p.ungrounded.length > 0 || p.noSource || p.staleSource)) {
+    const flagged = (p: (typeof check.paragraphs)[number]) =>
+      p.banned.length > 0 || p.ungrounded.length > 0 || p.noSource || p.staleSource || p.structureChanged;
+    if (check.questionChanged || check.paragraphs.some(flagged)) {
       marked.push(index + 1);
     }
   });
@@ -133,9 +136,9 @@ export async function submitPreview(
     warnings.push("이력서가 없습니다");
   } else {
     if (picked.from === "common") warnings.push("맞춤본이 없어 트랙 공통본으로 냅니다");
-    const check = checkResume(picked.content, resumeSources, picked.commonVersion);
+    const check = checkResume(picked.content, resumeSources, picked.commonVersion, { oldIds });
     const flagged = check.entries.filter(
-      (e) => e.unavailable || e.empty || e.stale || e.scopeChanged || e.banned.length > 0 || e.ungrounded.length > 0,
+      (e) => e.unavailable || e.structureChanged || e.empty || e.stale || e.scopeChanged || e.banned.length > 0 || e.ungrounded.length > 0,
     ).length;
     if (flagged > 0) warnings.push(`이력서에 표시가 남은 항목: ${flagged}개`);
   }

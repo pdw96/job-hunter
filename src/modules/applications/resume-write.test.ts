@@ -1,11 +1,13 @@
 import { eq } from "drizzle-orm";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { createFakeAi } from "@/modules/ai/fake-client";
 import { aiUsage } from "@/modules/ai/schema";
 import { user } from "@/modules/auth/schema";
+import { createFact } from "@/modules/experiences/facts-repo";
 import type { ExperienceInput } from "@/modules/experiences/input";
+import type { EducationInput, JobInput } from "@/modules/experiences/record-input";
 import { confirmExperience, createExperience, setTrackScope } from "@/modules/experiences/repo";
 import { experiences } from "@/modules/experiences/schema";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
@@ -14,7 +16,7 @@ import { applyToPosting, createPosting, getPosting, saveAnalysis } from "@/modul
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { RESUME_WRITE_SYSTEM } from "./prompts";
-import { getCommonResume, getResume, saveResumeContent, saveTailoredContent } from "./resume-repo";
+import { getCommonResume, getResume, insertCommonResume, saveResumeContent, saveTailoredContent } from "./resume-repo";
 import { submitPosting } from "./submit";
 import { resumes } from "./schema";
 import { rewriteEntries, startCommonResume, writeResumeLines } from "./resume-write";
@@ -472,4 +474,139 @@ test("다시 쓰는 사이 제출하면 맞춤본의 rewriteEntries는 submitted
   expect(await rewriteEntries(db, ai, "u1", row.id, [a], row.version, now)).toEqual({ ok: false, reason: "submitted" });
   const [after] = await db.select().from(resumes).where(eq(resumes.id, row.id));
   expect(after.version).toBe(row.version);
+});
+
+// ── 새 기록(스위치 켬): 이력 사실은 코드가 쓰고 AI에 보내지 않는다 ──
+
+const schoolInput: EducationInput = {
+  schoolName: "한국대학교",
+  location: "서울",
+  degree: "bachelor",
+  major: "산업공학과",
+  startMonth: "2016-03",
+  endMonth: "2020-02",
+  status: "graduated",
+  gpa: "3.8",
+  gpaScale: "4.5",
+};
+const jobInput: JobInput = {
+  company: "가나다 주식회사",
+  department: "개발팀",
+  title: "사원",
+  employment: "regular",
+  startMonth: "2022-03",
+  endMonth: "2024-08",
+  isOngoing: false,
+  duties: ["결제 서버 운영", "장애 대응"],
+  bannedPhrases: [],
+};
+
+async function addFact<K extends "education" | "job">(kind: K, input: K extends "job" ? JobInput : EducationInput) {
+  const created = await createFact(db, "u1", kind, input as never, { confirmed: true });
+  if (!created.ok) throw new Error(created.reason);
+  return created.id;
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+test("이력 사실만 있는 트랙은 AI를 부르지 않고 코드 줄로 공통본을 만든다", async () => {
+  vi.stubEnv("NEW_RECORDS", "1");
+  const schoolId = await addFact("education", schoolInput);
+  const ai = createFakeAi([]);
+
+  const made = await startCommonResume(db, ai, "u1", trackId, now);
+
+  if (!made.ok) throw new Error(made.reason);
+  expect(ai.requests).toHaveLength(0);
+  const resume = await getResume(db, "u1", made.id);
+  expect(resume?.content?.entries).toHaveLength(1);
+  expect(resume?.content?.entries[0]).toMatchObject({
+    experienceId: schoolId,
+    kind: "school",
+    lines: [{ text: "산업공학과 · 학사 · 졸업 · 학점 3.8/4.5", edited: false }],
+  });
+  expect(await db.select().from(aiUsage)).toHaveLength(0);
+});
+
+test("머리 1 + 학력 1이면 AI에는 머리만 가고, 담당 업무는 머리에 들어간다", async () => {
+  vi.stubEnv("NEW_RECORDS", "1");
+  const schoolId = await addFact("education", schoolInput);
+  const jobId = await addFact("job", jobInput);
+  const ai = createFakeAi([reply(["E1", ["결제 서버를 운영했다"]])]);
+
+  const made = await startCommonResume(db, ai, "u1", trackId, now);
+
+  if (!made.ok) throw new Error(made.reason);
+  expect(ai.requests).toHaveLength(1);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain("- 이름: 가나다 주식회사");
+  expect(sent).not.toContain("한국대학교");
+  expect(sent).not.toContain("산업공학과");
+  expect(sent).not.toContain("E2");
+  const entries = (await getResume(db, "u1", made.id))?.content?.entries ?? [];
+  const byId = new Map(entries.map((e) => [e.experienceId, e]));
+  expect(byId.get(jobId)?.heading.duties).toEqual(["결제 서버 운영", "장애 대응"]);
+  expect(byId.get(jobId)?.lines).toEqual([{ text: "결제 서버를 운영했다", edited: false }]);
+  expect(byId.get(schoolId)?.lines).toEqual([{ text: "산업공학과 · 학사 · 졸업 · 학점 3.8/4.5", edited: false }]);
+});
+
+test("코드 줄 항목을 다시 쓰면 AI 없이 지금의 기록으로 줄을 바꾼다", async () => {
+  vi.stubEnv("NEW_RECORDS", "1");
+  const schoolId = await addFact("education", schoolInput);
+  const made = await startCommonResume(db, createFakeAi([]), "u1", trackId, now);
+  if (!made.ok) throw new Error(made.reason);
+  const resume = await getResume(db, "u1", made.id);
+  if (!resume?.content) throw new Error("내용 없음");
+  const edited: ResumeContent = {
+    ...resume.content,
+    entries: resume.content.entries.map((e) => ({ ...e, lines: [{ text: "고친 줄", edited: true }] })),
+  };
+  const saved = await saveResumeContent(db, "u1", made.id, edited, resume.version);
+  if (!saved.ok) throw new Error(saved.reason);
+  const ai = createFakeAi([]);
+
+  const result = await rewriteEntries(db, ai, "u1", made.id, [schoolId], resume.version + 1, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(ai.requests).toHaveLength(0);
+  expect(result.value.entries[0].lines).toEqual([{ text: "산업공학과 · 학사 · 졸업 · 학점 3.8/4.5", edited: false }]);
+});
+
+test("옛 기록 항목을 다시 쓰면 그 항목을 빼고 새 구조의 기록을 넣는다", async () => {
+  vi.stubEnv("NEW_RECORDS", "1");
+  const oldId = await addExperience({ name: "옛 경험" });
+  const schoolId = await addFact("education", schoolInput);
+  const oldEntry = {
+    experienceId: oldId,
+    contentVersion: 1,
+    kind: "project" as const,
+    heading: { name: "옛 경험", organization: null, role: null, period: "2023.03 ~ 2023.11" },
+    detail: "full" as const,
+    emphasized: false,
+    lines: [{ text: "옛 줄", edited: false }],
+    writtenAt: now.toISOString(),
+  };
+  const inserted = await insertCommonResume(db, "u1", trackId, { entries: [oldEntry], commonVersion: null });
+  if (!inserted.ok) throw new Error(inserted.reason);
+  const resume = await getResume(db, "u1", inserted.id);
+  if (!resume) throw new Error("없음");
+  const ai = createFakeAi([]);
+
+  const result = await rewriteEntries(db, ai, "u1", inserted.id, [oldId], resume.version, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(ai.requests).toHaveLength(0);
+  expect(result.value.entries.map((e) => e.experienceId)).toEqual([schoolId]);
+});
+
+test("스위치가 꺼져 있으면 옛 기록 항목도 지금처럼 다시 쓴다(새 기록을 넣지 않는다)", async () => {
+  const { a, id, resume } = await commonWithTwo();
+  await addFact("education", schoolInput);
+  const ai = createFakeAi([reply(["E1", ["A 새 줄"]])]);
+  const result = await rewriteEntries(db, ai, "u1", id, [a], resume.version, now);
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.entries).toHaveLength(2);
+  expect(result.value.entries.find((e) => e.experienceId === a)?.lines).toEqual([{ text: "A 새 줄", edited: false }]);
 });

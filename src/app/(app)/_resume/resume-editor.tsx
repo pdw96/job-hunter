@@ -4,7 +4,7 @@ import { useState } from "react";
 import { editResumeAction, rewriteEntriesAction } from "@/modules/applications/resume-actions";
 import { RESUME_LIMITS } from "@/modules/applications/options";
 import type { EntryCheck } from "@/modules/applications/resume-check";
-import { parseLines } from "@/modules/applications/resume-entries";
+import { dutiesLine, parseLines } from "@/modules/applications/resume-entries";
 import { ErrorLine, useRun } from "../postings/[id]/application/use-run";
 import type { EditorData, EntryView } from "./editor-data";
 
@@ -15,8 +15,11 @@ const primary = "rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-b
 const WAIT = "1분쯤 걸릴 수 있습니다";
 const FULL = "이력서 항목은 40개까지입니다. 항목을 빼고 넣어 주세요";
 const OVERWRITE = "직접 고친 줄이 덮어써집니다. 다시 쓸까요?";
+const STRUCTURE = "기록 구조가 바뀌어 다시 만들어야 합니다";
+const REBUILD = "이 항목을 빼고, 아직 이력서에 없는 새 구조의 기록을 넣습니다. 다시 쓸까요?";
 
 function problems(check: EntryCheck): string[] {
+  if (check.structureChanged) return [`${STRUCTURE}. 다시 쓰기를 눌러 주세요`];
   if (check.unavailable) return ["이 경험은 지금 쓸 수 없습니다(확인 풀림, 제외, 지움). 빼 주세요"];
   const lines: string[] = [];
   if (check.empty) lines.push("줄이 없습니다. 다시 쓰기로 채워 주세요");
@@ -56,7 +59,8 @@ function EntryCard({
   const rewrite = useRun();
   const pending = edit.pending || rewrite.pending;
   const lines = problems(check);
-  const recommend = !check.unavailable && (check.stale || check.scopeChanged || check.empty);
+  const recommend = !check.unavailable && (check.structureChanged || check.stale || check.scopeChanged || check.empty);
+  const duties = dutiesLine(entry.heading.duties);
   const heading = [entry.heading.name, entry.heading.organization, entry.heading.role, entry.heading.period].filter(Boolean).join(" · ");
 
   function save() {
@@ -67,7 +71,9 @@ function EntryCard({
   }
 
   function rewriteOne() {
-    if (entry.lines.some((line) => line.edited) && !confirm(OVERWRITE)) return;
+    if (check.structureChanged) {
+      if (!confirm(REBUILD)) return;
+    } else if (entry.lines.some((line) => line.edited) && !confirm(OVERWRITE)) return;
     rewrite.run(() => rewriteEntriesAction(data.resumeId, [entry.experienceId], data.version));
   }
 
@@ -78,6 +84,7 @@ function EntryCard({
         {entry.detail === "summary" && <span className="rounded-full border border-foreground/20 px-2 py-0.5 text-xs">요약</span>}
         {entry.emphasized && <span className="rounded-full bg-foreground px-2 py-0.5 text-xs text-background">강조</span>}
       </div>
+      {duties && <p className="break-words text-sm text-foreground/80">{duties}</p>}
 
       {editing ? (
         <div className="space-y-2">

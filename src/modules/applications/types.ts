@@ -26,7 +26,8 @@ export type Draft = {
 // 이력서. 항목마다 근거 경험이 하나다
 export type ResumeDetail = "full" | "summary";
 export type ResumeLine = { text: string; edited: boolean };
-export type ResumeHeading = { name: string; organization: string | null; role: string | null; period: string }; // period는 formatPeriod 결과
+// period는 formatPeriod 결과. duties는 경력 머리의 담당 업무(없거나 비면 키를 두지 않는다)
+export type ResumeHeading = { name: string; organization: string | null; role: string | null; period: string; duties?: string[] };
 export type ResumeEntry = SourceRef & {
   kind: Kind;
   heading: ResumeHeading;

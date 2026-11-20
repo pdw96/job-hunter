@@ -6,7 +6,7 @@ import { checkDraft } from "@/modules/applications/check";
 import { listQuestions, type Question } from "@/modules/applications/repo";
 import { isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import type { PassedReason, PickReason, SourceRef } from "@/modules/applications/types";
-import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
+import { listWritingSources, oldRecordIds, type WritingSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
 import { getTrack } from "@/modules/tracks/repo";
@@ -30,6 +30,7 @@ function toView(
   all: Question[],
   sources: WritingSource[],
   byId: Map<string, WritingSource>,
+  oldIds: Set<string>,
 ): QuestionView {
   const candidate = (item: (PickReason | PassedReason) & { whyNot?: string }): CandidateView => {
     const source = byId.get(item.experienceId);
@@ -63,7 +64,7 @@ function toView(
     const ids = new Set([...question.draft.basedOn.map((ref) => ref.experienceId), ...question.draft.paragraphs.flatMap((p) => p.sources)]);
     draft = {
       draft: question.draft,
-      check: checkDraft(question.draft, question, sources),
+      check: checkDraft(question.draft, question, sources, { oldIds }),
       names: Object.fromEntries([...ids].flatMap((id) => (byId.has(id) ? [[id, byId.get(id)!.name]] : []))),
       limit: question.charLimit,
       countSpaces: question.countSpaces,
@@ -88,15 +89,16 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const posting = await getPosting(db, user.id, id);
   if (!posting) notFound();
 
-  const [track, questions, sources, latest] = await Promise.all([
+  const [track, questions, sources, latest, oldIds] = await Promise.all([
     getTrack(db, user.id, posting.trackId),
     listQuestions(db, user.id, posting.id),
     listWritingSources(db, user.id, posting.trackId),
     latestSubmission(db, user.id, posting.id),
+    oldRecordIds(db, user.id),
   ]);
   const locked = isLocked(latest);
   const byId = new Map(sources.map((source) => [source.id, source]));
-  const views = questions.map((question, index) => toView(question, index, questions, sources, byId));
+  const views = questions.map((question, index) => toView(question, index, questions, sources, byId, oldIds));
   const isApply = posting.status === "apply";
   const canAct = isApply && !locked;
 
