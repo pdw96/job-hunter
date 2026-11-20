@@ -498,6 +498,7 @@ PR 1 (Task 1~4)
 - `describeScene`은 `describeExperience`와 같이 증빙 메모를 보낸다(계획에 "없다"고 적은 것이 틀렸다. 빼면 증빙이 늘 미달로 판정된다). 금지 표현은 보내지 않는다
 - `sceneContentResetFields`는 import 순환을 피하려고 `rubric-store.ts`에 두고 `scenes-repo.ts`가 다시 내보낸다
 - `insertRecordClaims`도 주인 행이 본인 것인지 확인한다(작업 검토)
+- (검토) 장면 AI 판정 결과는 판정하는 사이 증빙 메모나 머리(회사·프로젝트·활동)의 내용이 바뀌었으면 저장하지 않는다(`changed`). 증빙 메모만 고치면 확인은 유지하고 증빙 판정만 미판정으로 되돌린다(증빙 메모는 지원서에 쓰이지 않아 내용 칸이 아니다)
 - 옮기기(Task 8)에 넘길 것: `experiences_moves`의 고유 색인은 `old_id`가 빈 affiliate 행의 중복을 막지 못한다. `planMoves`가 사용자마다 affiliate 행이 하나뿐이게 해야 한다
 
 ## 판단 기록
