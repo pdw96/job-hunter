@@ -92,7 +92,7 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
       reset += 1;
     }
     // 이미 되돌린 행이 있으면 멈춰 두지 말고 이어서 옮긴다
-    if (reset > 0) {
+    if (ids.length === 0 || reset > 0) {
       await run();
     }
     if (problem) setError(problem);
