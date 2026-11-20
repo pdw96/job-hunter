@@ -70,3 +70,58 @@ test("사례 정리 흉내는 첫 답을 상황과 한 일로 옮긴다", async 
   if (!result.ok) throw new Error(result.reason);
   expect(result.value).toMatchObject({ situation: "배송 지연 문의를 맡았어요", actions: "배송 지연 문의를 맡았어요" });
 });
+
+test("옮기기 흉내는 첫 줄로 나누기·주장·소속 답을 고른다", async () => {
+  const { createTestDb } = await import("@/db/test-db");
+  const { user } = await import("@/modules/auth/schema");
+  const { createExperience } = await import("@/modules/experiences/repo");
+  const { moveRecord, affiliateProjects } = await import("@/modules/experiences/move");
+  const { listFacts } = await import("@/modules/experiences/facts-repo");
+  const { listScenes } = await import("@/modules/experiences/scenes-repo");
+  const db = await createTestDb();
+  await db.insert(user).values({ id: "u1", name: "A", email: "u1@example.com" });
+  const base = {
+    organization: null,
+    role: null,
+    isOngoing: false,
+    situation: null,
+    actions: null,
+    result: null,
+    metrics: [],
+    notDone: null,
+    bannedPhrases: [],
+    evidenceNote: null,
+    tags: [],
+  };
+  const school = await createExperience(db, "u1", { ...base, name: "한국대학교 경영학과", kind: "school", startMonth: "2016-03", endMonth: "2022-02" });
+  const job = await createExperience(db, "u1", {
+    ...base,
+    name: "가나다커머스 마케팅",
+    kind: "job",
+    organization: "가나다커머스",
+    role: "마케팅팀",
+    startMonth: "2022-03",
+    endMonth: "2024-02",
+    actions: "SNS 채널을 운영했다",
+  });
+  const certificate = await createExperience(db, "u1", { ...base, name: "정보처리기사", kind: "certificate", startMonth: "2021-11", endMonth: null });
+  const project = await createExperience(db, "u1", {
+    ...base,
+    name: "브랜드 리뉴얼 TF",
+    kind: "project",
+    organization: "가나다커머스",
+    startMonth: "2023-06",
+    endMonth: "2023-09",
+    actions: "회의 자료를 만들었다",
+  });
+  for (const id of [school, job, certificate, project]) expect(await moveRecord(db, ai, "u1", id)).toEqual({ ok: true });
+  expect(await affiliateProjects(db, ai, "u1")).toEqual({ ok: true });
+
+  const facts = await listFacts(db, "u1");
+  expect(facts.education.map((e) => e.value.schoolName)).toEqual(["한국대학교 경영학과"]);
+  expect(facts.job.map((j) => j.value.company)).toEqual(["가나다커머스"]);
+  expect(facts.credential.map((c) => c.value.name)).toEqual(["정보처리기사"]);
+  expect(facts.project.map((p) => p.value.name)).toEqual(["브랜드 리뉴얼 TF"]);
+  // 경력 장면 하나와 프로젝트 장면 하나
+  expect(await listScenes(db, "u1")).toHaveLength(2);
+});

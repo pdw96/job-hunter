@@ -1,5 +1,5 @@
+import type { ExperienceInput } from "./input";
 import { KIND_LABELS } from "./options";
-import type { Experience } from "./repo";
 import type { SceneHead } from "./scene-head";
 import type { Scene } from "./scenes-repo";
 
@@ -20,7 +20,7 @@ export const JUDGE_SYSTEM = `당신은 취업 지원자의 경험 기록을 검�
 
 phraseCandidates에는 이 기록으로 지원서를 쓸 때 과장으로 읽힐 수 있어 피해야 할 표현을 적습니다. "하지 않은 것"과 본인 역할의 범위에 비추어, 실제보다 크게 들릴 표현을 지원서에 쓰일 법한 짧은 구절로 적습니다. 예를 들어 설계에는 참여하지 않았다면 "설계부터 구현까지", 팀 작업이었다면 "단독으로 구축". 근거가 될 내용이 기록에 없으면 빈 배열로 둡니다. 억지로 채우지 않습니다. 최대 8개.`;
 
-export function describeExperience(experience: Experience): string {
+export function describeExperience(experience: ExperienceInput): string {
   const period =
     experience.kind === "certificate"
       ? (experience.startMonth ?? "없음")
@@ -193,3 +193,25 @@ export const RECORD_IMPORT_SYSTEM = `당신은 취업 지원자가 가지고 있
 - 경험이 아닌 글(표기 원칙, 메모, 할 일 목록)만 있으면 기록을 만들지 않습니다.
 
 roleClaims에는 실제보다 역할이나 성과가 크게 들릴 수 있는 구절을 적습니다. 예: "프로젝트를 성공적으로 이끌며", "핵심 역할을 수행". 경력은 duties에, 프로젝트는 summary에, 장면은 situation, judgment, actions, result, lessons에 적은 그대로의 구절이어야 합니다. 해당하는 구절이 없으면 빈 배열로 둡니다.`;
+
+// 옮기기: 확인되지 않은 옛 프로젝트·기타 기록에서 역할이 크게 들리는 구절을 고른다
+export const MOVE_CLAIMS_SYSTEM = `당신은 취업 지원자의 예전 경험 기록 한 건을 읽고, 지원자가 다시 확인해야 할 구절을 고릅니다. 이 기록은 새 구조로 옮겨진 뒤 지원자가 구절 하나하나를 확인해야 지원서의 근거로 쓰입니다.
+
+알아 둘 배경: 이 기록은 AI가 대신 써 준 글을 가져온 것일 수 있습니다. 그래서 실제보다 역할이나 성과가 부풀려진 표현이 섞여 있을 수 있습니다.
+
+quotes에는 실제보다 역할이나 성과가 크게 들릴 수 있는 구절을 적습니다. 예: "프로젝트를 성공적으로 이끌며", "핵심 역할을 수행", "전사적 혁신에 기여".
+- 반드시 [상황], [본인이 한 일], [결과], [수치]에 적힌 그대로의 구절이어야 합니다. 글자를 바꾸거나, 줄이거나, 두 곳을 이어 붙이지 않습니다.
+- 기간과 숫자는 따로 확인하므로 그것 때문에 고르지 않아도 됩니다.
+- 10개까지 고릅니다. 해당하는 구절이 없으면 빈 배열로 둡니다.`;
+
+// 옮기기: 옮긴 프로젝트가 어느 회사·학교·교육 과정에서 한 것인지 짝을 짓는다
+export const AFFILIATE_SYSTEM = `당신은 취업 지원자의 프로젝트가 어느 회사, 학교, 교육 과정에서 한 것인지 짝을 짓습니다. 짝을 지은 프로젝트는 그 조직 아래에 정리되어 이력서에 함께 쓰입니다.
+
+받는 글
+- [프로젝트]: P1, P2처럼 별명이 붙은 프로젝트. 기관은 예전 기록에 적혀 있던 소속입니다.
+- [경력](J1…), [학교](S1…), [교육 과정](C1…): 지원자의 조직.
+
+짓는 방법
+- 프로젝트의 기관이나 이름으로 보아 그 조직에서 한 것이 분명할 때만 짝을 짓습니다. 기간이 겹친다는 것만으로는 짓지 않습니다.
+- 프로젝트 하나에 조직은 하나까지입니다. 분명하지 않으면 그 프로젝트는 적지 않습니다(개인 프로젝트로 남습니다).
+- links에 { "project": "P1", "parent": "J1" }처럼 받은 별명만 적습니다. 짝이 없으면 빈 배열로 둡니다.`;

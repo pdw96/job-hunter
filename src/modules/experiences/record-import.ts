@@ -225,6 +225,8 @@ export async function requestRecordImport(
   options: { purpose?: "import_records" | "migrate"; hint?: Kind } = {},
   now: Date = new Date(),
 ): Promise<{ ok: true; plan: ImportPlan; skipped: number; more: boolean; inventedDropped: number } | { ok: false; reason: Failure }> {
+  // 옮기기는 한 목적(migrate)에 세 가지 요청이 있어, 첫 줄로 무엇을 하는지 적는다(로컬 미리보기의 가짜 AI도 이것으로 고른다)
+  const tag = options.purpose === "migrate" ? "[옮기기: 나누기]\n" : "";
   const lead = options.hint ? `이 글은 예전 기록의 '${KIND_LABELS[options.hint]}' 한 건입니다\n\n` : "";
   const result = await runAi(
     db,
@@ -233,7 +235,7 @@ export async function requestRecordImport(
     {
       purpose: options.purpose ?? "import_records",
       system: RECORD_IMPORT_SYSTEM,
-      messages: [{ role: "user", text: `${lead}[가져올 글]\n${sourceText}` }],
+      messages: [{ role: "user", text: `${tag}${lead}[가져올 글]\n${sourceText}` }],
       schema: importSchema,
       effort: "medium",
       maxTokens: 32000,
@@ -431,7 +433,7 @@ export async function saveImportPlan(
     for (const input of plan.education) ids.education.push(await fact("education", input, input.schoolName));
     for (const input of plan.courses) ids.course.push(await fact("course", input, input.name));
     for (const input of plan.credentials) await fact("credential", input, input.name);
-    for (const input of plan.gaps) await fact("gap", input, `공백 ${input.startMonth ?? ""} ~ ${input.endMonth ?? ""}`.trim());
+    for (const input of plan.gaps) await fact("gap", input, input.startMonth ? `공백 ${input.startMonth} ~ ${input.endMonth ?? "진행 중"}` : "공백");
     for (const job of plan.jobs) {
       const id = await fact("job", job.input, job.input.company);
       ids.job.push(id);

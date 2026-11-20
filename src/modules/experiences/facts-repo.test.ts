@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { beforeEach, expect, test } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
@@ -12,10 +13,12 @@ import {
   getFact,
   listFacts,
   setFactTrackScope,
+  setProjectParentIfUnset,
   unconfirmFact,
   updateFact,
 } from "./facts-repo";
 import { createScene, deleteScene, getScene } from "./scenes-repo";
+import { gaps, projects } from "./schema";
 import { FACT_KINDS, type FactKind } from "./record-options";
 import type { FactInputs, ProjectInput, SceneInput } from "./record-input";
 
@@ -281,4 +284,49 @@ test("다른 사용자의 것은 읽히지 않고 고치기·지우기·확인�
     expect(await unconfirmFact(db, "u2", kind, id)).toEqual(notFound);
     expect(await getFact(db, "u1", kind, id)).toMatchObject({ value: INPUTS[kind], isConfirmed: false });
   }
+});
+
+test("확인된 때(confirmedAt)를 주면 그 시각으로 확인된 채 만든다", async () => {
+  const at = new Date("2024-05-01T00:00:00Z");
+  const created = await createFact(db, "u1", "project", INPUTS.project, { confirmedAt: at });
+  if (!created.ok) throw new Error(created.reason);
+  const [row] = await db.select({ confirmedAt: projects.confirmedAt }).from(projects).where(eq(projects.id, created.id));
+  expect(row.confirmedAt).toEqual(at);
+});
+
+test("공백은 끝 월이나 두 월이 모두 없어도 저장된다", async () => {
+  const open = await createFact(db, "u1", "gap", { startMonth: "2024-03", endMonth: null, note: null });
+  const none = await createFact(db, "u1", "gap", { startMonth: null, endMonth: null, note: "준비" });
+  expect(open.ok && none.ok).toBe(true);
+  const rows = await db.select().from(gaps).where(eq(gaps.userId, "u1"));
+  expect(rows.map((row) => [row.startMonth, row.endMonth]).sort()).toEqual([["2024-03", null], [null, null]].sort());
+});
+
+test("setProjectParentIfUnset은 소속이 빈 프로젝트에만 소속 칸을 쓰고, 확인·내용 버전·다른 칸은 그대로다", async () => {
+  const jobId = await make("u1", "job");
+  const schoolId = await make("u1", "education");
+  const pid = await make("u1", "project", { ...INPUTS.project, parent: null });
+  await confirmFact(db, "u1", "project", pid);
+  const before = await getFact(db, "u1", "project", pid);
+
+  expect(await setProjectParentIfUnset(db, "u1", pid, { kind: "job", id: jobId })).toEqual({ ok: true, changed: true });
+  const after = await getFact(db, "u1", "project", pid);
+  expect(after?.value).toEqual({ ...before?.value, parent: { kind: "job", id: jobId } });
+  expect(after?.isConfirmed).toBe(true);
+  expect(after?.contentVersion).toBe(before?.contentVersion);
+
+  // 이미 소속이 있으면 바꾸지 않는다
+  expect(await setProjectParentIfUnset(db, "u1", pid, { kind: "education", id: schoolId })).toEqual({ ok: true, changed: false });
+  expect((await getFact(db, "u1", "project", pid))?.value.parent).toEqual({ kind: "job", id: jobId });
+});
+
+test("setProjectParentIfUnset: 남의 프로젝트나 남의 조직이면 not_found이고 아무것도 바뀌지 않는다", async () => {
+  const myJob = await make("u1", "job");
+  const otherJob = await make("u2", "job");
+  const mine = await make("u1", "project", { ...INPUTS.project, parent: null });
+  const theirs = await make("u2", "project", { ...INPUTS.project, parent: null });
+  expect(await setProjectParentIfUnset(db, "u1", mine, { kind: "job", id: otherJob })).toEqual({ ok: false, reason: "not_found" });
+  expect(await setProjectParentIfUnset(db, "u1", theirs, { kind: "job", id: myJob })).toEqual({ ok: false, reason: "not_found" });
+  expect((await getFact(db, "u1", "project", mine))?.value.parent).toBeNull();
+  expect((await getFact(db, "u2", "project", theirs))?.value.parent).toBeNull();
 });

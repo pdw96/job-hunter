@@ -272,7 +272,8 @@ function validateJob(input: unknown): Result<JobInput> {
 function validateGap(input: unknown): Result<GapInput> {
   const raw = asRaw(input);
   const errors: Errors<GapInput> = {};
-  const { startMonth, endMonth } = period(errors, raw, { required: true });
+  // 끝 월이 없으면 진행 중, 두 월이 모두 없으면 기간 없음(옮긴 옛 공백에 흔하다)
+  const { startMonth, endMonth } = period(errors, raw);
   const note = shortText(errors, "note", raw.note, "메모");
   return done(errors, { startMonth, endMonth, note });
 }

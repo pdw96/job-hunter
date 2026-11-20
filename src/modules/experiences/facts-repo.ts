@@ -145,7 +145,8 @@ export async function createFact<K extends FactKind>(
   userId: string,
   kind: K,
   input: FactInputs[K],
-  options: { source?: RecordSource; movedFrom?: string; confirmed?: boolean; trackScopes?: Record<string, Scope> } = {},
+  // confirmedAt: 확인된 때를 정해서 넣는다(옮기기가 옛 기록의 확인 시각을 넘길 때). confirmed보다 앞선다
+  options: { source?: RecordSource; movedFrom?: string; confirmed?: boolean; confirmedAt?: Date; trackScopes?: Record<string, Scope> } = {},
 ): Promise<{ ok: true; id: string } | NotFound> {
   if (!(await ownsParent(db, userId, parentOf(kind, input)))) return { ok: false, reason: "not_found" };
   const id = randomUUID();
@@ -155,7 +156,7 @@ export async function createFact<K extends FactKind>(
     ...toValues(kind, input),
     source: options.source ?? "manual",
     movedFrom: options.movedFrom ?? null,
-    confirmedAt: options.confirmed ? new Date() : null,
+    confirmedAt: options.confirmedAt ?? (options.confirmed ? new Date() : null),
     trackScopes: options.trackScopes ?? {},
   } as never);
   return { ok: true, id };
@@ -235,6 +236,38 @@ export async function updateFact<K extends FactKind>(
     }
     return { ok: true as const };
   });
+}
+
+// 소속이 아직 없는 프로젝트에만 소속 칸 하나를 쓴다(옮기기의 소속 잇기). 다른 칸·확인·내용 버전은 건드리지 않아,
+// AI에게 묻는 사이 다른 탭에서 고친 내용이나 사용자가 직접 고른 소속을 덮어쓰지 않는다
+export async function setProjectParentIfUnset(
+  db: Db,
+  userId: string,
+  projectId: string,
+  parent: NonNullable<ProjectParent>,
+): Promise<{ ok: true; changed: boolean } | NotFound> {
+  if (!(await ownsParent(db, userId, parent))) return { ok: false, reason: "not_found" };
+  const column = { job: "jobId", education: "educationId", course: "courseId" }[parent.kind];
+  const updated = await db
+    .update(projects)
+    .set({ [column]: parent.id, updatedAt: new Date() })
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.userId, userId),
+        isNull(projects.jobId),
+        isNull(projects.educationId),
+        isNull(projects.courseId),
+      ),
+    )
+    .returning({ id: projects.id });
+  if (updated.length > 0) return { ok: true, changed: true };
+  const [owned] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+    .limit(1);
+  return owned ? { ok: true, changed: false } : { ok: false, reason: "not_found" };
 }
 
 export async function deleteFact(

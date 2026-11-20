@@ -169,6 +169,46 @@ function importNewRecords(text: string) {
   };
 }
 
+// 옮기기 흉내. 첫 줄로 세 요청을 고른다: 나누기는 옛 기록 한 건(describeExperience 모양)을 그 구분의 메뉴 하나로,
+// 주장은 고를 구절 없음, 소속은 짝 없음
+function migrate(text: string) {
+  const first = text.split("\n")[0];
+  if (first === "[옮기기: 주장]") return { quotes: [] };
+  if (first === "[옮기기: 소속]") return { links: [] };
+  const source = text.slice(text.indexOf("[가져올 글]\n") + "[가져올 글]\n".length);
+  const field = (label: string) => section(source, label);
+  const [startMonth = "", endMonth = ""] = field("기간").split(/\s*~\s*/).map((month) => (/^\d{4}-\d{2}$/.test(month) ? month : ""));
+  const name = field("이름").slice(0, 100);
+  const kind = field("구분");
+  const empty = { education: [], courses: [], credentials: [], gaps: [], jobs: [], projects: [], activities: [], more: false };
+  if (kind === "학력") {
+    return { ...empty, education: [{ schoolName: name, location: "", degree: "bachelor", major: "", startMonth, endMonth, status: "graduated", gpa: "", gpaScale: "" }] };
+  }
+  if (kind === "교육") return { ...empty, courses: [{ name, institution: field("소속·기관"), startMonth, endMonth, hours: "", learned: "" }] };
+  if (kind === "자격") return { ...empty, credentials: [{ type: "license", name, issuer: field("소속·기관"), month: startMonth, score: "" }] };
+  if (kind !== "재직") return importNewRecords(text);
+  const actions = field("본인이 한 일");
+  const blankScene = { startMonth: "", endMonth: "", isOngoing: false, situation: field("상황"), judgment: "", result: field("결과"), lessons: "", metrics: [], notDone: "", evidenceNote: "", tags: [], roleClaims: [], bannedPhrases: [] };
+  return {
+    ...empty,
+    jobs: [
+      {
+        company: field("소속·기관") || name,
+        department: "",
+        title: field("직무·역할").slice(0, 100),
+        employment: "regular",
+        startMonth,
+        endMonth,
+        isOngoing: field("기간").includes("진행 중"),
+        duties: [],
+        bannedPhrases: [],
+        roleClaims: [],
+        scenes: actions ? [{ ...blankScene, title: name, actions }] : [],
+      },
+    ],
+  };
+}
+
 // 공고 원문에서 값을 뽑는 흉내. 첫 줄을 "회사명 직무명"으로 보고, 눈에 띄는 낱말로 나머지를 채운다
 function posting(text: string) {
   const source = text.replace(/^오늘 날짜: .*\n\n\[공고 원문\]\n/, "");
@@ -296,8 +336,10 @@ export const ai: AiClient = {
           ? interview(request as AiRequest<unknown>)
           : request.purpose === "import"
             ? importRecords(text)
-            : request.purpose === "import_records" || request.purpose === "migrate" // 옮기기는 Task 8에서 따로 채운다
+            : request.purpose === "import_records"
               ? importNewRecords(text)
+              : request.purpose === "migrate"
+                ? migrate(text)
               : request.purpose === "extract_scene"
                 ? extractScene(text)
             : request.purpose === "posting_image"
