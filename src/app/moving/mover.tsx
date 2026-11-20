@@ -201,6 +201,11 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
             ))}
           </li>
         ))}
+        {summary.duplicateDone > 0 && (
+          <li className="flex items-start justify-between gap-3 rounded-lg border border-foreground/15 p-4 text-sm">
+            <p className="font-medium">같은 기록이라 옮기지 않음 {summary.duplicateDone}개</p>
+          </li>
+        )}
         {affiliate && (
           <li className="flex items-start justify-between gap-3 rounded-lg border border-foreground/15 p-4 text-sm">
             <p className="font-medium">

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, lt, ne, notExists, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/db/types";
 import type { Kind } from "./options";
 import { type ExperienceSummary, listExperiences } from "./repo";
-import { experiences, moves } from "./schema";
+import { activities, courses, credentials, education, experiences, gaps, jobs, moves, projects, scenes } from "./schema";
 
 // 옛 기록을 새 표로 옮기는 일의 목록(experiences_moves). 옛 기록 하나가 record 행 하나이고,
 // 그 앞에 옛 기록 전체를 보고 역할(같은 기록, 다른 머리의 사례)을 정하는 classify 행이,
@@ -312,6 +312,8 @@ export type MoveSummary = {
   recordFailed: number;
   affiliate: StepLine | null;
   classify: StepLine | null;
+  // 같은 기록이라 아무것도 만들지 않고 끝낸 기록 수(duplicate 역할의 done 행)
+  duplicateDone: number;
 };
 
 export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> {
@@ -355,6 +357,7 @@ export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> 
     recordFailed: sum((l) => l.failed.length),
     affiliate,
     classify,
+    duplicateDone: rows.filter((row) => row.step === "record" && row.role === "duplicate" && row.status === "done").length,
   };
 }
 
@@ -363,4 +366,65 @@ export function moveBanner(summary: MoveSummary): string | null {
   if (summary.recordFailed > 0) return `옮기지 못한 기록 ${summary.recordFailed}개 · 다시 시도`;
   if (summary.affiliate?.status === "failed") return "프로젝트 소속 제안을 하지 못했습니다 · 다시 시도";
   return null;
+}
+
+// ---- 옮기기 다시 하기 ----
+
+// 옮겨서 만든 이력 사실·머리(옮기기로 만든 것은 moved_from이 있다)
+const HEAD_TABLES = [projects, activities, jobs, education, courses, credentials, gaps] as const;
+
+// 옮겨서 만든 새 기록의 수(이력 사실 + 머리 + 사례). 경험 기록 화면의 다시 하기 단추와 확인 창이 쓴다
+export async function migratedCount(db: Db, userId: string): Promise<number> {
+  const tables = [...HEAD_TABLES, scenes];
+  const counts = await Promise.all(
+    tables.map((table) => db.select({ n: sql<number>`count(*)::int` }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)))),
+  );
+  return counts.reduce((sum, [row]) => sum + row.n, 0);
+}
+
+// 옮겨서 만든 기록을 모두 지우고 옮기기 행도 지워, 옛 기록에서 처음부터 다시 옮길 수 있게 한다. 옛 표와 다른 사용자는 건드리지 않는다.
+// 직접 넣은 기록(moved_from 없음)이 옮긴 머리에 딸려 있으면 지우지 않고 in_use로 돌려준다
+export async function resetMoves(db: Db, userId: string): Promise<{ ok: true } | { ok: false; reason: "in_use" }> {
+  return db.transaction(async (tx) => {
+    const migratedIds = async (table: (typeof HEAD_TABLES)[number]) =>
+      (await tx.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)))).map((row) => row.id);
+    const [project, activity, job, school, course] = await Promise.all([
+      migratedIds(projects),
+      migratedIds(activities),
+      migratedIds(jobs),
+      migratedIds(education),
+      migratedIds(courses),
+    ]);
+    const any = (ids: string[]) => (ids.length > 0 ? ids : [""]);
+    // 직접 넣은 사례가 옮긴 머리에 딸려 있다 / 직접 만든 프로젝트의 소속이 옮긴 경력·학교·과정이다
+    const [scene] = await tx
+      .select({ id: scenes.id })
+      .from(scenes)
+      .where(
+        and(
+          eq(scenes.userId, userId),
+          isNull(scenes.movedFrom),
+          or(inArray(scenes.projectId, any(project)), inArray(scenes.activityId, any(activity)), inArray(scenes.jobId, any(job))),
+        ),
+      )
+      .limit(1);
+    const [child] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.userId, userId),
+          isNull(projects.movedFrom),
+          or(inArray(projects.jobId, any(job)), inArray(projects.educationId, any(school)), inArray(projects.courseId, any(course))),
+        ),
+      )
+      .limit(1);
+    if (scene || child) return { ok: false as const, reason: "in_use" as const };
+
+    // 사례(주장·인터뷰는 cascade) → 머리·이력 사실 → 옮기기 행
+    await tx.delete(scenes).where(and(eq(scenes.userId, userId), isNotNull(scenes.movedFrom)));
+    for (const table of HEAD_TABLES) await tx.delete(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)));
+    await tx.delete(moves).where(eq(moves.userId, userId));
+    return { ok: true as const };
+  });
 }

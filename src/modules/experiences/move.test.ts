@@ -11,7 +11,7 @@ import { insertClaims } from "./claims-repo";
 import { createFact, getFact, listFacts, updateFact } from "./facts-repo";
 import type { ExperienceInput } from "./input";
 import { affiliateProjects, moveRecord, runNextMove } from "./move";
-import { claimNextMove, failPendingMoves, moveSummary, planMoves, retryMove } from "./move-repo";
+import { claimNextMove, failPendingMoves, moveSummary, planMoves, resetMoves, retryMove } from "./move-repo";
 import type { Kind } from "./options";
 import { listRecordClaims } from "./record-claims-repo";
 import type { ProjectInput } from "./record-input";
@@ -939,4 +939,29 @@ test("사례가 자기 머리로 옮겨지면(머리가 지워짐) 끝난 소속
   await db.update(moves).set({ status: "done" }).where(eq(moves.step, "affiliate"));
   await runNextMove(db, ai, "u1", now); // 사례가 자기 머리로
   expect((await db.select().from(moves).where(eq(moves.step, "affiliate")))[0].status).toBe("pending");
+});
+
+test("옮긴 기록을 모두 지우고 다시 옮기면 같은 정리된 구조가 나온다(중복 없이)", async () => {
+  const ids = await seedNotionShape();
+  await runAll(movingAi(notionClassify));
+  const snapshot = async () => {
+    const facts = await listFacts(db, "u1");
+    return {
+      counts: [facts.education, facts.course, facts.credential, facts.gap, facts.job, facts.project, facts.activity].map((list) => list.length),
+      scenes: (await listScenes(db, "u1")).map((s) => s.title).sort(),
+      moved: [...facts.education, ...facts.job].map((f) => f.movedFrom).sort(),
+    };
+  };
+  const first = await snapshot();
+
+  expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+  expect(await listScenes(db, "u1")).toEqual([]);
+  expect(await db.select().from(moves).where(eq(moves.userId, "u1"))).toEqual([]);
+
+  const progress = await runAll(movingAi(notionClassify));
+  expect(progress.failed).toEqual([]);
+  expect(await snapshot()).toEqual(first);
+  expect(first.counts).toEqual([1, 1, 3, 2, 1, 2, 1]);
+  expect(first.moved).toEqual([ids.school[1], ids.jobs[1]].sort());
+  expect((await moveSummary(db, "u1")).duplicateDone).toBe(8);
 });

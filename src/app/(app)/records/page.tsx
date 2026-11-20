@@ -4,12 +4,13 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import type { Claim } from "@/modules/experiences/claims";
 import { listFacts } from "@/modules/experiences/facts-repo";
-import { moveBanner, moveSummary } from "@/modules/experiences/move-repo";
+import { migratedCount, moveBanner, moveSummary } from "@/modules/experiences/move-repo";
 import { listRecordClaims } from "@/modules/experiences/record-claims-repo";
 import type { FactKind } from "@/modules/experiences/record-options";
 import { newRecordsOn } from "@/modules/experiences/switch";
 import { FactCard } from "./fact-card";
 import { cardOf } from "./fact-summary";
+import { ResetMovesButton } from "./reset-moves-button";
 
 const TABS = [
   { id: "basic", label: "기본정보" },
@@ -40,7 +41,8 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
   const tab: TabId = TABS.find((t) => t.id === tabParam)?.id ?? "school";
 
   const facts = await listFacts(db, user.id);
-  const banner = moveBanner(await moveSummary(db, user.id));
+  const [summary, migrated] = await Promise.all([moveSummary(db, user.id), migratedCount(db, user.id)]);
+  const banner = moveBanner(summary);
   // 열린 주장은 경력 탭에서만 보인다
   const claims: Record<string, Claim[]> = {};
   if (tab === "job") {
@@ -146,6 +148,8 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
           </ul>
         </Section>
       )}
+
+      {migrated > 0 && <ResetMovesButton count={migrated} />}
     </div>
   );
 }

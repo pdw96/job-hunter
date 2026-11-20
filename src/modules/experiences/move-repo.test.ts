@@ -11,17 +11,24 @@ import {
   hasSceneMoves,
   moveBanner,
   moveProgress,
+  migratedCount,
   moveSummary,
   needsMove,
   planMoves,
   reopenAffiliate,
   retryMove,
+  resetMoves,
   reviveFailedHeads,
   setMoveRoles,
 } from "./move-repo";
 import type { Kind } from "./options";
-import { createExperience } from "./repo";
-import { moves } from "./schema";
+import { createFact } from "./facts-repo";
+import { createExperience, listExperiences } from "./repo";
+import { insertRecordClaims } from "./record-claims-repo";
+import type { JobInput, ProjectInput } from "./record-input";
+import { createScene } from "./scenes-repo";
+import type { SceneInput } from "./record-input";
+import { gaps, jobs, moves, projects, recordClaims, scenes } from "./schema";
 
 let db: Db;
 const t0 = new Date("2026-11-20T03:00:00Z");
@@ -304,7 +311,7 @@ test("moveSummary는 옛 구분마다 전체·완료·실패·메모를 모은�
 });
 
 test("moveBanner는 기록 실패, 소속 제안만 실패, 실패 없음을 가른다", () => {
-  const base = { kinds: [], recordTotal: 2, recordDone: 2, recordFailed: 0, affiliate: null, classify: null };
+  const base = { kinds: [], recordTotal: 2, recordDone: 2, recordFailed: 0, affiliate: null, classify: null, duplicateDone: 0 };
   const failedAffiliate = { id: "a", status: "failed" as const, error: "x" };
   expect(moveBanner(base)).toBeNull();
   expect(moveBanner({ ...base, affiliate: failedAffiliate })).toBe("프로젝트 소속 제안을 하지 못했습니다 · 다시 시도");
@@ -504,4 +511,101 @@ test("finishMove는 countAttempt가 false면 시도 수를 늘리지 않는다(�
   const claimed = await claimNextMove(db, "u1", t0);
   await finishMove(db, "u1", claimed!.id, { ok: false, error: "한도" }, t0, { countAttempt: false });
   expect((await rowsOf("u1"))[0]).toMatchObject({ status: "failed", attempts: 0 });
+});
+
+// ---- 옮기기 다시 하기 ----
+
+const jobInput: JobInput = { company: "가나다상사", department: null, title: "사원", employment: "regular", startMonth: "2020-03", endMonth: "2022-02", isOngoing: false, duties: [], bannedPhrases: [] };
+const projectInput = (name: string, parent: ProjectInput["parent"] = null): ProjectInput => ({ name, parent, startMonth: null, endMonth: null, isOngoing: false, role: null, tools: [], summary: null, bannedPhrases: [] });
+const sceneInput = (head: SceneInput["head"], title: string): SceneInput => ({
+  head, title, startMonth: null, endMonth: null, isOngoing: false, situation: "상황", judgment: null, actions: "한 일", result: "결과", lessons: null, metrics: [], notDone: null, bannedPhrases: [], evidenceNote: null, tags: [],
+});
+const okId = (r: { ok: true; id: string } | { ok: false; reason: string }) => {
+  if (!r.ok) throw new Error(r.reason);
+  return r.id;
+};
+const migrate = (n: string) => ({ source: "migrate" as const, movedFrom: n });
+
+async function seedMigrated(userId: string) {
+  const oldId = await createExperience(db, userId, old("옛 재직", "job"), "import");
+  await planMoves(db, userId);
+  const jobId = okId(await createFact(db, userId, "job", jobInput, migrate(oldId)));
+  const projectId = okId(await createFact(db, userId, "project", projectInput("옮긴 프로젝트", { kind: "job", id: jobId }), migrate("p-old")));
+  const sceneId = okId(await createScene(db, userId, sceneInput({ kind: "job", id: jobId }, "옮긴 사례"), migrate("s-old")));
+  await insertRecordClaims(db, userId, { kind: "scene", id: sceneId }, [{ kind: "role", quote: "한 일", phrase: null, origin: "code", status: "pending" }]);
+  okId(await createFact(db, userId, "gap", { startMonth: "2024-03", endMonth: null, note: null }, migrate("g-old")));
+  return { oldId, jobId, projectId, sceneId };
+}
+const countOf = async (table: typeof scenes | typeof jobs | typeof projects | typeof gaps, userId: string) =>
+  (await db.select().from(table).where(eq(table.userId, userId))).length;
+
+test("resetMoves는 옮겨서 만든 기록과 옮기기 행을 지우고, 직접 넣은 기록과 옛 기록은 남기며 needsMove가 다시 true다", async () => {
+  await seedMigrated("u1");
+  const manualJob = okId(await createFact(db, "u1", "job", { ...jobInput, company: "직접 회사" }));
+  const manualProject = okId(await createFact(db, "u1", "project", projectInput("직접 프로젝트")));
+  okId(await createScene(db, "u1", sceneInput({ kind: "project", id: manualProject }, "직접 사례")));
+  // 옮겨 온 머리 아래라도 사례가 옮겨 온 것이면 함께 지운다. 직접 넣은 머리 아래의 옮긴 사례도 지운다
+  okId(await createScene(db, "u1", sceneInput({ kind: "job", id: manualJob }, "직접 머리 아래 옮긴 사례"), migrate("s2-old")));
+  await db.update(moves).set({ status: "done" }).where(eq(moves.userId, "u1"));
+  expect(await needsMove(db, "u1")).toBe(false);
+
+  expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+  expect(await rowsOf("u1")).toEqual([]);
+  expect(await needsMove(db, "u1")).toBe(true);
+  expect(await countOf(jobs, "u1")).toBe(1);
+  expect((await db.select().from(jobs).where(eq(jobs.userId, "u1")))[0].company).toBe("직접 회사");
+  expect(await countOf(projects, "u1")).toBe(1);
+  expect((await db.select().from(scenes).where(eq(scenes.userId, "u1"))).map((s) => s.title)).toEqual(["직접 사례"]);
+  expect(await countOf(gaps, "u1")).toBe(0);
+  expect(await db.select().from(recordClaims).where(eq(recordClaims.userId, "u1"))).toEqual([]);
+  expect(await listExperiences(db, "u1")).toHaveLength(1); // 옛 표는 그대로
+});
+
+test("resetMoves는 다른 사용자의 기록과 옮기기 행을 건드리지 않는다", async () => {
+  await seedMigrated("u1");
+  await seedMigrated("u2");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+  expect(await rowsOf("u2")).toHaveLength(1);
+  expect(await countOf(jobs, "u2")).toBe(1);
+  expect(await countOf(projects, "u2")).toBe(1);
+  expect(await countOf(scenes, "u2")).toBe(1);
+  expect(await countOf(gaps, "u2")).toBe(1);
+  expect((await db.select().from(recordClaims).where(eq(recordClaims.userId, "u2"))).length).toBe(1);
+});
+
+test("옮긴 머리에 직접 넣은 사례가 딸려 있으면 in_use로 아무것도 바꾸지 않는다", async () => {
+  const { jobId } = await seedMigrated("u1");
+  okId(await createScene(db, "u1", sceneInput({ kind: "job", id: jobId }, "직접 사례")));
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  expect(await countOf(scenes, "u1")).toBe(2);
+  expect(await countOf(jobs, "u1")).toBe(1);
+  expect(await countOf(gaps, "u1")).toBe(1);
+  expect(await rowsOf("u1")).toHaveLength(1);
+});
+
+test("옮긴 머리에 직접 만든 프로젝트가 딸려 있어도 in_use다(소속을 조용히 비우지 않는다)", async () => {
+  const { jobId } = await seedMigrated("u1");
+  okId(await createFact(db, "u1", "project", projectInput("직접 프로젝트", { kind: "job", id: jobId })));
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  expect(await countOf(projects, "u1")).toBe(2);
+  expect(await countOf(jobs, "u1")).toBe(1);
+  expect(await rowsOf("u1")).toHaveLength(1);
+});
+
+test("migratedCount는 옮겨서 만든 이력 사실·머리·사례를 센다", async () => {
+  expect(await migratedCount(db, "u1")).toBe(0);
+  await seedMigrated("u1");
+  okId(await createFact(db, "u1", "job", { ...jobInput, company: "직접 회사" }));
+  expect(await migratedCount(db, "u1")).toBe(4); // 재직·프로젝트·사례·공백
+  expect(await migratedCount(db, "u2")).toBe(0);
+});
+
+test("moveSummary는 같은 기록이라 옮기지 않은(done) 개수를 따로 돌려준다", async () => {
+  await createExperience(db, "u1", old("가", "school"));
+  await createExperience(db, "u1", old("나", "school"));
+  await planMoves(db, "u1");
+  const [a, b] = await db.select().from(moves).where(and(eq(moves.userId, "u1"), eq(moves.step, "record")));
+  await db.update(moves).set({ role: "duplicate", ref: b.oldId, status: "done" }).where(eq(moves.id, a.id));
+  await db.update(moves).set({ role: "duplicate", ref: a.oldId, status: "pending" }).where(eq(moves.id, b.id));
+  expect((await moveSummary(db, "u1")).duplicateDone).toBe(1);
 });

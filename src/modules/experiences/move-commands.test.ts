@@ -7,10 +7,10 @@ import { createFakeAi } from "@/modules/ai/fake-client";
 import { user } from "@/modules/auth/schema";
 import { insertClaims } from "./claims-repo";
 import type { ExperienceInput } from "./input";
-import { moveNext, retryMoveCommand } from "./move-commands";
+import { moveNext, resetMovesCommand, retryMoveCommand } from "./move-commands";
 import { moveProgress, needsMove, planMoves } from "./move-repo";
 import { confirmExperience, createExperience } from "./repo";
-import { experiences, moves, type StoredRubric } from "./schema";
+import { experiences, moves, projects, scenes, type StoredRubric } from "./schema";
 
 let db: Db;
 
@@ -144,4 +144,21 @@ test("정리가 한도 밖의 까닭으로 실패하면 기록은 기다리고, 
   expect(await needsMove(db, "u1")).toBe(true);
   expect(await retryMoveCommand(db, "u1", first.progress.failed[0].id)).toEqual({ ok: true });
   expect(await moveNext(db, ai(), "u1")).toMatchObject({ ok: true, progress: { failed: [], pending: 3 } });
+});
+
+test("resetMovesCommand는 옮긴 기록을 지워 다시 옮길 수 있게 하고, 직접 넣은 사례가 딸려 있으면 문구와 함께 막는다", async () => {
+  await seed();
+  const fake = ai();
+  for (let i = 0; i < 4; i += 1) await moveNext(db, fake, "u1");
+  expect(await needsMove(db, "u1")).toBe(false);
+  expect(await resetMovesCommand(db, "u1")).toEqual({ ok: true });
+  expect(await needsMove(db, "u1")).toBe(true);
+  expect(await db.select().from(moves).where(eq(moves.userId, "u1"))).toEqual([]);
+
+  // 다시 옮긴 뒤, 옮긴 프로젝트 머리에 직접 사례를 달면 막는다
+  for (let i = 0; i < 4; i += 1) await moveNext(db, fake, "u1");
+  const [head] = await db.select().from(projects).where(eq(projects.userId, "u1"));
+  await db.insert(scenes).values({ ...(await db.select().from(scenes).where(eq(scenes.userId, "u1")))[0], id: "manual-scene", movedFrom: null, source: "manual", projectId: head.id });
+  expect(await resetMovesCommand(db, "u1")).toEqual({ ok: false, message: "직접 넣은 사례가 옮긴 기록에 딸려 있어 다시 옮길 수 없습니다" });
+  expect((await db.select().from(moves).where(eq(moves.userId, "u1"))).length).toBeGreaterThan(0);
 });
