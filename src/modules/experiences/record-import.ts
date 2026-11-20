@@ -241,6 +241,7 @@ export async function requestRecordImport(
       schema: importSchema,
       effort: "medium",
       maxTokens: 16000, // 스트리밍 없이 보낼 수 있는 길이. 더 크게 잡으면 SDK가 보내기 전에 거절한다
+      loose: true, // 답 모양이 커서 API가 문법으로 강제하지 못한다(compiled grammar is too large). 지시에 적어 받고 같은 스키마로 검사한다
     },
     now,
   );

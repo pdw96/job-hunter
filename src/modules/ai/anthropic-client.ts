@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { AiClient, AiRequest, AiResult } from "./client";
+import { looseSystem, parseLoose } from "./loose-json";
 import { currentModel, type TokenUsage } from "./pricing";
 
 // 실제 Claude API 구현. ANTHROPIC_API_KEY는 SDK가 환경 변수에서 읽는다.
@@ -26,14 +27,13 @@ export const anthropicAi: AiClient = {
     client ??= new Anthropic();
     try {
       // claude-sonnet-5-5는 thinking을 끌 수 없다. 생략하면 적응형으로 돌고 깊이는 effort로 조절한다
-      const response = await client.beta.messages.parse({
+      const common = {
         model: currentModel(),
         max_tokens: request.maxTokens,
         // 모델이 거절하면 서버가 대체 모델로 한 번 더 시도한다
         betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
-        cache_control: { type: "ephemeral" },
-        system: request.system,
+        fallbacks: "default" as const,
+        cache_control: { type: "ephemeral" as const },
         messages: request.messages.map((message) => ({
           role: message.role,
           // 그림이 있으면 그림을 먼저, 글을 뒤에 둔다
@@ -48,6 +48,26 @@ export const anthropicAi: AiClient = {
                 ]
               : message.text,
         })),
+      };
+
+      if (request.loose) {
+        // 모양은 지시에 적고 글로 받아 코드가 검사한다(loose-json.ts)
+        const response = await client.beta.messages.create({
+          ...common,
+          system: looseSystem(request.system, request.schema),
+          output_config: { effort: request.effort },
+        });
+        const meta = { usage: toUsage(response.usage), model: response.model };
+        if (response.stop_reason === "refusal") return { ok: false, reason: "refused", ...meta };
+        if (response.stop_reason !== "end_turn") return { ok: false, reason: "truncated", ...meta };
+        const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+        const parsed = parseLoose(text, request.schema);
+        return parsed.ok ? { ok: true, value: parsed.value, ...meta } : { ok: false, reason: "invalid", ...meta };
+      }
+
+      const response = await client.beta.messages.parse({
+        ...common,
+        system: request.system,
         output_config: { effort: request.effort, format: zodOutputFormat(request.schema) },
       });
 
