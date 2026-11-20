@@ -1,5 +1,5 @@
 import { numbersIn } from "@/modules/experiences/grounding";
-import type { ResumeSource } from "@/modules/experiences/writing";
+import type { ResumeSource } from "@/modules/experiences/sources";
 import { knownNumbers } from "./check";
 import { detailFor } from "./resume-entries";
 import type { ResumeContent } from "./types";

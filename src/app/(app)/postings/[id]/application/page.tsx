@@ -6,7 +6,7 @@ import { checkDraft } from "@/modules/applications/check";
 import { listQuestions, type Question } from "@/modules/applications/repo";
 import { isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import type { PassedReason, PickReason, SourceRef } from "@/modules/applications/types";
-import { listWritingSources, type WritingSource } from "@/modules/experiences/writing";
+import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
 import { getTrack } from "@/modules/tracks/repo";

@@ -1,6 +1,6 @@
 import { formatPeriod } from "@/modules/experiences/period";
 import type { Kind } from "@/modules/experiences/options";
-import type { ResumeSource } from "@/modules/experiences/writing";
+import type { ResumeSource } from "@/modules/experiences/sources";
 import { RESUME_LIMITS, RESUME_SECTIONS } from "./options";
 import { cut } from "./text";
 import type { ResumeContent, ResumeDetail, ResumeEntry } from "./types";

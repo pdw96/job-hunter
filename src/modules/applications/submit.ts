@@ -1,6 +1,5 @@
 import type { Db } from "@/db/types";
-import { listExperiences } from "@/modules/experiences/repo";
-import { listResumeSources, listWritingSources } from "@/modules/experiences/writing";
+import { listResumeSources, listWritingSources, sourceNames } from "@/modules/experiences/sources";
 import { getPosting, type Posting } from "@/modules/postings/repo";
 import { checkDraft } from "./check";
 import { listQuestions, type Question } from "./repo";
@@ -71,12 +70,11 @@ export async function submitPosting(
 
   // 읽기와 넣기를 잠금 안에서 한다: 그 사이에 끼어드는 저장이 없어야 제출본에 최신 답이 얼려진다
   return withPostingLock(db, postingId, async (tx) => {
-    const [questions, picked, experiences] = await Promise.all([
+    const [questions, picked, names] = await Promise.all([
       listQuestions(tx, userId, postingId),
       pickResume(tx, userId, posting),
-      listExperiences(tx, userId),
+      sourceNames(tx, userId),
     ]);
-    const names = new Map(experiences.map((experience) => [experience.id, experience.name]));
     const resume = picked ? { from: picked.from, content: picked.content } : null;
     return insertSubmission(tx, userId, postingId, expectedNumber, freeze(posting, questions, resume, names), now);
   });

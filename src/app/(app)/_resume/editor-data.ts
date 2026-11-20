@@ -3,7 +3,7 @@ import { checkResume, type EntryCheck } from "@/modules/applications/resume-chec
 import { RESUME_LIMITS } from "@/modules/applications/options";
 import { resumeText, sections } from "@/modules/applications/resume-entries";
 import type { ResumeEntry } from "@/modules/applications/types";
-import type { ResumeSource } from "@/modules/experiences/writing";
+import type { ResumeSource } from "@/modules/experiences/sources";
 
 // 서버 컴포넌트가 이력서를 지금의 경험으로 검사하고 섹션으로 묶어 ResumeEditor에 넘길 값을 만든다
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { numbersIn } from "@/modules/experiences/grounding";
-import { listResumeSources, type ResumeSource } from "@/modules/experiences/writing";
+import { listResumeSources, type ResumeSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { editBlock, withEditLock } from "./submission-repo";
 import { RESUME_LIMITS } from "./options";

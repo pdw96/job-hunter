@@ -1,5 +1,5 @@
 import { numbersIn } from "@/modules/experiences/grounding";
-import type { WritingSource } from "@/modules/experiences/writing";
+import type { WritingSource } from "@/modules/experiences/sources";
 import type { Question } from "./repo";
 import type { Draft } from "./types";
 

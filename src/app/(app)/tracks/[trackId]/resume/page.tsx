@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { getCommonResume } from "@/modules/applications/resume-repo";
-import { listResumeSources } from "@/modules/experiences/writing";
+import { listResumeSources } from "@/modules/experiences/sources";
 import { getTrack } from "@/modules/tracks/repo";
 import { StartInterview } from "../../../experiences/start-interview";
 import { editorData } from "../../../_resume/editor-data";

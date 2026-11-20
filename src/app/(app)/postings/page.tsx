@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { daysLeft, EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion";
-import { listEvidenceCandidates } from "@/modules/experiences/evidence";
+import { listEvidenceCandidates } from "@/modules/experiences/sources";
 import type { PostingScore } from "@/modules/postings/analysis";
 import { POSTING_STATUS_LABELS } from "@/modules/postings/options";
 import { countPostings, listPostings, sortByScore } from "@/modules/postings/repo";

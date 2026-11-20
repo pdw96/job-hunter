@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { getCommonResume, getTailoredResume } from "@/modules/applications/resume-repo";
 import { getSubmission, isLocked, latestSubmission } from "@/modules/applications/submission-repo";
-import { listResumeSources } from "@/modules/experiences/writing";
+import { listResumeSources } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
 import { editorData } from "../../../_resume/editor-data";

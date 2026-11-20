@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { EXCLUSION_LABELS, exclusionReasons } from "@/modules/postings/exclusion";
 import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } from "@/modules/postings/options";
-import { listEvidenceCandidates } from "@/modules/experiences/evidence";
+import { listEvidenceCandidates } from "@/modules/experiences/sources";
 import { listQuestions } from "@/modules/applications/repo";
 import { getTailoredResume } from "@/modules/applications/resume-repo";
 import { isLocked, listSubmissions } from "@/modules/applications/submission-repo";
