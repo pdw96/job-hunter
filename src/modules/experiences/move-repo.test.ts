@@ -16,6 +16,7 @@ import {
   planMoves,
   reopenAffiliate,
   retryMove,
+  reviveFailedHeads,
   setMoveRoles,
 } from "./move-repo";
 import type { Kind } from "./options";
@@ -458,4 +459,49 @@ test("claimNextMove는 지금까지 시도한 수를 함께 돌려준다", async
   await finishMove(db, "u1", first!.id, { ok: false, error: "x" });
   await retryMove(db, "u1", first!.id, t0);
   expect(await claimNextMove(db, "u1", t0)).toMatchObject({ step: "classify", attempts: 1 });
+});
+
+test("머리가 실패한 채 pending으로 남은 장면은 기다림으로 세지 않고 실패로 센다(갇히지 않게)", async () => {
+  const job = await createExperience(db, "u1", old("한빛전자", "job"));
+  const star = await createExperience(db, "u1", old("성과 사례", "project"));
+  await planMoves(db, "u1");
+  await db.update(moves).set({ status: "done" }).where(and(eq(moves.userId, "u1"), eq(moves.step, "classify")));
+  await db.update(moves).set({ status: "failed", error: "한도" }).where(and(eq(moves.userId, "u1"), eq(moves.oldId, job)));
+  await db.update(moves).set({ status: "pending", role: "scene", ref: job }).where(and(eq(moves.userId, "u1"), eq(moves.oldId, star)));
+  await db.update(moves).set({ status: "done" }).where(and(eq(moves.userId, "u1"), eq(moves.step, "affiliate")));
+
+  const progress = await moveProgress(db, "u1");
+  expect(progress.pending).toBe(0);
+  expect(progress.failed.find((item) => item.name === "성과 사례")?.error).toBe("소속 기록을 옮기지 못했습니다");
+  expect(await needsMove(db, "u1")).toBe(false);
+  const summary = await moveSummary(db, "u1");
+  expect(summary.recordFailed).toBe(2);
+  expect(summary.recordDone + summary.recordFailed).toBe(summary.recordTotal);
+  // 화면의 다시 시도는 그 장면의 머리를 되돌린다
+  const starId = (await recordOf("u1", star)).id;
+  expect(await retryMove(db, "u1", starId, t0)).toEqual({ ok: true });
+  expect((await recordOf("u1", job)).status).toBe("pending");
+  expect(await retryMove(db, "u1", starId, t0)).toEqual({ ok: false, reason: "not_found" });
+});
+
+test("reviveFailedHeads는 pending 장면의 실패한 머리만 pending으로 되돌린다", async () => {
+  const job = await createExperience(db, "u1", old("한빛전자", "job"));
+  const star = await createExperience(db, "u1", old("성과 사례", "project"));
+  const other = await createExperience(db, "u1", old("한빛대학교", "school"));
+  await planMoves(db, "u1");
+  await db.update(moves).set({ status: "failed", error: "한도" }).where(eq(moves.userId, "u1"));
+  await db.update(moves).set({ status: "pending", role: "scene", ref: job }).where(and(eq(moves.userId, "u1"), eq(moves.oldId, star)));
+  await reviveFailedHeads(db, "u2", t0);
+  expect((await recordOf("u1", job)).status).toBe("failed");
+  await reviveFailedHeads(db, "u1", t0);
+  expect(await recordOf("u1", job)).toMatchObject({ status: "pending", error: null });
+  expect((await recordOf("u1", other)).status).toBe("failed");
+});
+
+test("finishMove는 countAttempt가 false면 시도 수를 늘리지 않는다(한도로 멈춘 것)", async () => {
+  await createExperience(db, "u1", old("한빛상사", "job"));
+  await planMoves(db, "u1");
+  const claimed = await claimNextMove(db, "u1", t0);
+  await finishMove(db, "u1", claimed!.id, { ok: false, error: "한도" }, t0, { countAttempt: false });
+  expect((await rowsOf("u1"))[0]).toMatchObject({ status: "failed", attempts: 0 });
 });

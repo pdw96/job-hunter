@@ -157,3 +157,58 @@ test("같은 기록이 셋이어도 하나만 남고, 장면의 짝이면 남는
     { role: "duplicate", ref: 2 },
   ]);
 });
+
+// ---- 같은 기록의 기간 검사 (검토) ----
+
+const pairAnswer = { records: [{ record: "R1", role: "head", ref: null }, { record: "R2", role: "duplicate", ref: "R1" }] };
+const pairOf = async (a: ClassifyRecord, b: ClassifyRecord, answer: unknown = pairAnswer) => {
+  const result = await requestClassify(db, createFakeAi([answer]), "u1", [a, b], now);
+  if (!result.ok) throw new Error(result.reason);
+  return result.roles[1];
+};
+
+test("같은 회사라도 기간이 겹치지 않는 두 재직은 같은 기록으로 받지 않는다", async () => {
+  const first = rec("한빛전자", "job", { startMonth: "2018-01", endMonth: "2019-12" });
+  const second = rec("한빛전자", "job", { startMonth: "2021-03", endMonth: "2023-02" });
+  expect(await pairOf(first, second)).toEqual({ role: "head", ref: null });
+});
+
+test("시작 월이 달라도 기간이 겹치면 같은 기록으로 받는다. 진행 중이거나 끝 월이 없으면 끝이 열린 것으로 본다", async () => {
+  const total = rec("한빛전자 영업 총괄", "job", { startMonth: "2020-03", endMonth: "2024-02" });
+  expect(await pairOf(total, rec("한빛전자 영업 전담", "job", { startMonth: "2021-01", endMonth: "2022-12" }))).toEqual({ role: "duplicate", ref: 0 });
+  expect(await pairOf(total, rec("한빛전자", "job", { startMonth: "2023-05", endMonth: null, isOngoing: true }))).toEqual({ role: "duplicate", ref: 0 });
+  expect(await pairOf(rec("한빛전자", "job", { startMonth: "2019-01", endMonth: null }), rec("한빛전자", "job", { startMonth: "2024-01", endMonth: "2024-06" }))).toEqual({
+    role: "duplicate",
+    ref: 0,
+  });
+  // 어느 한쪽에 시작 월이 없으면 기간으로 막지 않는다
+  expect(await pairOf(total, rec("한빛전자", "job", { startMonth: null, endMonth: null }))).toEqual({ role: "duplicate", ref: 0 });
+});
+
+test("자격은 취득 월 하나로 보아, 달이 다르면 같은 기록으로 받지 않는다", async () => {
+  const answer = { records: [{ record: "R1", role: "fact", ref: null }, { record: "R2", role: "duplicate", ref: "R1" }] };
+  const cert = (month: string) => rec("정보처리기사", "certificate", { startMonth: month, endMonth: null });
+  expect(await pairOf(cert("2021-06"), cert("2021-06"), answer)).toEqual({ role: "duplicate", ref: 0 });
+  expect(await pairOf(cert("2021-06"), cert("2023-11"), answer)).toEqual({ role: "fact", ref: null });
+});
+
+test("scene의 ref가 같은 기록(duplicate)이면 그 짝이 head일 때 짝으로 잇는다", async () => {
+  const records = [rec("한빛전자 총괄", "job"), rec("한빛전자 전담", "job"), rec("성과 사례", "project"), rec("성과 사례 2", "project")];
+  const ai = createFakeAi([
+    {
+      records: [
+        { record: "R1", role: "head", ref: null },
+        { record: "R2", role: "duplicate", ref: "R1" },
+        { record: "R3", role: "scene", ref: "R2" }, // 같은 기록을 가리킴 → R1로
+        { record: "R4", role: "duplicate", ref: "R3" }, // 장면의 짝
+      ],
+    },
+  ]);
+  const result = await requestClassify(db, ai, "u1", records, now);
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.roles.slice(0, 3)).toEqual([
+    { role: "head", ref: null },
+    { role: "duplicate", ref: 0 },
+    { role: "scene", ref: 0 },
+  ]);
+});

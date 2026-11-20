@@ -448,6 +448,28 @@ export async function affiliateProjects(db: Db, ai: AiClient, userId: string, no
 
 // ---- 하나씩 돌리기 ----
 
+// 정리 한 번. 한도 밖의 실패(예외 포함)가 두 번째면 모든 기록을 구분별 기본값으로 두고 정리를 끝낸다(사용자가 /moving에 갇히지 않게).
+// 한도는 모두를 멈추는 기존 길로 간다(시도로 세지 않는다)
+async function runClassify(db: Db, ai: AiClient, userId: string, attempts: number, now: Date): Promise<Result> {
+  let reason: string;
+  try {
+    const classified = await classifyMoves(db, ai, userId, now);
+    if (classified.ok) return { ok: true };
+    reason = classified.reason;
+  } catch (error) {
+    console.error("기록 정리 실패", error);
+    reason = "error";
+  }
+  if (reason === "over_limit") return { ok: false, error: OVER_LIMIT_MESSAGE };
+  if (attempts + 1 >= CLASSIFY_TRIES) {
+    await applyDefaultRoles(db, userId);
+    return { ok: true, note: CLASSIFY_FALLBACK_NOTE };
+  }
+  return { ok: false, error: errorOf(reason) };
+}
+
+const RELINK_KINDS: readonly Kind[] = ["project", "job", "school", "training"];
+
 // 할 일 하나를 잡아 옮기고 진행을 돌려준다. 잡을 것이 없으면(모두 끝났거나 다른 탭이 돌리는 중) 진행만 돌려준다
 export async function runNextMove(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<MoveProgress> {
   const claimed = await claimNextMove(db, userId, now);
@@ -456,23 +478,15 @@ export async function runNextMove(db: Db, ai: AiClient, userId: string, now: Dat
     let relink = false;
     try {
       if (claimed.step === "classify") {
-        const classified = await classifyMoves(db, ai, userId, now);
-        if (classified.ok) {
-          result = { ok: true };
-        } else if (classified.reason !== "over_limit" && claimed.attempts + 1 >= CLASSIFY_TRIES) {
-          // 두 번째 실패: 모든 기록을 구분별 기본값으로 두고 정리를 끝낸다. 한도는 모두를 멈추는 기존 길로 간다
-          await applyDefaultRoles(db, userId);
-          result = { ok: true, note: CLASSIFY_FALLBACK_NOTE };
-        } else {
-          result = { ok: false, error: errorOf(classified.reason) };
-        }
+        result = await runClassify(db, ai, userId, claimed.attempts, now);
       } else if (claimed.step === "record" && claimed.oldId !== null) {
-        // 프로젝트나 조직이 될 기록이면, 소속 잇기가 이미 끝났어도 다시 돌게 한다(실패했다가 늦게 옮긴 경우).
-        // 같은 기록과 사례는 새 머리를 만들지 않으므로 다시 돌 까닭이 없다
         const kind = (await getExperience(db, userId, claimed.oldId))?.kind;
-        const makesHead = claimed.role !== "duplicate" && claimed.role !== "scene";
-        relink = makesHead && (kind === "project" || kind === "job" || kind === "school" || kind === "training");
         result = await moveRecord(db, ai, userId, claimed.oldId, now, { role: claimed.role, ref: claimed.ref });
+        // 프로젝트나 조직이 될 기록이면, 소속 잇기가 이미 끝났어도 다시 돌게 한다(실패했다가 늦게 옮긴 경우).
+        // 같은 기록은 새 머리를 만들지 않는다. 사례는 머리가 지워져 자기 프로젝트로 옮겨졌을 때만 다시 돈다
+        if (result.ok && kind && RELINK_KINDS.includes(kind) && claimed.role !== "duplicate") {
+          relink = claimed.role !== "scene" || (await movedHead(db, userId, claimed.oldId))?.kind === "project";
+        }
       } else {
         result = await affiliateProjects(db, ai, userId, now);
       }
@@ -480,7 +494,9 @@ export async function runNextMove(db: Db, ai: AiClient, userId: string, now: Dat
       console.error("기록 옮기기 실패", error);
       result = { ok: false, error: "옮기는 중에 문제가 생겼습니다. 다시 시도해 주세요" };
     }
-    await finishMove(db, userId, claimed.id, result, now);
+    // 한도로 멈춘 것은 AI를 부르지 않았으므로 시도로 세지 않는다(정리의 기본값 넘기기는 한도 밖의 실패만 센다)
+    const limited = !result.ok && result.error === OVER_LIMIT_MESSAGE;
+    await finishMove(db, userId, claimed.id, result, now, { countAttempt: !limited });
     if (result.ok && relink) await reopenAffiliate(db, userId, now);
   }
   return moveProgress(db, userId);

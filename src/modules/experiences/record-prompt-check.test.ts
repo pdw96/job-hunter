@@ -323,6 +323,12 @@ test("옮기기 예시: 소속 짝이 틀리면 그 줄이 실패한다", async 
   expect(affiliate?.messages[0].text).toContain("P2");
 });
 
+test("정리 예시: 같은 학교의 석사를 학사의 같은 기록으로 두면 그 줄이 실패한다", async () => {
+  const wrong = () => ({ records: [...classifyAnswer().records, { record: "R9", role: "duplicate", ref: "R1" }] });
+  const failed = (await runRecordCheck(db, answering(importAnswer(), moveAnswer(), affiliateAnswer, {}, wrong), "admin")).filter((row) => !row.pass);
+  expect(failed.map((row) => [row.sample, row.check])).toEqual([[CLASSIFY_SAMPLE.name, "같은 학교의 학사와 석사는 같은 기록이 아니다"]]);
+});
+
 test("정리 예시: 같은 학력을 짝짓지 않거나, 성과 사례를 머리로 두거나, 같은 이름 프로젝트를 모두 머리로 두면 그 줄이 실패한다", async () => {
   const wrong = () => ({
     records: [

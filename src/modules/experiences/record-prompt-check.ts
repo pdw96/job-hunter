@@ -354,7 +354,8 @@ function affiliateRows(links: Extract<Awaited<ReturnType<typeof requestAffiliati
   ];
 }
 
-// 옮기기 전 정리: 같은 학력 둘, 재직 하나와 그 회사의 성과 사례 둘, 같은 이름 프로젝트 셋
+// 옮기기 전 정리: 같은 학력 둘, 재직 하나와 그 회사의 성과 사례 둘, 같은 이름 프로젝트 셋, 같은 학교의 석사(같은 기록이 아님).
+// 석사는 기간을 비워 코드의 기간 검사가 아니라 프롬프트가 가려내는지 본다
 const classifyRecord = (over: Partial<ClassifyRecord> & Pick<ClassifyRecord, "name" | "kind">): ClassifyRecord => ({
   organization: null,
   role: null,
@@ -404,6 +405,7 @@ export const CLASSIFY_SAMPLE = {
     }),
     classifyRecord({ name: "AI 기반 ERP 구축 · 1단계 요구사항 정리", kind: "project", startMonth: "2024-01", endMonth: "2024-04", body: "부서별 면담으로 요구사항을 정리했다." }),
     classifyRecord({ name: "AI 기반 ERP 구축 · 2단계 시험 운영", kind: "project", startMonth: "2024-05", endMonth: "2024-12", body: "영업팀에서 시험 운영하고 의견을 모았다." }),
+    classifyRecord({ name: "한빛대학교 경영대학원 석사", kind: "school", organization: "한빛대학교", body: "경영학 석사 과정을 마쳤다." }),
   ],
 };
 
@@ -421,6 +423,7 @@ function classifyRows(roles: RoleChoice[]): CheckRow[] {
     { sample, check: "같은 학력 둘은 하나만 남긴다", expected: "R1·R2 중 하나가 다른 하나의 duplicate", actual: show([0, 1]), pass: schoolPaired },
     { sample, check: "회사의 성과 사례는 그 재직의 장면이다", expected: "R3 head, R4·R5 scene→R3", actual: show([2, 3, 4]), pass: starScenes },
     { sample, check: "같은 이름 프로젝트 셋은 머리 하나와 장면 둘이다", expected: "하나 head, 둘 scene→그 head", actual: show(erp), pass: erpGrouped },
+    { sample, check: "같은 학교의 학사와 석사는 같은 기록이 아니다", expected: "R9 fact", actual: show([8]), pass: roles[8].role === "fact" },
   ];
 }
 

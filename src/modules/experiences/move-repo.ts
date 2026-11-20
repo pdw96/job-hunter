@@ -78,7 +78,15 @@ export async function needsMove(db: Db, userId: string): Promise<boolean> {
           and exists (select 1 from ${experiences} e where e.user_id = ${userId} and e.kind in (${parentKinds}))
           and not exists (select 1 from ${moves} m where m.user_id = ${userId} and m.step = 'affiliate')
         )
-        or exists (select 1 from ${moves} m where m.user_id = ${userId} and m.status in ('pending', 'running'))
+        or exists (
+          select 1 from ${moves} m
+          where m.user_id = ${userId} and m.status in ('pending', 'running')
+            -- 머리가 실패한 장면은 잡히지 않으므로 남은 일로 세지 않는다(moveProgress와 같음)
+            and not (
+              m.role = 'scene'
+              and exists (select 1 from ${moves} h where h.user_id = ${userId} and h.step = 'record' and h.old_id = m.ref and h.status = 'failed')
+            )
+        )
       )`,
     })
     .from(sql`(select 1) as one`);
@@ -146,6 +154,31 @@ export async function setMoveRoles(db: Db, userId: string, roles: { oldId: strin
   });
 }
 
+// 기다리는(pending) 장면의 머리 행이 실패해 있으면 그 머리를 pending으로 되돌린다(retryMove와 같은 뜻).
+// 한도로 모두 실패한 뒤 기록 하나만 다시 시도했는데 정리가 그것을 실패한 머리의 장면으로 정한 경우에 잡을 수 없는 pending이 남지 않게 한다
+export async function reviveFailedHeads(db: Db, userId: string, now: Date = new Date()): Promise<void> {
+  const waiting = alias(moves, "waiting");
+  const heads = db
+    .select({ ref: waiting.ref })
+    .from(waiting)
+    .where(and(eq(waiting.userId, userId), eq(waiting.step, "record"), eq(waiting.role, "scene"), eq(waiting.status, "pending")));
+  await db
+    .update(moves)
+    .set({ status: "pending", error: null, startedAt: null, updatedAt: now })
+    .where(and(eq(moves.userId, userId), eq(moves.step, "record"), eq(moves.status, "failed"), inArray(moves.oldId, heads)));
+}
+
+// 머리가 실패한 채 기다리는 장면(잡히지 않는다). 진행·결과 줄은 이것을 실패로 센다
+function stuckScenes(rows: (typeof moves.$inferSelect)[]): Set<string> {
+  const failedHeads = new Set(rows.filter((row) => row.step === "record" && row.status === "failed" && row.oldId !== null).map((row) => row.oldId));
+  return new Set(
+    rows.filter((row) => row.role === "scene" && (row.status === "pending" || row.status === "running") && failedHeads.has(row.ref)).map((row) => row.id),
+  );
+}
+// 진행·결과용으로 본 상태(머리가 실패한 장면은 실패)
+const shownStatus = (row: typeof moves.$inferSelect, stuck: Set<string>) => (stuck.has(row.id) ? "failed" : row.status);
+const shownError = (row: typeof moves.$inferSelect, stuck: Set<string>) => (stuck.has(row.id) ? HEAD_FAILED : (row.error ?? ""));
+
 // 그 옛 기록을 머리로 삼는 장면 행이 있는가(재직이면 사례로 나누지 않고 머리만 만든다)
 export async function hasSceneMoves(db: Db, userId: string, oldId: string): Promise<boolean> {
   const rows = await db
@@ -163,13 +196,15 @@ export async function finishMove(
   // ok여도 note가 있으면(일부를 옮기지 못함) error 칸에 남겨 화면이 보여 주게 한다
   result: { ok: true; note?: string } | { ok: false; error: string },
   now: Date = new Date(),
+  // countAttempt: false면 시도 수를 늘리지 않는다(한도로 멈춰 AI를 부르지 않은 것)
+  options: { countAttempt?: boolean } = {},
 ): Promise<void> {
   const [row] = await db
     .update(moves)
     .set({
       status: result.ok ? "done" : "failed",
       error: result.ok ? (result.note ?? null) : result.error,
-      attempts: sql`${moves.attempts} + 1`,
+      attempts: options.countAttempt === false ? moves.attempts : sql`${moves.attempts} + 1`,
       updatedAt: now,
     })
     .where(and(eq(moves.id, id), eq(moves.userId, userId)))
@@ -198,7 +233,20 @@ export async function retryMove(
     .set(reset)
     .where(and(eq(moves.id, id), failedRecord))
     .returning({ step: moves.step, oldId: moves.oldId, role: moves.role, ref: moves.ref });
-  if (!row) return { ok: false, reason: "not_found" };
+  if (!row) {
+    // 머리가 실패해 기다리기만 하는 장면(화면에는 실패로 보인다)이면 그 머리를 되돌린다
+    const [scene] = await db
+      .select({ ref: moves.ref })
+      .from(moves)
+      .where(and(eq(moves.id, id), eq(moves.userId, userId), eq(moves.role, "scene"), eq(moves.status, "pending")));
+    if (!scene?.ref) return { ok: false, reason: "not_found" };
+    const revived = await db
+      .update(moves)
+      .set(reset)
+      .where(and(failedRecord, eq(moves.step, "record"), eq(moves.oldId, scene.ref)))
+      .returning({ id: moves.id });
+    return revived.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+  }
   if (row.step === "record" && row.oldId !== null) {
     await db.update(moves).set(reset).where(and(failedRecord, eq(moves.step, "record"), eq(moves.role, "scene"), eq(moves.ref, row.oldId)));
     if (row.role === "scene" && row.ref !== null) {
@@ -229,7 +277,8 @@ export async function reopenAffiliate(db: Db, userId: string, now: Date = new Da
 
 export async function moveProgress(db: Db, userId: string): Promise<MoveProgress> {
   const rows = await db.select().from(moves).where(eq(moves.userId, userId)).orderBy(asc(moves.updatedAt), asc(moves.id));
-  const failedRows = rows.filter((row) => row.status === "failed");
+  const stuck = stuckScenes(rows);
+  const failedRows = rows.filter((row) => shownStatus(row, stuck) === "failed");
   // 실패한 기록은 옛 이름으로 보여 준다(화면용. AI에는 보내지 않는다)
   const names = failedRows.some((row) => row.oldId !== null)
     ? new Map((await listExperiences(db, userId)).map((item) => [item.id, item.name]))
@@ -241,8 +290,8 @@ export async function moveProgress(db: Db, userId: string): Promise<MoveProgress
   return {
     total: rows.length,
     done: rows.filter((row) => row.status === "done").length,
-    failed: failedRows.map((row) => ({ id: row.id, name: nameOf(row), error: row.error ?? "" })),
-    pending: blocked ? 0 : rows.filter((row) => row.status === "pending" || row.status === "running").length,
+    failed: failedRows.map((row) => ({ id: row.id, name: nameOf(row), error: shownError(row, stuck) })),
+    pending: blocked ? 0 : rows.filter((row) => !stuck.has(row.id) && (row.status === "pending" || row.status === "running")).length,
   };
 }
 
@@ -271,6 +320,7 @@ export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> 
     listExperiences(db, userId),
   ]);
   const byId = new Map(old.map((item) => [item.id, item]));
+  const stuck = stuckScenes(rows);
   const kinds = new Map<Kind, KindMove>();
   let affiliate: MoveSummary["affiliate"] = null;
   let classify: MoveSummary["classify"] = null;
@@ -287,11 +337,12 @@ export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> 
     if (!item) continue; // 옛 기록이 지워졌으면 줄에 넣지 않는다
     const entry = kinds.get(item.kind) ?? { kind: item.kind, total: 0, done: 0, failed: [], notes: [] };
     entry.total += 1;
-    if (row.status === "done") {
+    const status = shownStatus(row, stuck);
+    if (status === "done") {
       entry.done += 1;
       if (row.error) entry.notes.push(row.error);
-    } else if (row.status === "failed") {
-      entry.failed.push({ id: row.id, name: item.name, error: row.error ?? "" });
+    } else if (status === "failed") {
+      entry.failed.push({ id: row.id, name: item.name, error: shownError(row, stuck) });
     }
     kinds.set(item.kind, entry);
   }

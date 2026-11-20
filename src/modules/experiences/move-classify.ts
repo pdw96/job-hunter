@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
-import { type MoveRole, setMoveRoles } from "./move-repo";
+import { type MoveRole, reviveFailedHeads, setMoveRoles } from "./move-repo";
 import { type Kind, KIND_LABELS } from "./options";
 import { CLASSIFY_SYSTEM } from "./prompts";
 import { experiences } from "./schema";
@@ -65,6 +65,15 @@ const answerSchema = z.object({
   records: z.array(z.object({ record: z.string(), role: z.enum(["fact", "head", "scene", "duplicate"]), ref: z.string().nullable() })),
 });
 
+// 두 기록의 기간이 겹치는가. 어느 한쪽에 시작 월이 없으면 알 수 없으므로 겹친다고 본다.
+// 진행 중이거나 끝 월이 없으면 끝이 열린 것으로, 자격은 취득 월 하나로 본다
+export function periodsOverlap(a: ClassifyRecord, b: ClassifyRecord): boolean {
+  if (!a.startMonth || !b.startMonth) return true;
+  const end = (r: ClassifyRecord) => (r.kind === "certificate" ? r.startMonth : r.isOngoing ? null : r.endMonth);
+  const [aEnd, bEnd] = [end(a), end(b)];
+  return (aEnd === null || b.startMonth <= aEnd) && (bEnd === null || a.startMonth <= bEnd);
+}
+
 const aliasIndex = (alias: string | null, size: number): number | null => {
   const match = alias?.trim().match(/^R(\d+)$/);
   if (!match) return null;
@@ -114,20 +123,27 @@ export async function requestClassify(
     picked[index] = { role: item.role, ref: null, rawRef: aliasIndex(item.ref, size) };
   }
 
-  // duplicate: 짝이 자기 아닌 같은 구분이고, 짝의 역할이 duplicate가 아니어야 한다(AI가 답한 역할로 본다)
+  // duplicate: 짝이 자기 아닌 같은 구분이고, 짝의 역할이 duplicate가 아니고, 두 기간이 겹쳐야 한다(AI가 답한 역할로 본다).
+  // 시작 월이 달라도 겹치면 받는다(같은 회사를 "총괄"·"전담"으로 두 번 적은 경우)
   const afterDuplicates: RoleChoice[] = picked.map((item, index) => {
     if (item.role === "scene") return { role: "scene", ref: item.rawRef };
     if (item.role !== "duplicate") return { role: item.role, ref: null };
     const ref = item.rawRef;
-    const valid = ref !== null && ref !== index && records[ref].kind === records[index].kind && picked[ref].role !== "duplicate";
+    const valid =
+      ref !== null &&
+      ref !== index &&
+      records[ref].kind === records[index].kind &&
+      picked[ref].role !== "duplicate" &&
+      periodsOverlap(records[index], records[ref]);
     return valid ? { role: "duplicate", ref } : fallback(index);
   });
-  // scene: 머리가 자기 아니고 역할이 head여야 한다
+  // scene: 머리가 자기 아니고 역할이 head여야 한다. 머리로 가리킨 것이 같은 기록(duplicate)이면 그 짝이 head일 때 짝으로 잇는다
   const roles = afterDuplicates.map((item, index): RoleChoice => {
-    if (item.role !== "scene") return item;
-    const ref = item.ref;
-    const valid = ref !== null && ref !== index && afterDuplicates[ref].role === "head";
-    return valid ? item : fallback(index);
+    if (item.role !== "scene" || item.ref === null) return item.role === "scene" ? fallback(index) : item;
+    const pointed = afterDuplicates[item.ref];
+    const ref = pointed.role === "duplicate" && pointed.ref !== null ? pointed.ref : item.ref;
+    const valid = ref !== index && afterDuplicates[ref].role === "head";
+    return valid ? { role: "scene", ref } : fallback(index);
   });
   return { ok: true, roles };
 }
@@ -210,5 +226,7 @@ export async function classifyMoves(
     userId,
     settled.map((item, index) => ({ oldId: rows[index].id, role: item.role, ref: item.ref === null ? null : rows[item.ref].id })),
   );
+  // 장면이 된 기록의 머리가 (한도 등으로) 실패해 있으면 머리를 되살린다. 아니면 장면이 잡히지 않고 남는다
+  await reviveFailedHeads(db, userId, now);
   return { ok: true };
 }
