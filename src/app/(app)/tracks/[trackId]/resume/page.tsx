@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { getCommonResume } from "@/modules/applications/resume-repo";
-import { listResumeSources } from "@/modules/experiences/writing";
+import { listResumeSources, oldRecordIds } from "@/modules/experiences/sources";
 import { getTrack } from "@/modules/tracks/repo";
 import { StartInterview } from "../../../experiences/start-interview";
 import { editorData } from "../../../_resume/editor-data";
@@ -18,8 +18,12 @@ export default async function CommonResumePage({ params }: { params: Promise<{ t
   const track = await getTrack(db, user.id, trackId);
   if (!track) notFound();
 
-  const [resume, sources] = await Promise.all([getCommonResume(db, user.id, track.id), listResumeSources(db, user.id, track.id)]);
-  const data = resume ? editorData(resume, sources, null) : null;
+  const [resume, sources, oldIds] = await Promise.all([
+    getCommonResume(db, user.id, track.id),
+    listResumeSources(db, user.id, track.id),
+    oldRecordIds(db, user.id),
+  ]);
+  const data = resume ? editorData(resume, sources, null, oldIds) : null;
 
   return (
     <div className="space-y-6">

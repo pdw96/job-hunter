@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
-import { type EvidenceCandidate, listEvidenceCandidates } from "@/modules/experiences/evidence";
+import { type EvidenceCandidate, listEvidenceCandidates } from "@/modules/experiences/sources";
 import { numbersIn } from "@/modules/experiences/grounding";
 import { KIND_LABELS } from "@/modules/experiences/options";
 import { listMajors } from "@/modules/ncs/repo";

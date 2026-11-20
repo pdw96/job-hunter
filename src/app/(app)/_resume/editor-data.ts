@@ -3,7 +3,7 @@ import { checkResume, type EntryCheck } from "@/modules/applications/resume-chec
 import { RESUME_LIMITS } from "@/modules/applications/options";
 import { resumeText, sections } from "@/modules/applications/resume-entries";
 import type { ResumeEntry } from "@/modules/applications/types";
-import type { ResumeSource } from "@/modules/experiences/writing";
+import type { ResumeSource } from "@/modules/experiences/sources";
 
 // 서버 컴포넌트가 이력서를 지금의 경험으로 검사하고 섹션으로 묶어 ResumeEditor에 넘길 값을 만든다
 
@@ -19,11 +19,16 @@ export type EditorData = {
   copyText: string;
 };
 
-// currentCommonVersion이 null이면 공통본, 숫자면 맞춤본
-export function editorData(resume: Resume, sources: ResumeSource[], currentCommonVersion: number | null): EditorData | null {
+// currentCommonVersion이 null이면 공통본, 숫자면 맞춤본. oldIds는 옛 표의 기록 id(oldRecordIds)
+export function editorData(
+  resume: Resume,
+  sources: ResumeSource[],
+  currentCommonVersion: number | null,
+  oldIds: Set<string>,
+): EditorData | null {
   const content = resume.content;
   if (!content) return null;
-  const check = checkResume(content, sources, currentCommonVersion);
+  const check = checkResume(content, sources, currentCommonVersion, { oldIds });
   // 검사 결과는 content.entries와 같은 순서다. 섹션으로 묶을 때는 경험 id로 맞춘다
   const byId = new Map(content.entries.map((entry, index) => [entry.experienceId, check.entries[index]]));
   const names = new Map(sources.map((source) => [source.id, source.name]));

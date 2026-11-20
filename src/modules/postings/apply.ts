@@ -1,5 +1,5 @@
 import type { Db } from "@/db/types";
-import { listEvidenceCandidates } from "@/modules/experiences/evidence";
+import { listEvidenceCandidates } from "@/modules/experiences/sources";
 import { getTrack } from "@/modules/tracks/repo";
 import { applyToPosting, getPosting } from "./repo";
 import { scorePosting, usableOf } from "./score";

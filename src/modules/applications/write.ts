@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
-import { listWritingSources, type WritingSource } from "@/modules/experiences/writing";
+import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";

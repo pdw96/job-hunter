@@ -1,6 +1,6 @@
 import { formatPeriod } from "@/modules/experiences/period";
 import type { Kind } from "@/modules/experiences/options";
-import type { ResumeSource } from "@/modules/experiences/writing";
+import type { ResumeSource } from "@/modules/experiences/sources";
 import { RESUME_LIMITS, RESUME_SECTIONS } from "./options";
 import { cut } from "./text";
 import type { ResumeContent, ResumeDetail, ResumeEntry } from "./types";
@@ -18,6 +18,7 @@ const grouped = (entries: ResumeEntry[]): ResumeEntry[] =>
 
 export const detailFor = (scope: "use" | "summary"): ResumeDetail => (scope === "use" ? "full" : "summary");
 
+// 코드 줄(이력 사실)이 있으면 받은 줄 대신 그 줄을 쓴다. 담당 업무는 있을 때만 머리에 넣는다
 export function buildEntry(source: ResumeSource, detail: ResumeDetail, emphasized: boolean, lines: string[], now: Date): ResumeEntry {
   return {
     experienceId: source.id,
@@ -28,10 +29,11 @@ export function buildEntry(source: ResumeSource, detail: ResumeDetail, emphasize
       organization: source.organization,
       role: source.role,
       period: formatPeriod(source.kind, source.startMonth, source.endMonth, source.isOngoing),
+      ...(source.duties && source.duties.length > 0 ? { duties: [...source.duties] } : {}),
     },
     detail,
     emphasized,
-    lines: lines.map((text) => ({ text, edited: false })),
+    lines: (source.codeLines ?? lines).map((text) => ({ text, edited: false })),
     writtenAt: now.toISOString(),
   };
 }
@@ -104,12 +106,16 @@ export function sections(content: ResumeContent): { kind: Kind; label: string; e
   );
 }
 
+// 담당 업무 한 줄. 없거나 비면 null
+export const dutiesLine = (duties: string[] | undefined): string | null => (duties && duties.length > 0 ? `담당: ${duties.join(", ")}` : null);
+
 // 복사용 글
 export function resumeText(content: ResumeContent): string {
   return sections(content)
     .map((section) => {
       const body = section.entries.flatMap(({ heading, lines }) => [
         [heading.name, heading.organization, heading.role, heading.period].filter(Boolean).join(" | "),
+        ...[dutiesLine(heading.duties)].filter((line) => line !== null),
         ...lines.map((line) => `- ${line.text}`),
       ]);
       return [section.label, ...body].join("\n");

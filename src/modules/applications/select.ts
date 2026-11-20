@@ -3,7 +3,7 @@ import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { numbersIn } from "@/modules/experiences/grounding";
 import { KIND_LABELS } from "@/modules/experiences/options";
-import { listWritingSources, type WritingSource } from "@/modules/experiences/writing";
+import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { APPLICATION_LIMITS } from "./options";
 import { SELECT_SYSTEM } from "./prompts";

@@ -1,5 +1,5 @@
 import { numbersIn } from "@/modules/experiences/grounding";
-import type { WritingSource } from "@/modules/experiences/writing";
+import type { WritingSource } from "@/modules/experiences/sources";
 import type { Question } from "./repo";
 import type { Draft } from "./types";
 
@@ -15,7 +15,9 @@ export function answerText(draft: Draft): string {
   return draft.paragraphs.map((paragraph) => paragraph.text).join("\n");
 }
 
-export type ParagraphCheck = { banned: string[]; ungrounded: string[]; noSource: boolean; staleSource: boolean };
+// structureChanged: 근거가 옛 표(바꾸기 전 경험 기록)의 id라 새 구조로 다시 만들어야 한다
+export type ParagraphCheck = { banned: string[]; ungrounded: string[]; noSource: boolean; staleSource: boolean; structureChanged: boolean };
+export type CheckOptions = { oldIds?: Set<string> }; // 옛 표의 기록 id(oldRecordIds). 없으면 옛 기록 표시를 하지 않는다
 export type DraftCheck = {
   length: { count: number; limit: number | null; over: boolean };
   paragraphs: ParagraphCheck[];
@@ -43,7 +45,9 @@ export function checkDraft(
   draft: Draft,
   question: Pick<Question, "prompt" | "charLimit" | "countSpaces" | "version">,
   sources: WritingSource[],
+  options: CheckOptions = {},
 ): DraftCheck {
+  const oldIds = options.oldIds ?? new Set<string>();
   const byId = new Map(sources.map((source) => [source.id, source]));
   const approved = new Set(draft.basedOn.map((ref) => ref.experienceId));
   const basedVersion = new Map(draft.basedOn.map((ref) => [ref.experienceId, ref.contentVersion]));
@@ -58,6 +62,11 @@ export function checkDraft(
     const squashed = squash(paragraph.text);
     const banned = [...new Set(bannedPhrases)].filter((phrase) => squash(phrase) !== "" && squashed.includes(squash(phrase)));
 
+    // 옛 기록을 가리키는 문단은 다시 만들어야 하므로 바뀜·숫자 표시를 따로 하지 않는다
+    if (paragraph.sources.some((id) => oldIds.has(id))) {
+      return { banned, ungrounded: [], noSource: false, staleSource: false, structureChanged: true };
+    }
+
     const staleSource = paragraph.sources.some((id) => {
       const current = byId.get(id);
       if (!current) return true;
@@ -65,7 +74,7 @@ export function checkDraft(
       return based !== undefined && based !== current.contentVersion;
     });
 
-    if (paragraph.edited) return { banned, ungrounded: [], noSource: false, staleSource };
+    if (paragraph.edited) return { banned, ungrounded: [], noSource: false, staleSource, structureChanged: false };
 
     const known = new Set([
       ...promptNumbers,
@@ -77,7 +86,7 @@ export function checkDraft(
     ]);
     const ungrounded = [...new Set(numbersIn(paragraph.text).filter((n) => !known.has(n)))];
     const noSource = !paragraph.sources.some((id) => approved.has(id));
-    return { banned, ungrounded, noSource, staleSource };
+    return { banned, ungrounded, noSource, staleSource, structureChanged: false };
   });
 
   return {

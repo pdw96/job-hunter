@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { getCommonResume, getTailoredResume } from "@/modules/applications/resume-repo";
 import { getSubmission, isLocked, latestSubmission } from "@/modules/applications/submission-repo";
-import { listResumeSources } from "@/modules/experiences/writing";
+import { listResumeSources, oldRecordIds } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
 import { editorData } from "../../../_resume/editor-data";
@@ -19,11 +19,12 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
   const posting = await getPosting(db, user.id, id);
   if (!posting) notFound();
 
-  const [common, tailored, sources, latest] = await Promise.all([
+  const [common, tailored, sources, latest, oldIds] = await Promise.all([
     getCommonResume(db, user.id, posting.trackId),
     getTailoredResume(db, user.id, posting.id),
     listResumeSources(db, user.id, posting.trackId),
     latestSubmission(db, user.id, posting.id),
+    oldRecordIds(db, user.id),
   ]);
   const locked = isLocked(latest);
   const isApply = posting.status === "apply";
@@ -43,11 +44,11 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
   const picked = new Set(selection?.picks.map((pick) => pick.experienceId) ?? []);
   const others: OtherView[] = sources
     .filter((source) => !picked.has(source.id))
-    .map((source) => ({ experienceId: source.id, name: source.name, summary: source.scope === "summary" }));
+    .map((source) => ({ experienceId: source.id, name: source.name, summary: source.scope === "summary", fact: source.codeLines !== undefined }));
 
   // 공통본이 없어졌으면 맞춤본이 기억한 공통본 version과 비교해 "공통본을 고친 뒤"를 띄우지 않는다
   const commonVersion = common?.version ?? tailored?.content?.commonVersion ?? 0;
-  const data = tailored ? editorData(tailored, sources, commonVersion) : null;
+  const data = tailored ? editorData(tailored, sources, commonVersion, oldIds) : null;
 
   // 맞춤본이 없을 때의 안내. 잠겼으면 마지막 제출본이 무엇으로 냈는지 알린다
   let emptyNote = "아직 만든 맞춤본이 없습니다";

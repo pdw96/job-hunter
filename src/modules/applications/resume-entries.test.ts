@@ -65,6 +65,21 @@ describe("buildEntry", () => {
     expect(built.lines).toEqual([{ text: "합격", edited: false }]);
     expect(built).toMatchObject({ experienceId: "e1", contentVersion: 1, kind: "certificate", detail: "full", emphasized: false, writtenAt: NOW.toISOString() });
   });
+  it("코드 줄이 있으면 받은 줄 대신 코드 줄로 채운다", () => {
+    const built = buildEntry(source({ kind: "school", codeLines: ["산업공학과 · 학사 · 졸업", "학점 3.8/4.5"] }), "full", false, ["AI 줄"], NOW);
+    expect(built.lines).toEqual([
+      { text: "산업공학과 · 학사 · 졸업", edited: false },
+      { text: "학점 3.8/4.5", edited: false },
+    ]);
+  });
+  it("담당 업무가 있으면 머리에 넣고, 빈 배열이면 넣지 않는다", () => {
+    expect(buildEntry(source({ kind: "job", duties: ["결제 서버 운영", "장애 대응"] }), "full", false, [], NOW).heading.duties).toEqual([
+      "결제 서버 운영",
+      "장애 대응",
+    ]);
+    expect(buildEntry(source({ kind: "job", duties: [] }), "full", false, [], NOW).heading).not.toHaveProperty("duties");
+    expect(buildEntry(source(), "full", false, [], NOW).heading).not.toHaveProperty("duties");
+  });
 });
 
 describe("cleanLines", () => {
@@ -160,5 +175,12 @@ describe("resumeText", () => {
       ]),
     );
     expect(text).toBe("경력\n회사A | 조직 | 개발 | 2023.03 ~ 진행 중\n- API 개발\n\n자격\n정보처리기사 | 2023.06 취득");
+  });
+  it("담당 업무는 머리 아래 '담당: ' 한 줄이고, 빈 배열이면 줄이 없다", () => {
+    const heading = { name: "회사A", organization: null, role: null, period: "2023.03 ~ 진행 중" };
+    const withDuties = resumeText(content([entry("j", "job", { heading: { ...heading, duties: ["결제 서버 운영", "장애 대응"] } })]));
+    expect(withDuties).toBe("경력\n회사A | 2023.03 ~ 진행 중\n담당: 결제 서버 운영, 장애 대응\n- j 줄");
+    const empty = resumeText(content([entry("j", "job", { heading: { ...heading, duties: [] } })]));
+    expect(empty).toBe("경력\n회사A | 2023.03 ~ 진행 중\n- j 줄");
   });
 });

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { countChars } from "@/modules/applications/check";
-import { resumeText, sections } from "@/modules/applications/resume-entries";
+import { dutiesLine, resumeText, sections } from "@/modules/applications/resume-entries";
 import { getSubmission } from "@/modules/applications/submission-repo";
 import { koreaDate } from "@/modules/postings/today";
 import { CopyButton } from "./copy-button";
@@ -49,6 +49,7 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
                   {section.entries.map(({ experienceId, heading, lines }) => (
                     <li key={experienceId} className="space-y-1 py-3 text-sm">
                       <p className="font-medium">{[heading.name, heading.organization, heading.role, heading.period].filter(Boolean).join(" | ")}</p>
+                      {dutiesLine(heading.duties) && <p className="break-words text-foreground/80">{dutiesLine(heading.duties)}</p>}
                       <ul className="list-disc space-y-1 pl-5">
                         {lines.map((line, index) => (
                           <li key={index}>{line.text}</li>

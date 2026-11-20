@@ -9,7 +9,7 @@ import { ErrorLine, useRun } from "../application/use-run";
 // 맞춤본에서 강조할 경험 고르기. AI가 고른 경험(기본 켬)과 나머지 쓸 수 있는 경험(기본 끔)을 체크해 맞춤본을 만든다
 
 export type PickView = { experienceId: string; name: string | null; why: string }; // name이 null이면 지금 쓸 수 없는 경험
-export type OtherView = { experienceId: string; name: string; summary: boolean };
+export type OtherView = { experienceId: string; name: string; summary: boolean; fact: boolean }; // fact: 코드가 쓰는 이력 사실(올려도 줄은 그대로)
 export type EmphasisSelectionView = { picks: PickView[]; noMatch: boolean; selectedAt: string };
 
 const small = "text-sm underline disabled:opacity-50";
@@ -114,7 +114,11 @@ function Checklist({
                 disabled={full && !checked.includes(other.experienceId)}
                 onChange={(on) => toggle(other.experienceId, on)}
               >
-                {other.summary && <span className="block text-xs text-foreground/60">요약만 · 직접 올리기</span>}
+                {other.fact ? (
+                  <span className="block text-xs text-foreground/60">이력 사실 · 맨 위로만 옮깁니다</span>
+                ) : (
+                  other.summary && <span className="block text-xs text-foreground/60">요약만 · 직접 올리기</span>
+                )}
               </Choice>
             ))}
           </ul>

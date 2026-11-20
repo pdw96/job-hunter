@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
@@ -322,4 +322,30 @@ test("맞춤본의 항목이 모두 빠져 0개면 공통본으로 내고, 공�
   const preview2 = await submitPreview(db, "u1", (await getPosting(db, "u1", other)) as Posting);
   expect(preview2.resumeFrom).toBeNull();
   expect(preview2.warnings).toContain("이력서가 없습니다");
+});
+
+test("submitPreview: 스위치를 켠 뒤 옛 기록을 가리키는 답·이력서 항목은 표시가 남은 것으로 센다", async () => {
+  const exp = await addExperience();
+  const postingId = await addPosting();
+  await insertCommonResume(db, "u1", trackId, resumeOf([entryOf(exp, "Java로 결제 승인 API를 다시 설계했다")], null));
+  await addQuestionWithDraft(postingId, "지원 동기", ["결제 승인 API를 다시 설계했습니다"], null, [exp]);
+  vi.stubEnv("NEW_RECORDS", "1");
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  const preview = await submitPreview(db, "u1", posting);
+  expect(preview.warnings).toContain("표시가 남은 문항: 1번");
+  expect(preview.warnings).toContain("이력서에 표시가 남은 항목: 1개");
+});
+
+test("스위치를 켠 뒤 옛 기록을 근거로 한 답을 제출하면 근거 이름은 옛 기록 이름으로 얼린다", async () => {
+  const exp = await addExperience({ name: "옛 결제 경험" });
+  const postingId = await addPosting();
+  await addQuestionWithDraft(postingId, "지원 동기", ["결제 승인 API를 다시 설계했습니다"], null, [exp]);
+  vi.stubEnv("NEW_RECORDS", "1");
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  const submitted = await getSubmission(db, "u1", postingId, 1);
+  expect(submitted?.content.answers[0].paragraphs[0].sources).toEqual([{ experienceId: exp, name: "옛 결제 경험" }]);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });

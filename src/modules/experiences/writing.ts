@@ -28,7 +28,9 @@ export type WritingSource = Pick<
   | "contentVersion"
 > & { metrics: Metric[] };
 
-export type ResumeSource = WritingSource & { scope: "use" | "summary" };
+// codeLines: 있으면 이력 사실(학력·자격 등). 코드가 쓴 이력서 줄이고 AI에 보내지 않는다
+// duties: 경력 머리의 담당 업무. 옛 원천에는 두 칸이 없다
+export type ResumeSource = WritingSource & { scope: "use" | "summary"; codeLines?: string[]; duties?: string[] };
 
 // 이력서에 쓸 수 있는 경험. 자기소개서 쪽과 같은 거르기·순서에 "요약만"도 넣는다
 export async function listResumeSources(db: Db, userId: string, trackId: string): Promise<ResumeSource[]> {
