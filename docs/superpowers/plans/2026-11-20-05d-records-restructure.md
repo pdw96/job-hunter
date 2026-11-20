@@ -491,7 +491,14 @@
 
 ## 구현하다 달라진 점
 
-(구현하면서 적는다)
+PR 1 (Task 1~4)
+- `createFact`는 `Promise<string>` 대신 `{ ok: true; id } | { ok: false; reason: "not_found" }`를 돌려준다(프로젝트의 소속이 남의 것이면 not_found. `createScene`과 같은 모양)
+- `claims.ts`의 함수는 바꾸는 동안 `ClaimSubject | ExperienceInput`을 받는다(옛 테스트를 고치지 않으려고). 옛 표를 지울 때 `ClaimSubject`만 받게 줄인다
+- Task 3의 `answerRecordClaim` 장면 부분(수치 줄 지우기·내용 초기화)과 그 테스트는 Task 4로 옮겼다(장면 repo가 Task 4에 있어서)
+- `describeScene`은 `describeExperience`와 같이 증빙 메모를 보낸다(계획에 "없다"고 적은 것이 틀렸다. 빼면 증빙이 늘 미달로 판정된다). 금지 표현은 보내지 않는다
+- `sceneContentResetFields`는 import 순환을 피하려고 `rubric-store.ts`에 두고 `scenes-repo.ts`가 다시 내보낸다
+- `insertRecordClaims`도 주인 행이 본인 것인지 확인한다(작업 검토)
+- 옮기기(Task 8)에 넘길 것: `experiences_moves`의 고유 색인은 `old_id`가 빈 affiliate 행의 중복을 막지 못한다. `planMoves`가 사용자마다 affiliate 행이 하나뿐이게 해야 한다
 
 ## 판단 기록
 
