@@ -38,7 +38,6 @@ function statusOf(line: KindMove): string {
 
 export function Mover({ progress: initial, summary }: { progress: MoveProgress; summary: MoveSummary }) {
   const router = useRouter();
-  const [progress, setProgress] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const loop = useRef(false);
@@ -57,7 +56,6 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
           setError(result.message);
           break;
         }
-        setProgress(result.progress);
         router.refresh();
         if (result.progress.pending === 0) break;
         // 다른 탭이 돌리는 중이라 진행이 그대로면 잠시 기다린다
@@ -83,24 +81,31 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
   const failed = [...summary.kinds.flatMap((line) => line.failed), ...(summary.affiliate?.status === "failed" ? [{ id: summary.affiliate.id }] : [])];
 
   async function retry(ids: string[]) {
+    let reset = 0;
+    let problem: string | null = null;
     for (const id of ids) {
       const result = await retryMoveAction(id);
       if (!result.ok) {
-        setError(result.message);
-        return;
+        problem = result.message;
+        break;
       }
+      reset += 1;
     }
-    setProgress((current) => ({ ...current, pending: current.pending + ids.length }));
-    await run();
+    // 이미 되돌린 행이 있으면 멈춰 두지 말고 이어서 옮긴다
+    if (reset > 0) {
+      await run();
+    }
+    if (problem) setError(problem);
   }
 
-  // 화면의 개수는 옛 기록만 센다(소속 제안은 따로 한 줄). 서버가 새로 읽어 준 summary를 쓴다
-  const finished = !running && progress.pending === 0 && !error;
-  const handled = summary.recordDone + summary.recordFailed;
-  const percent = summary.recordTotal === 0 ? 100 : Math.round((handled / summary.recordTotal) * 100);
-  const lines = [...summary.kinds].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
-  const idle = !running && progress.pending === 0;
   const affiliate = summary.affiliate;
+  // 화면의 개수는 옛 기록만 센다(소속 제안은 따로 한 줄). 서버가 새로 읽어 준 summary를 쓴다
+  const percent = summary.recordTotal === 0 ? 100 : Math.round((summary.recordDone / summary.recordTotal) * 100);
+  const lines = [...summary.kinds].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
+  // 서버가 새로 읽어 준 개수로 가린다(한도로 한꺼번에 실패 처리된 뒤에도 맞게 바뀐다)
+  const waiting = summary.recordTotal - summary.recordDone - summary.recordFailed > 0 || affiliate?.status === "pending" || affiliate?.status === "running";
+  const idle = !running && !waiting;
+  const finished = idle && !error;
   const affiliateLabel = affiliate?.status === "done" ? "옮김" : affiliate?.status === "failed" ? "옮기지 못함" : "기다림";
 
   return (
@@ -118,7 +123,7 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={summary.recordTotal}
-          aria-valuenow={handled}
+          aria-valuenow={summary.recordDone}
           aria-label="옮기는 진행"
           className="h-2.5 overflow-hidden rounded-full bg-foreground/10"
         >

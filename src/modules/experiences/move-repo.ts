@@ -195,3 +195,10 @@ export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> 
     affiliate,
   };
 }
+
+// /records 위의 띠 문구. 기록이 실패했으면 그 개수, 소속 제안만 실패했으면 그 안내, 아니면 없음
+export function moveBanner(summary: MoveSummary): string | null {
+  if (summary.recordFailed > 0) return `옮기지 못한 기록 ${summary.recordFailed}개 · 다시 시도`;
+  if (summary.affiliate?.status === "failed") return "프로젝트 소속 제안을 하지 못했습니다 · 다시 시도";
+  return null;
+}

@@ -4,7 +4,7 @@ import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
 import type { ExperienceInput } from "./input";
-import { claimNextMove, finishMove, moveProgress, moveSummary, needsMove, planMoves, reopenAffiliate, retryMove } from "./move-repo";
+import { claimNextMove, finishMove, moveProgress, moveBanner, moveSummary, needsMove, planMoves, reopenAffiliate, retryMove } from "./move-repo";
 import type { Kind } from "./options";
 import { createExperience } from "./repo";
 import { moves } from "./schema";
@@ -263,4 +263,12 @@ test("moveSummary는 옛 구분마다 전체·완료·실패·메모를 모은�
   expect(byKind.training).toMatchObject({ total: 1, done: 0, notes: [] });
   expect(byKind.training.failed).toEqual([{ id: of(training).id, name: "부트캠프", error: "AI의 답을 읽지 못했습니다" }]);
   expect(summary.kinds).toHaveLength(3);
+});
+
+test("moveBanner는 기록 실패, 소속 제안만 실패, 실패 없음을 가른다", () => {
+  const base = { kinds: [], recordTotal: 2, recordDone: 2, recordFailed: 0, affiliate: null };
+  const failedAffiliate = { id: "a", status: "failed" as const, error: "x" };
+  expect(moveBanner(base)).toBeNull();
+  expect(moveBanner({ ...base, affiliate: failedAffiliate })).toBe("프로젝트 소속 제안을 하지 못했습니다 · 다시 시도");
+  expect(moveBanner({ ...base, recordFailed: 1, affiliate: failedAffiliate })).toBe("옮기지 못한 기록 1개 · 다시 시도");
 });
