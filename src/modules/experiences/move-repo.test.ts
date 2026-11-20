@@ -430,6 +430,30 @@ test("머리가 실패하면 기다리던 장면도 실패하고, 머리를 다�
   expect((await claimNextMove(db, "u1", t0))?.oldId).toBe(job);
 });
 
+test("다시 시도 목록을 차례로 보내면, 앞의 것과 함께 이미 pending이 된 행도 ok다(화면의 모두 다시 시도가 멈추지 않게)", async () => {
+  const job = await createExperience(db, "u1", old("한빛전자", "job"));
+  const star = await createExperience(db, "u1", old("성과 사례 · 재고 정리 (STAR)", "project"));
+  await planMoves(db, "u1");
+  const classify = await claimNextMove(db, "u1", t0);
+  await setMoveRoles(db, "u1", [
+    { oldId: job, role: "head", ref: null },
+    { oldId: star, role: "scene", ref: job },
+  ]);
+  await finishMove(db, "u1", classify!.id, { ok: true });
+  const head = await claimNextMove(db, "u1", t0);
+  await finishMove(db, "u1", head!.id, { ok: false, error: "AI 서비스에 연결하지 못했습니다" });
+  const scene = await recordOf("u1", star);
+  // 한도처럼 모두 실패 처리된 경우: 장면도 failed
+  await failPendingMoves(db, "u1", "한도", t0);
+  expect(await retryMove(db, "u1", head!.id, t0)).toEqual({ ok: true });
+  expect(await retryMove(db, "u1", scene.id, t0)).toEqual({ ok: true });
+  expect((await recordOf("u1", star)).status).toBe("pending");
+  // 끝난 것은 여전히 not_found
+  await finishMove(db, "u1", (await claimNextMove(db, "u1", t0))!.id, { ok: true });
+  const done = await recordOf("u1", job);
+  expect(await retryMove(db, "u1", done.id, t0)).toEqual({ ok: false, reason: "not_found" });
+});
+
 test("기록 행을 다시 시도하면 실패한 정리도 pending이 된다(정리 없이 기다리기만 하지 않게)", async () => {
   const school = await createExperience(db, "u1", old("한빛대학교", "school"));
   await createExperience(db, "u1", old("한빛상사", "job"));
@@ -489,7 +513,8 @@ test("머리가 실패한 채 pending으로 남은 장면은 기다림으로 세
   const starId = (await recordOf("u1", star)).id;
   expect(await retryMove(db, "u1", starId, t0)).toEqual({ ok: true });
   expect((await recordOf("u1", job)).status).toBe("pending");
-  expect(await retryMove(db, "u1", starId, t0)).toEqual({ ok: false, reason: "not_found" });
+  // 이미 기다리는 장면을 다시 보내도 ok다(모두 다시 시도가 멈추지 않게)
+  expect(await retryMove(db, "u1", starId, t0)).toEqual({ ok: true });
 });
 
 test("reviveFailedHeads는 pending 장면의 실패한 머리만 pending으로 되돌린다", async () => {

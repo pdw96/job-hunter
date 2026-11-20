@@ -234,18 +234,17 @@ export async function retryMove(
     .where(and(eq(moves.id, id), failedRecord))
     .returning({ step: moves.step, oldId: moves.oldId, role: moves.role, ref: moves.ref });
   if (!row) {
-    // 머리가 실패해 기다리기만 하는 장면(화면에는 실패로 보인다)이면 그 머리를 되돌린다
-    const [scene] = await db
-      .select({ ref: moves.ref })
+    // 이미 기다리는 행이면 ok다(화면은 실패 목록을 차례로 보내므로, 앞의 행과 함께 되돌아간 행에서 멈추지 않게).
+    // 머리가 실패해 기다리기만 하는 장면(화면에는 실패로 보인다)이면 그 머리를 되돌린다. 끝난 행과 없는 행은 not_found
+    const [waiting] = await db
+      .select({ role: moves.role, ref: moves.ref })
       .from(moves)
-      .where(and(eq(moves.id, id), eq(moves.userId, userId), eq(moves.role, "scene"), eq(moves.status, "pending")));
-    if (!scene?.ref) return { ok: false, reason: "not_found" };
-    const revived = await db
-      .update(moves)
-      .set(reset)
-      .where(and(failedRecord, eq(moves.step, "record"), eq(moves.oldId, scene.ref)))
-      .returning({ id: moves.id });
-    return revived.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+      .where(and(eq(moves.id, id), eq(moves.userId, userId), inArray(moves.status, ["pending", "running"])));
+    if (!waiting) return { ok: false, reason: "not_found" };
+    if (waiting.role === "scene" && waiting.ref !== null) {
+      await db.update(moves).set(reset).where(and(failedRecord, eq(moves.step, "record"), eq(moves.oldId, waiting.ref)));
+    }
+    return { ok: true };
   }
   if (row.step === "record" && row.oldId !== null) {
     await db.update(moves).set(reset).where(and(failedRecord, eq(moves.step, "record"), eq(moves.role, "scene"), eq(moves.ref, row.oldId)));
