@@ -16,6 +16,8 @@ export const FACT_KIND_LABELS: Record<FactKind, string> = {
 export const HEAD_KINDS = ["job", "project", "activity"] as const satisfies readonly FactKind[];
 export type HeadKind = (typeof HEAD_KINDS)[number];
 export type HeadRef = { kind: HeadKind; id: string };
+// 머리의 이름 낱말. 화면과 안내 문구에 쓴다
+export const HEAD_NOUNS: Record<HeadKind, string> = { job: "회사", project: "프로젝트", activity: "활동" };
 
 export const DEGREES = ["high", "associate", "bachelor", "master", "doctor"] as const;
 export type Degree = (typeof DEGREES)[number];

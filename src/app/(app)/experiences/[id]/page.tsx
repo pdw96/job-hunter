@@ -1,6 +1,14 @@
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
+import {
+  answerClaimAction,
+  decidePhraseAction,
+  judgeAction,
+  setConfirmedAction,
+  setRubricClosedAction,
+  startExperienceInterviewAction,
+} from "@/modules/experiences/actions";
 import { blocksConfirmation } from "@/modules/experiences/claims";
 import { listClaims } from "@/modules/experiences/claims-repo";
 import { getExperience, getTrackScopes, toInput } from "@/modules/experiences/repo";
@@ -31,7 +39,11 @@ export default async function ExperiencePage({ params }: { params: Promise<{ id:
         <h1 className="min-w-0 truncate text-2xl font-bold">{experience.name}</h1>
         <StateBadge state={state} />
       </div>
-      <ClaimsPanel experienceId={id} claims={claims} />
+      <ClaimsPanel
+        experienceId={id}
+        claims={claims}
+        actions={{ answer: answerClaimAction, startInterview: startExperienceInterviewAction }}
+      />
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <ExperienceForm
           id={id}
@@ -40,6 +52,13 @@ export default async function ExperiencePage({ params }: { params: Promise<{ id:
           tracks={tracks.map((track) => ({ id: track.id, name: track.name }))}
         />
         <RubricPanel
+          actions={{
+            judge: judgeAction,
+            setClosed: setRubricClosedAction,
+            decidePhrase: decidePhraseAction,
+            setConfirmed: setConfirmedAction,
+            startInterview: startExperienceInterviewAction,
+          }}
           id={id}
           kind={experience.kind}
           rubric={rubric}

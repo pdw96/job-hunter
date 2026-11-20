@@ -7,7 +7,7 @@ import { requireAdmin, requireUser } from "@/lib/session";
 import { ai } from "@/modules/ai/provider";
 import { answerClaim, type ClaimAnswer } from "./claims-repo";
 import { importExperiences } from "./import";
-import { extractText, prepareSource } from "./import-text";
+import { extractText, IMPORT_TEXT_MESSAGES, prepareSource } from "./import-text";
 import { type ExperienceErrors, type ExperienceInput, validateExperience } from "./input";
 import {
   answerInterview,
@@ -22,6 +22,7 @@ import { runApplicationCheck } from "@/modules/applications/prompt-check";
 import { runResumeCheck } from "@/modules/applications/resume-prompt-check";
 import { runPostingCheck } from "@/modules/postings/prompt-check";
 import { type CheckRow, runPromptCheck } from "./prompt-check";
+import { runRecordCheck } from "./record-prompt-check";
 import {
   closeRubricItem,
   confirmExperience,
@@ -168,6 +169,11 @@ export async function startInterviewAction(options: {
   redirect(`/experiences/interview/${result.id}`);
 }
 
+// 기록 화면의 패널이 id만 넘겨 부르는 모양
+export async function startExperienceInterviewAction(experienceId: string): Promise<SimpleResult> {
+  return startInterviewAction({ experienceId });
+}
+
 export async function answerInterviewAction(
   interviewId: string,
   text: string,
@@ -189,29 +195,24 @@ export async function draftInterviewAction(
     : { ok: false, message: aiMessage(result.reason) };
 }
 
-// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 18번, 비용 발생)
+// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 21번, 비용 발생)
 export async function runPromptCheckAction(): Promise<
   { ok: true; rows: CheckRow[] } | { ok: false; message: string }
 > {
   const admin = await requireAdmin();
   // 공고에서 값을 뽑는 프롬프트와 자소서 고르기·쓰기, 이력서 쓰기·강조 고르기도 함께 점검한다
-  const [rows, postingRows, applicationRows, resumeRows] = await Promise.all([
+  // 새 기록 구조의 장면 정리·가져오기도 함께 점검한다
+  const [rows, recordRows, postingRows, applicationRows, resumeRows] = await Promise.all([
     runPromptCheck(db, ai, admin.id),
+    runRecordCheck(db, ai, admin.id),
     runPostingCheck(db, ai, admin.id),
     runApplicationCheck(db, ai, admin.id),
     runResumeCheck(db, ai, admin.id),
   ]);
-  return { ok: true, rows: [...rows, ...postingRows, ...applicationRows, ...resumeRows] };
+  return { ok: true, rows: [...rows, ...recordRows, ...postingRows, ...applicationRows, ...resumeRows] };
 }
 
-const IMPORT_MESSAGES: Record<string, string> = {
-  unsupported: "지원하지 않는 파일입니다. PDF, 워드(.docx), 글 파일(.md, .txt, .csv)만 올릴 수 있습니다",
-  too_large: "파일이 너무 큽니다. 4MB까지 올릴 수 있습니다",
-  no_text: "글자를 읽을 수 없는 파일입니다. 스캔한 PDF는 지원하지 않습니다. 글을 복사해 붙여 넣어 주세요",
-  unreadable: "파일을 열 수 없습니다. 파일이 깨졌거나 확장자가 내용과 다릅니다",
-  empty: "가져올 글을 붙여 넣거나 파일을 골라 주세요",
-  too_long: "글이 너무 깁니다. 4만 자까지 한 번에 가져올 수 있습니다. 나눠서 올려 주세요",
-};
+const IMPORT_MESSAGES = IMPORT_TEXT_MESSAGES;
 
 export type ImportActionResult =
   | {

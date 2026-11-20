@@ -1,4 +1,5 @@
 import type { ExperienceInput } from "./input";
+import type { SceneInput } from "./record-input";
 
 // AI가 정리한 초안에, 사용자가 쓴 글에는 없던 숫자가 있는지 찾는다.
 // 수치를 지어내는 것을 코드로 한 번 더 거르는 장치다. 뜻까지 보지는 못하므로 경고만 하고 판단은 사용자가 한다.
@@ -38,6 +39,24 @@ export function ungroundedNumbers(
   for (const field of TEXT_FIELDS) check(field, [draft[field]]);
   check("metrics", draft.metrics.flatMap((metric) => [metric.text, metric.basis]));
   // 기간은 "2023-03"을 연도와 월로 나눠서 본다
+  check("startMonth", [draft.startMonth?.replace("-", " ") ?? null]);
+  check("endMonth", [draft.endMonth?.replace("-", " ") ?? null]);
+  return found;
+}
+
+const SCENE_TEXT_FIELDS = ["title", "situation", "judgment", "actions", "result", "lessons", "notDone", "evidenceNote"] as const;
+type SceneLike = Pick<SceneInput, (typeof SCENE_TEXT_FIELDS)[number] | "metrics" | "startMonth" | "endMonth">;
+
+// 장면 초안에 대해 같은 일을 한다
+export function ungroundedSceneNumbers(draft: SceneLike, sources: string[]): Partial<Record<keyof SceneInput, string[]>> {
+  const known = new Set(sources.flatMap(numbersIn));
+  const found: Partial<Record<keyof SceneInput, string[]>> = {};
+  const check = (field: keyof SceneInput, texts: (string | null)[]) => {
+    const numbers = [...new Set(texts.flatMap(numbersIn).filter((n) => !known.has(n)))];
+    if (numbers.length > 0) found[field] = numbers;
+  };
+  for (const field of SCENE_TEXT_FIELDS) check(field, [draft[field]]);
+  check("metrics", draft.metrics.flatMap((metric) => [metric.text, metric.basis]));
   check("startMonth", [draft.startMonth?.replace("-", " ") ?? null]);
   check("endMonth", [draft.endMonth?.replace("-", " ") ?? null]);
   return found;

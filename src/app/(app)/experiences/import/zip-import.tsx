@@ -3,24 +3,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { deleteExperienceAction, importAction } from "@/modules/experiences/actions";
 import type { PageGroup } from "@/modules/experiences/notion-export";
+import type { ImportKit, ImportOutcome } from "./import-form";
 
-type Outcome =
-  | {
-      ok: true;
-      created: { id: string; name: string; claimCount: number; trimmed: boolean }[];
-      made?: number; // 처음에 만든 기록 수. 사용자가 지운 뒤에도 그대로 둔다
-      skipped: number;
-      more: boolean;
-    }
-  | { ok: false; message: string; stop?: boolean; empty?: boolean };
+// made: 처음에 만든 기록 수. 사용자가 지운 뒤에도 그대로 둔다
+type Outcome<C> = (Extract<ImportOutcome<C>, { ok: true }> & { made?: number }) | Extract<ImportOutcome<C>, { ok: false }>;
 
 // 노션 묶음을 골라 하나씩 가져온다. 묶음마다 AI를 한 번 부른다
-export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () => void }) {
+export function ZipImport<C extends { id: string }>({ kit, groups, onBack }: { kit: ImportKit<C>; groups: PageGroup[]; onBack: () => void }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(() => new Set(groups.flatMap((group, index) => (group.tooLong ? [] : [index]))));
-  const [outcomes, setOutcomes] = useState<Record<number, Outcome>>({});
+  const [outcomes, setOutcomes] = useState<Record<number, Outcome<C>>>({});
   const [running, setRunning] = useState<{ done: number; total: number; title: string } | null>(null);
   const [started, setStarted] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -51,9 +44,9 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
       setRunning({ done: position, total: indexes.length, title: groups[index].title });
       const formData = new FormData();
       formData.set("text", groups[index].text);
-      let outcome: Outcome;
+      let outcome: Outcome<C>;
       try {
-        outcome = await importAction(formData);
+        outcome = await kit.run(formData);
       } catch {
         outcome = { ok: false, message: "연결이 끊겼습니다. 다시 시도해 주세요" };
       }
@@ -68,13 +61,12 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
     router.refresh();
   }
 
-  function remove(index: number, id: string) {
-    if (!window.confirm("이 기록을 지울까요?")) return;
+  function remove(index: number, item: C) {
+    if (!kit.remove || !window.confirm("이 기록을 지울까요?")) return;
     const outcome = outcomes[index];
     if (!outcome?.ok) return;
-    setOutcomes({ ...outcomes, [index]: { ...outcome, created: outcome.created.filter((item) => item.id !== id) } });
-    // 지운 뒤 목록 화면으로 보내려는 이동은 따르지 않고 이 화면에 머문다
-    void deleteExperienceAction(id, false).then(() => router.refresh());
+    setOutcomes({ ...outcomes, [index]: { ...outcome, created: outcome.created.filter((other) => other.id !== item.id) } });
+    void kit.remove(item).then(() => router.refresh());
   }
 
   if (!started) {
@@ -135,12 +127,13 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
     );
   }
 
-  const createdCount = Object.values(outcomes).reduce((sum, outcome) => sum + (outcome.ok ? outcome.created.length : 0), 0);
+  const allCreated = Object.values(outcomes).flatMap((outcome) => (outcome.ok ? outcome.created : []));
 
   return (
     <div className="max-w-2xl space-y-6">
       <div className="space-y-2">
-        <h1 className="text-2xl font-bold">{running ? "가져오는 중" : `기록 ${createdCount}건을 만들었습니다`}</h1>
+        <h1 className="text-2xl font-bold">{running ? "가져오는 중" : kit.headline(allCreated)}</h1>
+        {!running && kit.summary && <p className="text-sm font-medium">{kit.summary(allCreated)}</p>}
         {running ? (
           <div className="flex flex-wrap items-center gap-3 text-sm" role="status">
             <span>
@@ -157,9 +150,7 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
             </button>
           </div>
         ) : (
-          <p className="text-sm text-foreground/70">
-            모두 “미확인” 상태입니다. 기록마다 주장을 하나씩 확인해야 지원서에 쓸 수 있습니다. 필요 없는 기록은 지워 주세요
-          </p>
+          <p className="text-sm text-foreground/70">{kit.note}</p>
         )}
         {notice && <p className="text-sm text-amber-700 dark:text-amber-400">{notice}</p>}
       </div>
@@ -181,17 +172,10 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
               {outcome.ok &&
                 outcome.created.map((item) => (
                   <div key={item.id} className="flex flex-wrap items-center gap-3">
-                    <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-                    <span className="text-sm text-foreground/60">확인할 주장 {item.claimCount}개</span>
-                    <Link href={`/experiences/${item.id}`} className="text-sm underline">
-                      열기
-                    </Link>
-                    <button type="button" onClick={() => remove(index, item.id)} className="text-sm text-red-600 underline">
-                      지우기
-                    </button>
+                    <kit.Item item={item} onRemove={kit.remove ? () => remove(index, item) : undefined} />
                   </div>
                 ))}
-              {outcome.ok && outcome.created.some((item) => item.trimmed) && (
+              {outcome.ok && kit.isTrimmed && outcome.created.some(kit.isTrimmed) && (
                 <p className="text-xs text-amber-700 dark:text-amber-400">
                   내용이 길어 일부가 잘린 기록이 있습니다. 원본과 비교해 빠진 내용을 채워 주세요
                 </p>
@@ -211,8 +195,8 @@ export function ZipImport({ groups, onBack }: { groups: PageGroup[]; onBack: () 
               실패한 {failed.length}개 묶음 다시 가져오기
             </button>
           )}
-          <Link href="/experiences" className="underline">
-            경험 기록으로
+          <Link href={kit.backHref} className="underline">
+            {kit.backLabel}
           </Link>
         </div>
       )}
