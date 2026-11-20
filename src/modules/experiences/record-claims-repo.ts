@@ -179,7 +179,7 @@ export async function answerRecordClaim(
     if (answer === "exaggerated" && claim.phrase) {
       await tx
         .update(owner.table)
-        .set({ bannedPhrases: [...new Set([...head.bannedPhrases, claim.phrase])] })
+        .set({ bannedPhrases: [...new Set([...head.bannedPhrases, claim.phrase])], updatedAt: new Date() })
         .where(and(eq(owner.table.id, owner.id), eq(owner.table.userId, userId)));
     }
     await tx.update(recordClaims).set({ status, updatedAt: new Date() }).where(eq(recordClaims.id, claim.id));
@@ -235,7 +235,7 @@ async function answerSceneClaim(
     // 사용자가 직접 과장이라고 했으므로 후보를 거치지 않고 바로 금지 표현에 넣는다
     await tx
       .update(scenes)
-      .set({ bannedPhrases: [...new Set([...scene.bannedPhrases, claim.phrase])] })
+      .set({ bannedPhrases: [...new Set([...scene.bannedPhrases, claim.phrase])], updatedAt: new Date() })
       .where(and(eq(scenes.id, scene.id), eq(scenes.userId, userId)));
   }
 

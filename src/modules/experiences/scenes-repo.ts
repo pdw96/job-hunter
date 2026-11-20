@@ -246,7 +246,7 @@ async function setClosed(
   const entry = JSON.stringify({ status: closed ? "closed" : "unjudged", note: null });
   await db
     .update(scenes)
-    .set({ rubric: sql`jsonb_set(${scenes.rubric}, ${`{${item}}`}::text[], ${entry}::jsonb)` })
+    .set({ rubric: sql`jsonb_set(${scenes.rubric}, ${`{${item}}`}::text[], ${entry}::jsonb)`, updatedAt: new Date() })
     .where(
       closed
         ? mine(userId, id)
@@ -264,7 +264,7 @@ export async function setSceneTrackScope(db: Db, userId: string, id: string, tra
   if (!owned || !(await ownsTrack(db, userId, trackId))) return { ok: false, reason: "not_found" };
   await db
     .update(scenes)
-    .set({ trackScopes: sql`jsonb_set(${scenes.trackScopes}, ARRAY[${trackId}]::text[], to_jsonb(${scope}::text))` })
+    .set({ trackScopes: sql`jsonb_set(${scenes.trackScopes}, ARRAY[${trackId}]::text[], to_jsonb(${scope}::text))`, updatedAt: new Date() })
     .where(mine(userId, id));
   return { ok: true };
 }

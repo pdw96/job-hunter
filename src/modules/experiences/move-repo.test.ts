@@ -23,10 +23,11 @@ import {
   setMoveRoles,
 } from "./move-repo";
 import type { Kind } from "./options";
-import { createFact } from "./facts-repo";
+import { createFact, setFactTrackScope, setProjectParentIfUnset, unconfirmFact, updateFact } from "./facts-repo";
+import { createTrack } from "@/modules/tracks/repo";
 import { createExperience, listExperiences } from "./repo";
 import { insertRecordClaims } from "./record-claims-repo";
-import { createScene } from "./scenes-repo";
+import { createScene, setSceneTrackScope, unconfirmScene, updateScene } from "./scenes-repo";
 import type { JobInput, ProjectInput, SceneInput } from "./record-input";
 import { education, gaps, interviews, jobs, moves, projects, recordClaims, scenes } from "./schema";
 
@@ -668,7 +669,9 @@ test("resetMoves는 옮긴 머리·사례의 주장과 인터뷰를 함께 지�
   expect((await db.select().from(recordClaims).where(eq(recordClaims.userId, "u1"))).length).toBe(3);
   expect(await resetMoves(db, "u1")).toEqual({ ok: true });
   expect(await db.select().from(recordClaims).where(eq(recordClaims.userId, "u1"))).toEqual([]);
-  expect(await db.select().from(interviews).where(eq(interviews.userId, "u1"))).toEqual([]);
+  // 사례 인터뷰는 cascade로 지워지고, 머리 인터뷰는 고아로 남는다(화면이 머리가 없는 것을 처리한다)
+  const left = await db.select().from(interviews).where(eq(interviews.userId, "u1"));
+  expect(left.map((row) => row.headId)).toEqual([jobId]);
   expect(await db.select().from(interviews).where(eq(interviews.userId, "u2"))).toHaveLength(1);
 });
 
@@ -681,10 +684,10 @@ test("옮긴 뒤 고친 행(content_version > 0)이 있으면 edited로 아무�
   await unchanged("u1");
 });
 
-test("옮긴 뒤 확인한 행(confirmed_at이 만든 때보다 1분 넘게 뒤)이 있으면 edited다. 장면이어도 마찬가지다", async () => {
+test("옮긴 뒤 확인한 행(confirmed_at이 만든 때보다 5초 넘게 뒤)이 있으면 edited다. 장면이어도 마찬가지다", async () => {
   const { sceneId, projectId } = await seedMigrated("u1");
-  await db.update(projects).set({ confirmedAt: later(0.5) }).where(eq(projects.id, projectId));
-  expect(await resetBlock(db, "u1")).toBeNull(); // 1분 안은 같은 때로 본다
+  await db.update(projects).set({ confirmedAt: new Date(Date.now() + 2_000) }).where(eq(projects.id, projectId));
+  expect(await resetBlock(db, "u1")).toBeNull(); // 5초 안은 같은 때로 본다
   await db.update(scenes).set({ confirmedAt: later(5) }).where(eq(scenes.id, sceneId));
   expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "edited" });
   await unchanged("u1");
@@ -697,7 +700,7 @@ test("이어받은 확인(confirmed_at이 만든 때보다 앞)은 막지 않는
   expect(await resetMoves(db, "u1")).toEqual({ ok: true });
 });
 
-test("옮긴 뒤 답한 주장(updated_at이 만든 때보다 1분 넘게 뒤)이 있으면 edited다", async () => {
+test("옮긴 뒤 답한 주장(updated_at이 만든 때보다 5초 넘게 뒤)이 있으면 edited다", async () => {
   await seedMigrated("u1");
   await db.update(recordClaims).set({ updatedAt: later(5), status: "confirmed" as never });
   expect(await resetBlock(db, "u1")).toBe("edited");
@@ -718,4 +721,65 @@ test("직접 만든 행을 고쳤거나 다른 사용자가 고친 것은 edited
 
 test("resetBlock은 옮긴 기록이 없으면 null이다", async () => {
   expect(await resetBlock(db, "u1")).toBeNull();
+});
+
+// ---- 시각으로 본 "옮긴 뒤 고침" ----
+
+// 옮길 때 쓴 행은 한 번에 쓰므로 updated_at = created_at이다. 사용자가 고친 것을 흉내 내려고 모두 한 시간 전으로 돌려 둔다
+async function backdate() {
+  const past = new Date(Date.now() - 3_600_000);
+  for (const table of [jobs, projects, scenes, gaps, education]) await db.update(table).set({ createdAt: past, updatedAt: past } as never);
+  await db.update(recordClaims).set({ createdAt: past, updatedAt: past });
+}
+const survey = { name: "개발", majorCode: "20", jobs: [{ ncsCode: "20010202", customName: null }], applicantType: "new", experienceMonths: null, regions: ["seoul"], salaryMin: null, employmentTypes: ["regular"], importanceOrder: ["jobMatch", "location", "experience", "field", "preferred"], extraAnswers: {} } as const;
+async function trackOf(userId: string) {
+  const r = await createTrack(db, userId, survey as never);
+  if (!r.ok) throw new Error(r.reason);
+  return r.id;
+}
+
+test("옮긴 직후(고치지 않은) 사용자는 막히지 않는다", async () => {
+  await seedMigrated("u1");
+  expect(await resetBlock(db, "u1")).toBeNull();
+});
+
+test("content_version·confirmed_at을 건드리지 않는 사용자 수정도 edited로 막는다", async () => {
+  const { jobId, projectId, sceneId } = await seedMigrated("u1");
+  const track = await trackOf("u1");
+  const edits: [string, () => Promise<unknown>][] = [
+    ["재직 금지 표현", () => db.update(jobs).set({ bannedPhrases: ["x"], updatedAt: new Date() }).where(eq(jobs.id, jobId))],
+    ["프로젝트 저장", () => updateFact(db, "u1", "project", projectId, { ...projectInput("옮긴 프로젝트", { kind: "job", id: jobId }), bannedPhrases: ["과장"] })],
+    ["사례 금지 표현·증빙·태그", () => updateScene(db, "u1", sceneId, { ...sceneInput({ kind: "job", id: jobId }, "옮긴 사례"), bannedPhrases: ["과장"], evidenceNote: "증빙", tags: ["a"] })],
+    ["재직 트랙 범위", () => setFactTrackScope(db, "u1", "job", jobId, track, "summary")],
+    ["사례 트랙 범위", () => setSceneTrackScope(db, "u1", sceneId, track, "summary")],
+    ["공백 확인 해제", () => unconfirmFact(db, "u1", "gap", "none")],
+    ["사례 확인 해제", () => unconfirmScene(db, "u1", sceneId)],
+  ];
+  for (const [label, edit] of edits) {
+    await backdate();
+    await db.update(jobs).set({ trackScopes: {} }).where(eq(jobs.userId, "u1"));
+    expect(await resetBlock(db, "u1"), `${label} 전`).toBeNull();
+    if (label === "공백 확인 해제") {
+      const [gap] = await db.select().from(gaps).where(eq(gaps.userId, "u1"));
+      expect(await unconfirmFact(db, "u1", "gap", gap.id)).toEqual({ ok: true });
+    } else {
+      await edit();
+    }
+    expect(await resetBlock(db, "u1"), label).toBe("edited");
+  }
+});
+
+test("소속 잇기(affiliate)의 부모 쓰기는 edited로 세지 않는다", async () => {
+  const { jobId } = await seedMigrated("u1");
+  const free = okId(await createFact(db, "u1", "project", projectInput("소속 없음"), migrate("p2-old")));
+  await backdate();
+  expect(await setProjectParentIfUnset(db, "u1", free, { kind: "job", id: jobId })).toMatchObject({ ok: true, changed: true });
+  expect(await resetBlock(db, "u1")).toBeNull();
+});
+
+test("다시 하기는 옮긴 사용자 주장 행도 잠가 막는 사이 답이 끼어들지 못하게 한다(주장 답이 있으면 막는다)", async () => {
+  await seedMigrated("u1");
+  await backdate();
+  await db.update(recordClaims).set({ updatedAt: new Date() });
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "edited" });
 });

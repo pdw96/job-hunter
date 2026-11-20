@@ -250,7 +250,7 @@ export async function setProjectParentIfUnset(
   const column = { job: "jobId", education: "educationId", course: "courseId" }[parent.kind];
   const updated = await db
     .update(projects)
-    .set({ [column]: parent.id, updatedAt: new Date() })
+    .set({ [column]: parent.id }) // 소속 잇기는 사용자가 고친 것이 아니라 updated_at을 건드리지 않는다(다시 옮기기 검사가 본다)
     .where(
       and(
         eq(projects.id, projectId),
@@ -332,7 +332,7 @@ export async function setFactTrackScope(
 
   await db
     .update(t)
-    .set({ trackScopes: sql`jsonb_set(${t.trackScopes}, ARRAY[${trackId}]::text[], to_jsonb(${scope}::text))` })
+    .set({ trackScopes: sql`jsonb_set(${t.trackScopes}, ARRAY[${trackId}]::text[], to_jsonb(${scope}::text))`, updatedAt: new Date() })
     .where(mine(kind, userId, id));
   return { ok: true };
 }

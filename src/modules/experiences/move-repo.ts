@@ -446,7 +446,11 @@ export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | n
         and(
           eq(table.userId, userId),
           isNotNull(table.movedFrom),
-          or(gt(table.contentVersion, 0), sql`${table.confirmedAt} > ${table.createdAt} + interval '1 minute'`),
+          or(
+            gt(table.contentVersion, 0),
+            sql`${table.updatedAt} > ${table.createdAt} + interval '5 seconds'`,
+            sql`${table.confirmedAt} > ${table.createdAt} + interval '5 seconds'`,
+          ),
         ),
       )
       .limit(1);
@@ -458,7 +462,7 @@ export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | n
     .where(
       and(
         eq(recordClaims.userId, userId),
-        sql`${recordClaims.updatedAt} > ${recordClaims.createdAt} + interval '1 minute'`,
+        sql`${recordClaims.updatedAt} > ${recordClaims.createdAt} + interval '5 seconds'`,
         or(inArray(recordClaims.sceneId, none(sceneIds)), inArray(recordClaims.jobId, none(job)), inArray(recordClaims.projectId, none(project))),
       ),
     )
@@ -474,17 +478,13 @@ export async function resetMoves(db: Db, userId: string): Promise<{ ok: true } |
     for (const table of MIGRATED_TABLES) {
       await tx.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom))).for("update");
     }
+    // 주장에 답하는 요청도 막는다
+    await tx.select({ id: recordClaims.id }).from(recordClaims).where(eq(recordClaims.userId, userId)).for("update");
     const block = await resetBlock(tx as unknown as Db, userId);
     if (block) return { ok: false as const, reason: block };
 
-    // 사례(주장·사례 인터뷰는 cascade) → 머리 인터뷰 → 머리·이력 사실 → 옮기기 행
-    const headIds = (
-      await Promise.all(
-        [projects, activities, jobs].map((table) => tx.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)))),
-      )
-    ).flatMap((rows) => rows.map((row) => row.id));
+    // 사례(주장·사례 인터뷰는 cascade) → 머리·이력 사실 → 옮기기 행. 머리 인터뷰는 고아로 남는다(화면이 머리 없음을 처리한다)
     await tx.delete(scenes).where(and(eq(scenes.userId, userId), isNotNull(scenes.movedFrom)));
-    await tx.delete(interviews).where(and(eq(interviews.userId, userId), inArray(interviews.headId, none(headIds))));
     for (const table of HEAD_TABLES) await tx.delete(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)));
     await tx.delete(moves).where(eq(moves.userId, userId));
     return { ok: true as const };
