@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { type Kind, RUBRIC_ITEMS } from "./options";
-import { experiences, type StoredRubric } from "./schema";
+import { experiences, scenes, type StoredRubric } from "./schema";
 import { type Rubric, rubricAfterContentEdit } from "./verification";
 
 // 저장된 루브릭(상태와 메모)을 다루는 도우미. repo와 claims-repo가 함께 쓴다.
@@ -26,5 +26,16 @@ export function contentResetFields(kind: Kind, rubric: StoredRubric, period: "me
     phraseCandidates: [],
     judgedAt: null,
     rubric: withStatuses(rubricAfterContentEdit(kind, statuses(rubric), period), rubric),
+  };
+}
+
+// 장면의 내용이 바뀌었을 때 함께 바꿀 칸. contentResetFields와 같은 일을 장면 표에 한다(장면은 "project" 규칙)
+export function sceneContentResetFields(rubric: StoredRubric, period: "met" | "unmet") {
+  return {
+    confirmedAt: null,
+    contentVersion: sql`${scenes.contentVersion} + 1`,
+    phraseCandidates: [],
+    judgedAt: null,
+    rubric: withStatuses(rubricAfterContentEdit("project", statuses(rubric), period), rubric),
   };
 }

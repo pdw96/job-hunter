@@ -15,8 +15,9 @@ import {
   unconfirmFact,
   updateFact,
 } from "./facts-repo";
+import { createScene, deleteScene, getScene } from "./scenes-repo";
 import { FACT_KINDS, type FactKind } from "./record-options";
-import type { FactInputs, ProjectInput } from "./record-input";
+import type { FactInputs, ProjectInput, SceneInput } from "./record-input";
 
 let db: Db;
 let t1: string;
@@ -210,13 +211,62 @@ test("트랙 범위: 남의 트랙은 not_found, 내 트랙은 trackScopes에 �
   expect(await setFactTrackScope(db, "u2", "credential", id, t2, "exclude")).toEqual({ ok: false, reason: "not_found" });
 });
 
-test("countRecords는 이력 사실 수를 센다", async () => {
+test("countRecords는 이력 사실과 장면 수를 센다", async () => {
   expect(await countRecords(db, "u1")).toBe(0);
-  await make("u1", "job");
+  const jobId = await make("u1", "job");
   await make("u1", "gap");
   await make("u2", "job");
   expect(await countRecords(db, "u1")).toBe(2);
+  await createScene(db, "u1", sceneOf(jobId));
+  expect(await countRecords(db, "u1")).toBe(3);
   expect(await countRecords(db, "u2")).toBe(1);
+});
+
+const sceneOf = (jobId: string, over: Partial<SceneInput> = {}): SceneInput => ({
+  head: { kind: "job", id: jobId },
+  title: "장면",
+  startMonth: null,
+  endMonth: null,
+  isOngoing: false,
+  situation: null,
+  judgment: null,
+  actions: "일했다",
+  result: null,
+  lessons: null,
+  metrics: [],
+  notDone: null,
+  bannedPhrases: [],
+  evidenceNote: null,
+  tags: [],
+  ...over,
+});
+
+test("경력의 시작 월을 지우면 기간이 빈 장면의 기간 판정이 미달이 되고 기간이 있는 장면은 그대로다", async () => {
+  const jobId = await make("u1", "job");
+  const noPeriod = await createScene(db, "u1", sceneOf(jobId));
+  const withPeriod = await createScene(db, "u1", sceneOf(jobId, { startMonth: "2021-01", endMonth: "2021-03" }));
+  if (!noPeriod.ok || !withPeriod.ok) throw new Error("scene");
+  expect((await getScene(db, "u1", noPeriod.id))?.rubric.period.status).toBe("met");
+
+  await updateFact(db, "u1", "job", jobId, { ...INPUTS.job, startMonth: null });
+  expect((await getScene(db, "u1", noPeriod.id))?.rubric.period).toEqual({ status: "unmet", note: null });
+  expect((await getScene(db, "u1", withPeriod.id))?.rubric.period.status).toBe("met");
+
+  await updateFact(db, "u1", "job", jobId, { ...INPUTS.job, startMonth: "2020-01", endMonth: null, isOngoing: true });
+  expect((await getScene(db, "u1", noPeriod.id))?.rubric.period.status).toBe("met");
+});
+
+test("장면이 달린 머리는 지울 수 없고(has_scenes) 장면이 없으면 지워진다", async () => {
+  for (const kind of ["job", "project", "activity"] as const) {
+    const id = await make("u1", kind);
+    const head = { kind, id };
+    const r = await createScene(db, "u1", { ...sceneOf(id), head });
+    if (!r.ok) throw new Error("scene");
+    expect(await deleteFact(db, "u1", kind, id)).toEqual({ ok: false, reason: "has_scenes", count: 1 });
+    expect(await getFact(db, "u1", kind, id)).not.toBeNull();
+    await deleteScene(db, "u1", r.id);
+    expect(await deleteFact(db, "u1", kind, id)).toEqual({ ok: true });
+  }
 });
 
 test("다른 사용자의 것은 읽히지 않고 고치기·지우기·확인이 모두 not_found이며 원래 값이 그대로다", async () => {

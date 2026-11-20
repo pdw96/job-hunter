@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "../tracks/repo";
@@ -7,7 +7,8 @@ import { subjectOfJob, subjectOfProject } from "./claims";
 import type { Scope } from "./options";
 import { type ClaimOwner, hasOpenRecordClaims, syncRecordClaimsAfterEdit } from "./record-claims-repo";
 import { FACT_CONTENT_FIELDS, type FactInputs, type JobInput, type ProjectInput } from "./record-input";
-import { FACT_KINDS, type FactKind, type ProjectParent, type RecordSource } from "./record-options";
+import { FACT_KINDS, type FactKind, HEAD_KINDS, type HeadKind, type ProjectParent, type RecordSource } from "./record-options";
+import { scenePeriodStatus } from "./scene-rules";
 import { activities, courses, credentials, education, gaps, jobs, projects, scenes } from "./schema";
 
 // 이력 사실(학력·교육·경력·공백·자격·프로젝트·활동)의 저장. 메뉴마다 표가 따로 있고 공통 동작은 이 파일 하나로 한다.
@@ -132,6 +133,10 @@ async function ownsParent(db: Db, userId: string, parent: ProjectParent): Promis
 // 주장이 딸리는 이력 사실(경력·프로젝트)이면 그 주인
 const claimOwnerOf = (kind: FactKind, id: string): ClaimOwner | null => (kind === "job" || kind === "project" ? { kind, id } : null);
 
+const isHeadKind = (kind: FactKind): kind is HeadKind => (HEAD_KINDS as readonly string[]).includes(kind);
+// 장면 표에서 그 머리를 가리키는 칸
+const sceneHeadColumn = (kind: HeadKind) => ({ job: scenes.jobId, project: scenes.projectId, activity: scenes.activityId })[kind];
+
 const parentOf = (kind: FactKind, input: FactInputs[FactKind]): ProjectParent =>
   kind === "project" ? (input as ProjectInput).parent : null;
 
@@ -214,6 +219,20 @@ export async function updateFact<K extends FactKind>(
         await tx.update(tableOf(kind)).set({ confirmedAt: null } as never).where(mine(kind, userId, id));
       }
     }
+
+    // 머리의 기간이 바뀌었으면, 기간이 비어 머리의 기간을 따르는 장면의 기간 판정을 다시 한다
+    if (
+      isHeadKind(kind) &&
+      (["startMonth", "endMonth", "isOngoing"] as const).some((key) => !sameValue(before[key], after[key]))
+    ) {
+      const headPeriod = { startMonth: after.startMonth as string | null, endMonth: after.endMonth as string | null, isOngoing: after.isOngoing === true };
+      const status = scenePeriodStatus({ startMonth: null, endMonth: null, isOngoing: false }, headPeriod);
+      const entry = JSON.stringify({ status, note: null });
+      await tx
+        .update(scenes)
+        .set({ rubric: sql`jsonb_set(${scenes.rubric}, '{period}'::text[], ${entry}::jsonb)` })
+        .where(and(eq(sceneHeadColumn(kind), id), eq(scenes.userId, userId), isNull(scenes.startMonth)));
+    }
     return { ok: true as const };
   });
 }
@@ -224,7 +243,14 @@ export async function deleteFact(
   kind: FactKind,
   id: string,
 ): Promise<Ok | NotFound | { ok: false; reason: "has_scenes"; count: number }> {
-  // has_scenes(장면이 달린 경력·프로젝트·활동은 지우지 않는다)는 Task 4에서 더한다
+  // 장면이 달린 경력·프로젝트·활동은 지우지 않는다
+  if (isHeadKind(kind)) {
+    const [row] = await db
+      .select({ n: count() })
+      .from(scenes)
+      .where(and(eq(sceneHeadColumn(kind), id), eq(scenes.userId, userId)));
+    if (row && row.n > 0) return { ok: false, reason: "has_scenes", count: row.n };
+  }
   const deleted = await db.delete(tableOf(kind)).where(mine(kind, userId, id)).returning({ id: tableOf(kind).id });
   return deleted.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
 }

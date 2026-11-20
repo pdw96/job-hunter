@@ -3,9 +3,9 @@ import { beforeEach, expect, test } from "vitest";
 import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
-import { findClaims, subjectOfJob, subjectOfProject } from "./claims";
+import { findClaims, subjectOfJob, subjectOfProject, subjectOfScene } from "./claims";
 import { confirmFact, createFact, getFact, updateFact } from "./facts-repo";
-import type { JobInput, ProjectInput } from "./record-input";
+import type { JobInput, ProjectInput, SceneInput } from "./record-input";
 import {
   answerRecordClaim,
   countOpenRecordClaims,
@@ -13,7 +13,8 @@ import {
   insertRecordClaims,
   listRecordClaims,
 } from "./record-claims-repo";
-import { recordClaims } from "./schema";
+import { getScene, createScene } from "./scenes-repo";
+import { recordClaims, scenes } from "./schema";
 
 let db: Db;
 
@@ -154,4 +155,87 @@ test("남의 경력에는 주장을 넣을 수 없다", async () => {
   await insertRecordClaims(db, "u2", { kind: "job", id: jobId }, [{ kind: "metric", quote: "거래처 12곳", phrase: null, origin: "code" }]);
   expect(await db.select().from(recordClaims).where(eq(recordClaims.jobId, jobId))).toHaveLength(1);
   expect(await countOpenRecordClaims(db, "u2")).toEqual({});
+});
+
+// 장면에 딸린 주장
+const sceneInput = (headId: string, over: Partial<SceneInput> = {}): SceneInput => ({
+  head: { kind: "job", id: headId },
+  title: "결제 장애 대응",
+  startMonth: null,
+  endMonth: null,
+  isOngoing: false,
+  situation: "장애가 잦았다",
+  judgment: null,
+  actions: "승인 API를 설계했다",
+  result: "장애가 줄었다",
+  lessons: null,
+  metrics: [{ text: "월 장애 5건에서 1건", basis: "보고서" }, { text: "응답 속도 30% 개선", basis: null }],
+  notDone: null,
+  bannedPhrases: [],
+  evidenceNote: null,
+  tags: [],
+  ...over,
+});
+async function importScene(userId = "u1", over: Partial<SceneInput> = {}) {
+  const head = await createFact(db, userId, "job", job);
+  if (!head.ok) throw new Error(head.reason);
+  const input = sceneInput(head.id, over);
+  const r = await createScene(db, userId, input, { source: "import" });
+  if (!r.ok) throw new Error(r.reason);
+  await insertRecordClaims(db, userId, { kind: "scene", id: r.id }, findClaims(subjectOfScene(input)));
+  return r.id;
+}
+const sceneClaim = async (sceneId: string, part: string, userId = "u1") => {
+  const found = (await listRecordClaims(db, userId, { kind: "scene", id: sceneId })).find((c) => c.quote.includes(part));
+  if (!found) throw new Error(`주장 없음: ${part}`);
+  return found;
+};
+
+test("장면 주장에 unknown → 그 수치 줄이 지워지고 장면이 미확인·contentVersion+1", async () => {
+  const id = await importScene();
+  const claim = await sceneClaim(id, "30%");
+  expect(claim.kind).toBe("metric");
+  await db.update(scenes).set({ confirmedAt: new Date() }).where(eq(scenes.id, id));
+  expect(await answerRecordClaim(db, "u1", claim.id, "unknown")).toEqual({ ok: true, status: "removed" });
+  const found = await getScene(db, "u1", id);
+  expect(found?.metrics).toEqual([{ text: "월 장애 5건에서 1건", basis: "보고서" }]);
+  expect(found?.isConfirmed).toBe(false);
+  expect(found?.contentVersion).toBe(1);
+  expect(found?.rubric.period.status).toBe("met");
+  expect((await listRecordClaims(db, "u1", { kind: "scene", id })).find((c) => c.quote.includes("30%"))?.status).toBe("removed");
+});
+
+test("장면 본문에도 같은 구절이 남아 있으면 수치 줄만 지우고 주장은 고쳐야 함으로 둔다", async () => {
+  const id = await importScene("u1", { result: "응답 속도 30% 개선" });
+  const claim = await sceneClaim(id, "30%");
+  expect(await answerRecordClaim(db, "u1", claim.id, "unknown")).toEqual({ ok: true, status: "needs_fix" });
+  expect((await getScene(db, "u1", id))?.metrics).toHaveLength(1);
+});
+
+test("장면 주장에 exaggerated → 장면의 금지 표현에 들어가고 내용은 그대로", async () => {
+  const id = await importScene("u1", { result: "프로젝트를 주도하며 장애가 줄었다" });
+  const roleClaim = (await listRecordClaims(db, "u1", { kind: "scene", id })).find((c) => c.phrase);
+  if (!roleClaim?.phrase) throw new Error("과장 주장 없음");
+  await db.update(scenes).set({ confirmedAt: new Date() }).where(eq(scenes.id, id));
+  expect(await answerRecordClaim(db, "u1", roleClaim.id, "exaggerated")).toEqual({ ok: true, status: "needs_fix" });
+  const found = await getScene(db, "u1", id);
+  expect(found?.bannedPhrases).toContain(roleClaim.phrase);
+  expect(found?.contentVersion).toBe(0);
+  expect(found?.isConfirmed).toBe(true);
+});
+
+test("장면 주장의 confirm은 상태만 바꾸고, 수치가 아닌 주장의 unknown은 거절된다", async () => {
+  const id = await importScene();
+  const metric = await sceneClaim(id, "5건");
+  expect(await answerRecordClaim(db, "u1", metric.id, "confirm")).toEqual({ ok: true, status: "confirmed" });
+  expect(await answerRecordClaim(db, "u1", metric.id, "confirm")).toEqual({ ok: false, reason: "not_allowed" });
+  const period = (await listRecordClaims(db, "u1", { kind: "scene", id })).find((c) => c.kind === "period");
+  if (period) expect(await answerRecordClaim(db, "u1", period.id, "unknown")).toEqual({ ok: false, reason: "not_allowed" });
+});
+
+test("다른 사용자의 장면 주장은 not_found이고 장면은 그대로다", async () => {
+  const id = await importScene();
+  const claim = await sceneClaim(id, "30%");
+  expect(await answerRecordClaim(db, "u2", claim.id, "unknown")).toEqual({ ok: false, reason: "not_found" });
+  expect((await getScene(db, "u1", id))?.metrics).toHaveLength(2);
 });

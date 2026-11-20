@@ -1,9 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
-import { type Claim, type ClaimStatus, type ClaimSubject, claimsAfterEdit, type FoundClaim } from "./claims";
+import {
+  type Claim,
+  type ClaimStatus,
+  type ClaimSubject,
+  claimsAfterEdit,
+  type FoundClaim,
+  proseContains,
+  quotePieces,
+  subjectOfScene,
+} from "./claims";
 import type { ClaimAnswer } from "./claims-repo";
 import { LIMITS } from "./options";
+import { sceneContentResetFields } from "./rubric-store";
+import { loadHead, sceneInputOf } from "./scene-head";
+import { scenePeriodStatus } from "./scene-rules";
 import { jobs, projects, recordClaims, scenes } from "./schema";
 
 // 새 기록(장면·경력·프로젝트)의 주장 저장과 답 처리. claims-repo.ts와 같은 일을 experiences_record_claims에 한다.
@@ -135,8 +147,7 @@ export async function answerRecordClaim(
       .where(and(eq(recordClaims.id, claimId), eq(recordClaims.userId, userId)))
       .limit(1);
     if (!claim) return { ok: false as const, reason: "not_found" as const };
-    // 장면에 딸린 주장은 Task 4에서 더한다(수치 줄 지우기, 장면 내용 되돌리기)
-    if (claim.sceneId) return { ok: false as const, reason: "not_allowed" as const };
+    if (claim.sceneId) return answerSceneClaim(tx as unknown as Db, userId, claim, answer);
     const owner = claim.jobId
       ? { table: jobs, id: claim.jobId }
       : claim.projectId
@@ -174,4 +185,64 @@ export async function answerRecordClaim(
     await tx.update(recordClaims).set({ status, updatedAt: new Date() }).where(eq(recordClaims.id, claim.id));
     return { ok: true as const, status };
   });
+}
+
+// 장면에 딸린 주장에 답한다. 규칙은 answerClaim과 같다:
+// unknown은 그 수치 줄을 장면에서 지우고 장면 내용을 바꾼 것으로 다룬다(미확인, contentVersion+1, 판정·후보 초기화)
+async function answerSceneClaim(
+  tx: Db,
+  userId: string,
+  claim: typeof recordClaims.$inferSelect,
+  answer: ClaimAnswer,
+): Promise<{ ok: true; status: ClaimStatus } | { ok: false; reason: "not_found" | "not_allowed" | "banned_full" }> {
+  const [scene] = await tx
+    .select()
+    .from(scenes)
+    .where(and(eq(scenes.id, claim.sceneId as string), eq(scenes.userId, userId)))
+    .limit(1);
+  if (!scene) return { ok: false, reason: "not_found" };
+
+  if (claim.status !== "pending" && claim.status !== "needs_fix") return { ok: false, reason: "not_allowed" };
+  if (answer === "unknown" && claim.kind !== "metric") return { ok: false, reason: "not_allowed" };
+  if (answer === "exaggerated" && claim.kind !== "role" && !claim.phrase) return { ok: false, reason: "not_allowed" };
+  if (
+    answer === "exaggerated" &&
+    claim.phrase &&
+    !scene.bannedPhrases.includes(claim.phrase) &&
+    scene.bannedPhrases.length >= LIMITS.bannedPhrases
+  ) {
+    return { ok: false, reason: "banned_full" };
+  }
+
+  let status: ClaimStatus = answer === "confirm" ? "confirmed" : "needs_fix";
+  let remainingMetrics: typeof scene.metrics | null = null;
+
+  if (answer === "unknown") {
+    // 수치 칸의 줄이면 그 줄을 지운다. 같은 구절이 본문에도 남아 있으면 닫지 않고 고쳐야 할 것으로 둔다
+    const remaining = scene.metrics.filter((metric) => !quotePieces(metric.text).includes(claim.quote));
+    if (remaining.length !== scene.metrics.length) {
+      const head = await loadHead(tx, userId, sceneInputOf(scene).head);
+      const period = scenePeriodStatus(scene, head?.period ?? scene);
+      await tx
+        .update(scenes)
+        .set({ metrics: remaining, updatedAt: new Date(), ...sceneContentResetFields(scene.rubric, period) })
+        .where(and(eq(scenes.id, scene.id), eq(scenes.userId, userId)));
+      remainingMetrics = remaining;
+      if (!proseContains(subjectOfScene({ ...sceneInputOf(scene), metrics: remaining }), claim.quote)) status = "removed";
+    }
+  }
+  if (answer === "exaggerated" && claim.phrase) {
+    // 사용자가 직접 과장이라고 했으므로 후보를 거치지 않고 바로 금지 표현에 넣는다
+    await tx
+      .update(scenes)
+      .set({ bannedPhrases: [...new Set([...scene.bannedPhrases, claim.phrase])] })
+      .where(and(eq(scenes.id, scene.id), eq(scenes.userId, userId)));
+  }
+
+  await tx.update(recordClaims).set({ status, updatedAt: new Date() }).where(eq(recordClaims.id, claim.id));
+  // 수치 줄을 지웠으면 그 줄에서 나온 다른 주장도 남은 내용에 맞춘다
+  if (remainingMetrics) {
+    await syncRecordClaimsAfterEdit(tx, { kind: "scene", id: scene.id }, subjectOfScene({ ...sceneInputOf(scene), metrics: remainingMetrics }));
+  }
+  return { ok: true, status };
 }
