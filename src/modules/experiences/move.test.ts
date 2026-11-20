@@ -8,7 +8,7 @@ import { user } from "@/modules/auth/schema";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { insertClaims } from "./claims-repo";
-import { createFact, getFact, listFacts } from "./facts-repo";
+import { createFact, getFact, listFacts, updateFact } from "./facts-repo";
 import type { ExperienceInput } from "./input";
 import { affiliateProjects, moveRecord, runNextMove } from "./move";
 import { claimNextMove, planMoves, retryMove } from "./move-repo";
@@ -540,4 +540,63 @@ test("소속 잇기가 끝난 뒤 프로젝트를 늦게 옮기면 소속 잇기
   expect((await rows()).find((row) => row.oldId === projectId)?.status).toBe("done");
   expect(await affiliateStatus()).toBe("pending");
   expect((await claimNextMove(db, "u1", now))?.step).toBe("affiliate");
+});
+
+// ---- Codex 검토 (PR 40) ----
+
+test("소속을 묻는 사이 다른 탭에서 프로젝트를 고쳐도 그 고친 것이 남고 소속만 쓰인다", async () => {
+  const migrate = { source: "migrate" as const, movedFrom: "old" };
+  const jobId = await made(
+    await createFact(
+      db,
+      "u1",
+      "job",
+      { company: "가나다상사", department: null, title: null, employment: "regular", startMonth: "2022-03", endMonth: "2024-02", isOngoing: false, duties: [], bannedPhrases: [] },
+      migrate,
+    ),
+  );
+  const edited = await made(await createFact(db, "u1", "project", projectInput("리뉴얼 TF", "2023-06", "2023-09"), migrate));
+  const manual = await made(await createFact(db, "u1", "project", projectInput("직접 고른 TF", "2023-01", "2023-03"), migrate));
+  const schoolId = await made(
+    await createFact(
+      db,
+      "u1",
+      "education",
+      { schoolName: "한국대학교", location: null, degree: "bachelor", major: null, startMonth: "2016-03", endMonth: "2024-02", status: "graduated", gpa: null, gpaScale: null },
+      migrate,
+    ),
+  );
+
+  const ai = createFakeAi([
+    async (request: AiRequest<unknown>) => {
+      // AI가 답하는 사이: 한 프로젝트는 역할·금지 표현을 고치고, 다른 프로젝트는 사용자가 소속을 직접 고른다
+      await updateFact(db, "u1", "project", edited, { ...projectInput("리뉴얼 TF", "2023-06", "2023-09"), role: "자료 정리", bannedPhrases: ["총괄"] });
+      await updateFact(db, "u1", "project", manual, { ...projectInput("직접 고른 TF", "2023-01", "2023-03"), parent: { kind: "education", id: schoolId } });
+      const text = request.messages[0].text;
+      return {
+        links: [
+          { project: aliasOf(text, "리뉴얼 TF"), parent: aliasOf(text, "가나다상사") },
+          { project: aliasOf(text, "직접 고른 TF"), parent: aliasOf(text, "가나다상사") },
+        ],
+      };
+    },
+  ]);
+  expect(await affiliateProjects(db, ai, "u1", now)).toEqual({ ok: true });
+
+  const editedAfter = await getFact(db, "u1", "project", edited);
+  expect(editedAfter?.value).toMatchObject({ role: "자료 정리", bannedPhrases: ["총괄"], parent: { kind: "job", id: jobId } });
+  expect((await getFact(db, "u1", "project", manual))?.value.parent).toEqual({ kind: "education", id: schoolId });
+});
+
+test("나누기에서 사례가 너무 많아 다 담지 못했으면 담은 것만 옮기고 메모를 남긴다", async () => {
+  const oldId = await createExperience(db, "u1", old({ kind: "job", name: "가나다상사 영업", startMonth: "2020-03", endMonth: "2022-02", metrics: [] }));
+  await planMoves(db, "u1");
+  const many = Array.from({ length: 10 }, (_, i) => ({ ...blankScene, title: `사례 ${["가", "나", "다", "라", "마", "바", "사", "아", "자", "차"][i]}`, actions: "거래처 자료를 만들었다" }));
+  const answer = { ...jobImport, jobs: [{ ...jobImport.jobs[0], scenes: many }] };
+  const progress = await runNextMove(db, createFakeAi([answer]), "u1", now);
+  expect(progress).toMatchObject({ done: 1, failed: [] });
+  expect(await listScenes(db, "u1")).toHaveLength(8);
+  const [row] = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  expect(row).toMatchObject({ status: "done", error: "내용이 많아 일부를 옮기지 못했습니다. 경험 사례에서 더 추가해 주세요" });
+  expect((await listFacts(db, "u1")).job[0].movedFrom).toBe(oldId);
 });

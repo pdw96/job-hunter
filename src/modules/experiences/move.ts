@@ -4,7 +4,7 @@ import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { type ClaimStatus, findClaims, type FoundClaim, mergeClaims, subjectOfScene } from "./claims";
 import { listClaims } from "./claims-repo";
-import { createFact, listFacts, updateFact } from "./facts-repo";
+import { createFact, listFacts, setProjectParentIfUnset } from "./facts-repo";
 import { claimNextMove, finishMove, type MoveProgress, moveProgress, reopenAffiliate } from "./move-repo";
 import { type Kind, LIMITS, type Scope } from "./options";
 import { AFFILIATE_SYSTEM, describeExperience, MOVE_CLAIMS_SYSTEM } from "./prompts";
@@ -226,6 +226,8 @@ async function moveBySplitting(
   const notes = [
     prepared.skipped > 0 ? `${prepared.skipped}개는 검사를 통과하지 못해 옮기지 못했습니다` : null,
     prepared.inventedDropped > 0 ? "원본에 없던 숫자가 있어 일부 칸을 비웠습니다" : null,
+    // 머리 하나의 사례가 한도(8개)를 넘었거나 AI가 다 담지 못했다고 한 경우
+    prepared.more ? "내용이 많아 일부를 옮기지 못했습니다. 경험 사례에서 더 추가해 주세요" : null,
   ].filter((note): note is string => note !== null);
 
   return db.transaction(async (tx) => {
@@ -365,9 +367,9 @@ export async function affiliateProjects(db: Db, ai: AiClient, userId: string, no
     for (const link of result.links) {
       const project = moved[link.project];
       const parent = { kind: link.parent.kind, id: parentIds[link.parent.kind][link.parent.index] };
-      // 소속은 내용 칸이 아니라 확인이 유지된다
-      const updated = await updateFact(t, userId, "project", project.id, { ...project.value, parent });
-      if (!updated.ok) throw new Error("프로젝트의 소속을 쓰지 못했습니다");
+      // 소속 칸만, 아직 비어 있을 때만 쓴다. 묻는 사이 고친 내용이나 직접 고른 소속은 그대로 두고,
+      // 그 사이 지워진 프로젝트·조직(not_found)은 건너뛴다. 소속은 내용 칸이 아니라 확인이 유지된다
+      await setProjectParentIfUnset(t, userId, project.id, parent);
     }
   });
   return { ok: true };

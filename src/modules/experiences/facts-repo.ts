@@ -238,6 +238,38 @@ export async function updateFact<K extends FactKind>(
   });
 }
 
+// 소속이 아직 없는 프로젝트에만 소속 칸 하나를 쓴다(옮기기의 소속 잇기). 다른 칸·확인·내용 버전은 건드리지 않아,
+// AI에게 묻는 사이 다른 탭에서 고친 내용이나 사용자가 직접 고른 소속을 덮어쓰지 않는다
+export async function setProjectParentIfUnset(
+  db: Db,
+  userId: string,
+  projectId: string,
+  parent: NonNullable<ProjectParent>,
+): Promise<{ ok: true; changed: boolean } | NotFound> {
+  if (!(await ownsParent(db, userId, parent))) return { ok: false, reason: "not_found" };
+  const column = { job: "jobId", education: "educationId", course: "courseId" }[parent.kind];
+  const updated = await db
+    .update(projects)
+    .set({ [column]: parent.id, updatedAt: new Date() })
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.userId, userId),
+        isNull(projects.jobId),
+        isNull(projects.educationId),
+        isNull(projects.courseId),
+      ),
+    )
+    .returning({ id: projects.id });
+  if (updated.length > 0) return { ok: true, changed: true };
+  const [owned] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+    .limit(1);
+  return owned ? { ok: true, changed: false } : { ok: false, reason: "not_found" };
+}
+
 export async function deleteFact(
   db: Db,
   userId: string,

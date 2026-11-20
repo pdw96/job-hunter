@@ -13,6 +13,7 @@ import {
   getFact,
   listFacts,
   setFactTrackScope,
+  setProjectParentIfUnset,
   unconfirmFact,
   updateFact,
 } from "./facts-repo";
@@ -299,4 +300,33 @@ test("공백은 끝 월이나 두 월이 모두 없어도 저장된다", async (
   expect(open.ok && none.ok).toBe(true);
   const rows = await db.select().from(gaps).where(eq(gaps.userId, "u1"));
   expect(rows.map((row) => [row.startMonth, row.endMonth]).sort()).toEqual([["2024-03", null], [null, null]].sort());
+});
+
+test("setProjectParentIfUnset은 소속이 빈 프로젝트에만 소속 칸을 쓰고, 확인·내용 버전·다른 칸은 그대로다", async () => {
+  const jobId = await make("u1", "job");
+  const schoolId = await make("u1", "education");
+  const pid = await make("u1", "project", { ...INPUTS.project, parent: null });
+  await confirmFact(db, "u1", "project", pid);
+  const before = await getFact(db, "u1", "project", pid);
+
+  expect(await setProjectParentIfUnset(db, "u1", pid, { kind: "job", id: jobId })).toEqual({ ok: true, changed: true });
+  const after = await getFact(db, "u1", "project", pid);
+  expect(after?.value).toEqual({ ...before?.value, parent: { kind: "job", id: jobId } });
+  expect(after?.isConfirmed).toBe(true);
+  expect(after?.contentVersion).toBe(before?.contentVersion);
+
+  // 이미 소속이 있으면 바꾸지 않는다
+  expect(await setProjectParentIfUnset(db, "u1", pid, { kind: "education", id: schoolId })).toEqual({ ok: true, changed: false });
+  expect((await getFact(db, "u1", "project", pid))?.value.parent).toEqual({ kind: "job", id: jobId });
+});
+
+test("setProjectParentIfUnset: 남의 프로젝트나 남의 조직이면 not_found이고 아무것도 바뀌지 않는다", async () => {
+  const myJob = await make("u1", "job");
+  const otherJob = await make("u2", "job");
+  const mine = await make("u1", "project", { ...INPUTS.project, parent: null });
+  const theirs = await make("u2", "project", { ...INPUTS.project, parent: null });
+  expect(await setProjectParentIfUnset(db, "u1", mine, { kind: "job", id: otherJob })).toEqual({ ok: false, reason: "not_found" });
+  expect(await setProjectParentIfUnset(db, "u1", theirs, { kind: "job", id: myJob })).toEqual({ ok: false, reason: "not_found" });
+  expect((await getFact(db, "u1", "project", mine))?.value.parent).toBeNull();
+  expect((await getFact(db, "u2", "project", theirs))?.value.parent).toBeNull();
 });
