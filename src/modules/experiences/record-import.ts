@@ -238,7 +238,7 @@ export async function requestRecordImport(
       messages: [{ role: "user", text: `${tag}${lead}[가져올 글]\n${sourceText}` }],
       schema: importSchema,
       effort: "medium",
-      maxTokens: 32000,
+      maxTokens: 16000, // 스트리밍 없이 보낼 수 있는 길이. 더 크게 잡으면 SDK가 보내기 전에 거절한다
     },
     now,
   );
