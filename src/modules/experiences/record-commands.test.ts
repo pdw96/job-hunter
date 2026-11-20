@@ -7,7 +7,7 @@ import type { SurveyInput } from "@/modules/tracks/survey";
 import { findClaims, subjectOfJob } from "./claims";
 import { createFact, getFact } from "./facts-repo";
 import { createFakeAi } from "@/modules/ai/fake-client";
-import { getInterview } from "./interview";
+import { finishInterview, getInterview, startInterview } from "./interview";
 import { startSceneInterview } from "./scene-interview";
 import {
   answerClaimCommand,
@@ -225,6 +225,45 @@ test("장면: 없는 인터뷰나 빈 인터뷰 id면 판정하지 않고 출처
   if (saved.ok) expect((await getScene(db, "u1", saved.id))?.source).toBe("manual");
   expect((await getInterview(db, "u2", iv.id))?.status).toBe("active");
   expect(ai.requests).toHaveLength(0);
+});
+
+test("장면: 옛 경험 인터뷰, 다른 머리의 인터뷰, 끝난 인터뷰는 사례 인터뷰로 치지 않는다", async () => {
+  const a = await createFact(db, "u1", "job", job);
+  const b = await createFact(db, "u1", "job", { ...job, company: "라마바 주식회사" });
+  if (!a.ok || !b.ok) throw new Error();
+  const ai = createFakeAi([]);
+  const sourceOf = async (saved: Awaited<ReturnType<typeof saveScene>>) => (saved.ok ? (await getScene(db, "u1", saved.id))?.source : "fail");
+
+  const old = await startInterview(db, createFakeAi([q("?")]), "u1", {});
+  if (!old.ok) throw new Error();
+  expect(await sourceOf(await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: a.id }), {}, old.id))).toBe("manual");
+  expect((await getInterview(db, "u1", old.id))?.status).toBe("active");
+
+  const forB = await startSceneInterview(db, createFakeAi([q("?")]), "u1", { head: { kind: "job", id: b.id } });
+  if (!forB.ok) throw new Error();
+  expect(await sourceOf(await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: a.id }), {}, forB.id))).toBe("manual");
+  expect((await getInterview(db, "u1", forB.id))?.status).toBe("active");
+
+  // 새 사례 인터뷰를 다른 사례 고치기에 쓰면 안 된다
+  const { sceneId } = await jobWithScene();
+  expect((await saveScene(db, ai, "u1", sceneId, sceneIn({ kind: "job", id: b.id }, { title: "고침" }), {}, forB.id)).ok).toBe(true);
+  expect((await getInterview(db, "u1", forB.id))?.status).toBe("active");
+
+  // 끝난 인터뷰는 다시 쓰지 않는다
+  await finishInterview(db, "u1", forB.id);
+  expect(await sourceOf(await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: b.id }), {}, forB.id))).toBe("manual");
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("장면: 보완 인터뷰는 그 사례를 고칠 때만 판정한다", async () => {
+  const { jobId, sceneId } = await jobWithScene();
+  const iv = await startSceneInterview(db, createFakeAi([q("?")]), "u1", { sceneId });
+  if (!iv.ok) throw new Error();
+  const ai = createFakeAi([allMet]);
+  expect(await saveScene(db, ai, "u1", sceneId, sceneIn({ kind: "job", id: jobId }, { title: "보완" }), {}, iv.id)).toEqual({ ok: true, id: sceneId });
+  expect(ai.requests).toHaveLength(1);
+  expect((await getInterview(db, "u1", iv.id))?.status).toBe("done");
+  expect((await getScene(db, "u1", sceneId))?.source).toBe("manual"); // 고치기는 출처를 바꾸지 않는다
 });
 
 test("장면: 프로젝트 머리에 열린 줄이 있으면 프로젝트 정보라고 알린다", async () => {

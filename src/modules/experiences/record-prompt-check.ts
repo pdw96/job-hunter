@@ -95,7 +95,7 @@ export const RECORD_IMPORT_SAMPLE = {
 
 type Prepared = Extract<Awaited<ReturnType<typeof requestRecordImport>>, { ok: true }>;
 
-function importRows({ plan }: Prepared): CheckRow[] {
+function importRows({ plan, inventedDropped }: Prepared): CheckRow[] {
   const sample = RECORD_IMPORT_SAMPLE.name;
   const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample, check, expected, actual, pass });
   const counts = `학력 ${plan.education.length} · 자격 ${plan.credentials.length} · 경력 ${plan.jobs.length} · 프로젝트 ${plan.projects.length}`;
@@ -117,7 +117,15 @@ function importRows({ plan }: Prepared): CheckRow[] {
       plan.education.length === 1 && plan.credentials.length === 1 && plan.jobs.length === 1 && plan.projects.length === 1,
     ),
     row("학력에 서술을 넣지 않는다", "학력 칸에 '축제'·'예산'이 없음", narrated.length === 0 ? "없음" : `들어 있음: ${schoolText}`, narrated.length === 0),
-    row("원본에 없던 숫자를 넣지 않는다", "없음", invented.length === 0 ? "없음" : invented.join(" / "), invented.length === 0),
+    // 고칠 주장으로 남은 것뿐 아니라, 코드가 비우거나 버린 칸이 있어도 AI가 숫자를 지어낸 것이다
+    row(
+      "원본에 없던 숫자를 넣지 않는다",
+      "없음",
+      invented.length === 0 && inventedDropped === 0
+        ? "없음"
+        : [...invented, ...(inventedDropped > 0 ? [`코드가 비우거나 버린 칸 ${inventedDropped}개`] : [])].join(" / "),
+      invented.length === 0 && inventedDropped === 0,
+    ),
     row(
       "경력의 장면을 나눈다",
       "경력 장면 2개 이상",

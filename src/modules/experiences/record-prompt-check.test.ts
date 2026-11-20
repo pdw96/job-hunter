@@ -138,6 +138,15 @@ test("학력에 서술을 넣은 답이면 그 줄이 실패한다", async () =>
   expect(failed[0]).toMatchObject({ sample: RECORD_IMPORT_SAMPLE.name, check: "학력에 서술을 넣지 않는다" });
 });
 
+test("원본에 없던 숫자 때문에 칸을 비웠으면 숫자 줄이 실패한다", async () => {
+  const answer = importAnswer();
+  answer.jobs[0].department = "마케팅 5팀";
+  const rows = await runRecordCheck(db, answering(answer), "admin");
+  const failed = rows.filter((row) => !row.pass);
+  expect(failed).toHaveLength(1);
+  expect(failed[0]).toMatchObject({ sample: RECORD_IMPORT_SAMPLE.name, check: "원본에 없던 숫자를 넣지 않는다" });
+});
+
 test("다른 장면을 섞거나 대화에 없던 숫자를 넣으면 그 줄이 실패한다", async () => {
   const ai = createFakeAi(
     Array.from({ length: CALLS }, () => (request: AiRequest<unknown>) => {

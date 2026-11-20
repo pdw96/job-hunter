@@ -241,3 +241,80 @@ test("importRecords: AI가 실패하면 그 사유를 돌려주고 아무것도 
   expect(ok).toMatchObject({ ok: true, skipped: 0, more: false });
   if (ok.ok) expect(ok.created).toHaveLength(6);
 });
+
+// ---- 검토에서 더한 것: 짧은 칸의 지어낸 숫자 ----
+test("선택 칸에 원본에 없던 숫자가 있으면 그 칸을 비우고, 이름 칸이면 그 항목을 건너뛴다", async () => {
+  const result = await requestRecordImport(
+    db,
+    createFakeAi([
+      answer({
+        gaps: [{ startMonth: "2022-03", endMonth: "2024-02", note: "7개월간 자격증 준비" }],
+        credentials: [{ type: "language", name: "TOEIC 900", issuer: "", month: "", score: "" }],
+        jobs: [jobAnswer({ department: "마케팅 5팀", scenes: [scene({ title: "캠페인", actions: "고객 설문을 설계하고 결과를 정리했다" })] })],
+        projects: [
+          {
+            name: "리뉴얼 8기",
+            parentIndex: null,
+            startMonth: "",
+            endMonth: "",
+            isOngoing: false,
+            role: "",
+            tools: ["Figma", "GA4"],
+            summary: "",
+            bannedPhrases: [],
+            roleClaims: [],
+            scenes: [scene({ title: "회의 자료" })],
+          },
+        ],
+        activities: [{ name: "학생회", organization: "", startMonth: "", endMonth: "", isOngoing: false, role: "총무 4년", scenes: [] }],
+      }),
+    ]),
+    "u1",
+    SOURCE,
+    {},
+    now,
+  );
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.plan.gaps).toEqual([{ startMonth: "2022-03", endMonth: "2024-02", note: null }]);
+  expect(result.plan.credentials).toEqual([]); // TOEIC 900은 원본에 없다
+  expect(result.plan.jobs[0].input.department).toBeNull();
+  expect(result.plan.projects).toEqual([]); // 이름에 지어낸 숫자 → 건너뛰고 장면도 버린다
+  expect(result.plan.activities[0].input.role).toBeNull();
+  expect(result.skipped).toBe(2);
+  expect(result.inventedDropped).toBe(5); // 메모, 자격 이름, 부서, 프로젝트 이름, 역할
+});
+
+test("원본에 있던 숫자는 짧은 칸에 그대로 두고 inventedDropped는 0이다", async () => {
+  const result = await requestRecordImport(db, createFakeAi([answer()]), "u1", SOURCE, {}, now);
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.inventedDropped).toBe(0);
+  const tools = await requestRecordImport(
+    db,
+    createFakeAi([answer({ projects: [{ ...answer().projects[0], tools: ["Figma", "GA4"] }] })]),
+    "u1",
+    SOURCE,
+    {},
+    now,
+  );
+  if (!tools.ok) throw new Error(tools.reason);
+  expect(tools.plan.projects[0].input.tools).toEqual(["Figma"]); // GA4의 4는 원본에 없다
+  expect(tools.inventedDropped).toBe(1);
+});
+
+test("주장이 많아 30개로 자를 때도 고쳐야 할 주장(지어낸 숫자)은 남는다", async () => {
+  const lines = Array.from({ length: 35 }, (_, i) => `항목 ${i + 1}을 처리했다`);
+  const source = `${SOURCE}\n${lines.join("\n")}`;
+  const actions = [...lines, "매출 77% 증가에 기여했다"].join("\n");
+  const result = await requestRecordImport(
+    db,
+    createFakeAi([answer({ jobs: [jobAnswer({ scenes: [scene({ title: "많은 일", actions })] })] })]),
+    "u1",
+    source,
+    {},
+    now,
+  );
+  if (!result.ok) throw new Error(result.reason);
+  const claims = result.plan.jobs[0].scenes[0].claims;
+  expect(claims).toHaveLength(30);
+  expect(claims.find((claim) => claim.quote.includes("77%"))?.status).toBe("needs_fix");
+});

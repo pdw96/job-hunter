@@ -3,7 +3,7 @@ import type { AiClient } from "@/modules/ai/client";
 import type { ClaimAnswer } from "./claims-repo";
 import { confirmFact, createFact, deleteFact, getFact, setFactTrackScope, unconfirmFact, updateFact } from "./facts-repo";
 import { extractText, IMPORT_TEXT_MESSAGES, prepareSource } from "./import-text";
-import { finishInterview, getInterview } from "./interview";
+import { finishInterview, getInterview, isSceneInterview } from "./interview";
 import { RUBRIC_ITEMS, type RubricItem, SCOPES, type Scope } from "./options";
 import { answerRecordClaim } from "./record-claims-repo";
 import { type CreatedItem, importRecords } from "./record-import";
@@ -150,8 +150,16 @@ export async function saveScene(
   if (!parsed.ok) return { ok: false, errors: parsed.errors as Record<string, string> };
   if (!isScopes(scopes)) return { ok: false, errors: {}, message: "트랙별 사용 범위를 다시 골라 주세요" };
 
-  // 본인의 인터뷰가 실제로 있을 때만 인터뷰로 만든 것으로 본다(빈 글이나 없는 id는 무시한다)
-  const interview = typeof interviewId === "string" && interviewId !== "" ? await getInterview(db, userId, interviewId) : null;
+  // 이 사례의 인터뷰일 때만 인터뷰로 만든 것으로 본다: 본인의 진행 중인 사례 인터뷰이고,
+  // 새 사례면 같은 머리의 인터뷰, 고치기면 그 사례의 보완 인터뷰. 아니면 무시한다(판정도, 출처 "interview"도 없음)
+  const found = typeof interviewId === "string" && interviewId !== "" ? await getInterview(db, userId, interviewId) : null;
+  const head = parsed.value.head;
+  const matches =
+    found !== null &&
+    found.status === "active" &&
+    isSceneInterview(found) &&
+    (typeof id === "string" ? found.sceneId === id : found.head?.kind === head.kind && found.head.id === head.id);
+  const interview = matches ? found : null;
 
   let savedId: string;
   if (typeof id === "string") {

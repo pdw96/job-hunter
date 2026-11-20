@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import {
+  type ClaimSubject,
   findClaims,
   type FoundClaim,
   MAX_CLAIMS,
@@ -132,29 +133,63 @@ export type ImportPlan = {
 
 type Failure = "over_limit" | "nothing_found" | AiFailure;
 
-// 원본 글에 비추어 AI의 답을 검사하는 도구
+// 원본 글에 비추어 AI의 답을 검사하는 도구. 지어낸 숫자 때문에 비우거나 버린 것을 dropped로 센다
 function checker(sourceText: string) {
   const flat = squash(sourceText);
   const known = new Set(numbersIn(sourceText));
+  let dropped = 0;
   const isInvented = (text: string | null) => numbersIn(text).some((number) => !known.has(number));
   const short = (value: string) => value.trim().slice(0, LIMITS.shortText);
-  // 원본에 연도와 월이 모두 있는 월만 받는다(두 자리 연도도 받는다). 아니면 비운다
+  // 원본에 연도와 월이 모두 숫자로 있는 월만 받는다. 아니면 비운다.
+  // 두 자리 연도는 "16년 3월"처럼 따로 적힌 때만 받는다("16.03"은 소수 16.03으로 읽혀 비운다. 안전한 쪽이다)
   const month = (value: string) => {
     const trimmed = value.trim();
     if (!isMonth(trimmed)) return "";
     const [year, mon] = trimmed.split("-").map(Number);
-    return (known.has(String(year)) || known.has(String(year % 100))) && known.has(String(mon)) ? trimmed : "";
+    if ((known.has(String(year)) || known.has(String(year % 100))) && known.has(String(mon))) return trimmed;
+    dropped += 1;
+    return "";
   };
-  // 숫자가 든 짧은 칸은 원본에 없던 숫자가 있으면 비운다
-  const groundedShort = (value: string) => (isInvented(value) ? "" : short(value));
+  // 선택 칸: 원본에 없던 숫자가 있으면 비운다
+  const optional = (value: string) => {
+    if (!isInvented(value)) return short(value);
+    dropped += 1;
+    return "";
+  };
+  // 이름 칸(필수): 원본에 없던 숫자가 있으면 null. 지어낸 이름으로 저장하지 않고 그 항목을 건너뛴다
+  const identity = (value: string): string | null => {
+    if (!isInvented(value)) return short(value);
+    dropped += 1;
+    return null;
+  };
+  // 목록 칸(사용 도구): 지어낸 숫자가 든 줄만 버린다
+  const optionalList = (values: string[]) => values.map(short).filter((value) => value !== "" && optional(value) !== "");
+  // 산출 근거는 주장으로 물어볼 수 없는 칸이라, 지어낸 숫자가 있으면 버린다
+  const basis = (value: string | null) => {
+    if (!isInvented(value)) return value;
+    dropped += 1;
+    return null;
+  };
   // 금지 표현은 사용자가 정한다. 원본에 글자 그대로 적혀 있는 것만 받고, AI가 지어낸 것은 버린다
   const banned = (phrases: string[]) =>
     [...new Set(phrases.map(squash))]
       .filter((phrase) => phrase !== "" && phrase.length <= LIMITS.shortText && flat.includes(phrase))
       .slice(0, LIMITS.bannedPhrases);
-  const claimsOf = (found: FoundClaim[]): PreparedClaims =>
-    found.map((claim) => ({ ...claim, status: isInvented(claim.quote) ? ("needs_fix" as const) : ("pending" as const) }));
-  return { isInvented, short, month, groundedShort, banned, claimsOf };
+  // 주장을 만든다. 지어낸 숫자가 든 구절은 needs_fix로, 자를 때 잘리지 않게 앞에 둔다
+  const claims = (subject: ClaimSubject, aiQuotes: string[], extra: string[] = []): PreparedClaims => {
+    const code = findClaims(subject);
+    const ordered = [...code.filter((claim) => isInvented(claim.quote)), ...code.filter((claim) => !isInvented(claim.quote))];
+    const merged = mergeClaims(ordered, aiQuotes, subject);
+    const extras = extra
+      .filter((quote) => isInvented(quote) && !merged.some((claim) => claim.quote === quote))
+      .map((quote) => ({ kind: "metric" as const, quote, phrase: null, origin: "code" as const }));
+    const all = [...extras, ...merged].map((claim) => ({
+      ...claim,
+      status: isInvented(claim.quote) ? ("needs_fix" as const) : ("pending" as const),
+    }));
+    return [...all.filter((claim) => claim.status === "needs_fix"), ...all.filter((claim) => claim.status === "pending")].slice(0, MAX_CLAIMS);
+  };
+  return { isInvented, short, month, optional, identity, optionalList, basis, banned, claims, dropped: () => dropped };
 }
 type Checker = ReturnType<typeof checker>;
 
@@ -165,21 +200,15 @@ function prepareScene(raw: Answer["jobs"][number]["scenes"][number], check: Chec
   const head: HeadRef = { kind: "job", id: "plan" }; // 검사용. 저장할 때 실제 머리로 바꾼다
   const checked = validateScene({ ...fitted, head, bannedPhrases: check.banned(bannedPhrases) });
   if (!checked.ok) return null;
-  // 산출 근거에 원본에 없던 숫자가 있으면 그 근거는 버린다(주장으로 물어볼 수 없는 칸이라 남기지 않는다)
   const value: SceneInput = {
     ...checked.value,
-    metrics: checked.value.metrics.map((metric) => (check.isInvented(metric.basis) ? { ...metric, basis: null } : metric)),
+    metrics: checked.value.metrics.map((metric) => ({ ...metric, basis: check.basis(metric.basis) })),
   };
-  const subject = subjectOfScene(value);
-  const scanned = check.claimsOf(mergeClaims(findClaims(subject), roleClaims, subject));
   // 주장으로 훑지 않는 칸(제목, 하지 않은 것, 증빙 메모)에 지어낸 숫자가 있으면 그 구절도 묻는다
-  const extra = [value.title, value.notDone, value.evidenceNote]
-    .flatMap(sentences)
-    .filter((quote) => check.isInvented(quote) && !scanned.some((claim) => claim.quote === quote))
-    .map((quote) => ({ kind: "metric" as const, quote, phrase: null, origin: "code" as const, status: "needs_fix" as const }));
+  const claims = check.claims(subjectOfScene(value), roleClaims, [value.title, value.notDone, value.evidenceNote].flatMap(sentences));
   const input: Omit<SceneInput, "head"> & { head?: HeadRef } = { ...value };
   delete input.head;
-  return { input, claims: [...extra, ...scanned].slice(0, MAX_CLAIMS) };
+  return { input, claims };
 }
 
 function validated<K extends FactKind>(kind: K, raw: unknown) {
@@ -195,7 +224,7 @@ export async function requestRecordImport(
   sourceText: string,
   options: { purpose?: "import_records" | "migrate"; hint?: Kind } = {},
   now: Date = new Date(),
-): Promise<{ ok: true; plan: ImportPlan; skipped: number; more: boolean } | { ok: false; reason: Failure }> {
+): Promise<{ ok: true; plan: ImportPlan; skipped: number; more: boolean; inventedDropped: number } | { ok: false; reason: Failure }> {
   const lead = options.hint ? `이 글은 예전 기록의 '${KIND_LABELS[options.hint]}' 한 건입니다\n\n` : "";
   const result = await runAi(
     db,
@@ -250,97 +279,111 @@ export async function requestRecordImport(
   // AI의 배열 순서 → 계획의 순서. 빠진 것은 null(그것을 가리키던 프로젝트는 개인으로 둔다)
   const indexMap: Record<ParentKind, (number | null)[]> = { job: [], education: [], course: [] };
 
+  // 이름 칸에 지어낸 숫자가 있으면 값을 null로 넘겨 건너뛴다(머리면 장면도 버린다)
+  const unless = <T>(name: string | null, build: (name: string) => T) => (name === null ? null : build(name));
+
   for (const raw of answer.education) {
-    const gpa = check.groundedShort(raw.gpa);
-    const value = validated("education", {
-      schoolName: check.short(raw.schoolName),
-      location: check.short(raw.location),
-      degree: raw.degree,
-      major: check.short(raw.major),
-      startMonth: check.month(raw.startMonth),
-      endMonth: check.month(raw.endMonth),
-      status: raw.status,
-      gpa,
-      gpaScale: gpa === "" ? "" : raw.gpaScale,
-    });
+    const gpa = check.optional(raw.gpa);
+    const value = unless(check.identity(raw.schoolName), (schoolName) =>
+      validated("education", {
+        schoolName,
+        location: check.optional(raw.location),
+        degree: raw.degree,
+        major: check.optional(raw.major),
+        startMonth: check.month(raw.startMonth),
+        endMonth: check.month(raw.endMonth),
+        status: raw.status,
+        gpa,
+        gpaScale: gpa === "" ? "" : raw.gpaScale,
+      }),
+    );
     indexMap.education.push(take(value, (v) => plan.education.push(v)) ? plan.education.length - 1 : null);
   }
   for (const raw of answer.courses) {
-    const value = validated("course", {
-      name: check.short(raw.name),
-      institution: check.short(raw.institution),
-      startMonth: check.month(raw.startMonth),
-      endMonth: check.month(raw.endMonth),
-      hours: check.groundedShort(raw.hours.match(/\d+/)?.[0] ?? ""),
-      learned: check.short(raw.learned),
-    });
+    const value = unless(check.identity(raw.name), (name) =>
+      validated("course", {
+        name,
+        institution: check.optional(raw.institution),
+        startMonth: check.month(raw.startMonth),
+        endMonth: check.month(raw.endMonth),
+        hours: check.optional(raw.hours.match(/\d+/)?.[0] ?? ""),
+        learned: check.optional(raw.learned),
+      }),
+    );
     indexMap.course.push(take(value, (v) => plan.courses.push(v)) ? plan.courses.length - 1 : null);
   }
   for (const raw of answer.credentials) {
-    const value = validated("credential", {
-      type: raw.type,
-      name: check.short(raw.name),
-      issuer: check.short(raw.issuer),
-      month: check.month(raw.month),
-      score: check.groundedShort(raw.score),
-    });
+    const value = unless(check.identity(raw.name), (name) =>
+      validated("credential", {
+        type: raw.type,
+        name,
+        issuer: check.optional(raw.issuer),
+        month: check.month(raw.month),
+        score: check.optional(raw.score),
+      }),
+    );
     take(value, (v) => plan.credentials.push(v));
   }
   for (const raw of answer.gaps) {
-    const value = validated("gap", { startMonth: check.month(raw.startMonth), endMonth: check.month(raw.endMonth), note: check.short(raw.note) });
+    const value = validated("gap", { startMonth: check.month(raw.startMonth), endMonth: check.month(raw.endMonth), note: check.optional(raw.note) });
     take(value, (v) => plan.gaps.push(v));
   }
   for (const raw of answer.jobs) {
-    const value = validated("job", {
-      company: check.short(raw.company),
-      department: check.short(raw.department),
-      title: check.short(raw.title),
-      employment: raw.employment,
-      startMonth: check.month(raw.startMonth),
-      endMonth: check.month(raw.endMonth),
-      isOngoing: raw.isOngoing,
-      duties: raw.duties.map((line) => line.trim().slice(0, RECORD_LIMITS.dutyLength)).filter(Boolean).slice(0, RECORD_LIMITS.duties),
-      bannedPhrases: check.banned(raw.bannedPhrases),
-    });
+    const value = unless(check.identity(raw.company), (company) =>
+      validated("job", {
+        company,
+        department: check.optional(raw.department),
+        title: check.optional(raw.title),
+        employment: raw.employment,
+        startMonth: check.month(raw.startMonth),
+        endMonth: check.month(raw.endMonth),
+        isOngoing: raw.isOngoing,
+        // 담당 업무는 주장으로 묻는다(지어낸 숫자가 든 줄은 needs_fix)
+        duties: raw.duties.map((line) => line.trim().slice(0, RECORD_LIMITS.dutyLength)).filter(Boolean).slice(0, RECORD_LIMITS.duties),
+        bannedPhrases: check.banned(raw.bannedPhrases),
+      }),
+    );
     const kept = take(value, (input) => {
-      const subject = subjectOfJob(input);
-      const claims = check.claimsOf(mergeClaims(findClaims(subject), raw.roleClaims, subject));
-      plan.jobs.push({ input, claims, scenes: scenesOf(raw.scenes) });
+      plan.jobs.push({ input, claims: check.claims(subjectOfJob(input), raw.roleClaims), scenes: scenesOf(raw.scenes) });
     });
     indexMap.job.push(kept ? plan.jobs.length - 1 : null);
   }
   for (const raw of answer.projects) {
-    const value = validated("project", {
-      name: check.short(raw.name),
-      parent: null, // 저장할 때 parentIndex로 정한다
-      startMonth: check.month(raw.startMonth),
-      endMonth: check.month(raw.endMonth),
-      isOngoing: raw.isOngoing,
-      role: check.short(raw.role),
-      tools: [...new Set(raw.tools.map(check.short))].filter(Boolean).slice(0, RECORD_LIMITS.tools),
-      summary: raw.summary.trim().slice(0, RECORD_LIMITS.summary),
-      bannedPhrases: check.banned(raw.bannedPhrases),
-    });
+    const value = unless(check.identity(raw.name), (name) =>
+      validated("project", {
+        name,
+        parent: null, // 저장할 때 parentIndex로 정한다
+        startMonth: check.month(raw.startMonth),
+        endMonth: check.month(raw.endMonth),
+        isOngoing: raw.isOngoing,
+        role: check.optional(raw.role),
+        tools: [...new Set(check.optionalList(raw.tools))].slice(0, RECORD_LIMITS.tools),
+        // 한 줄 소개는 주장으로 묻는다
+        summary: raw.summary.trim().slice(0, RECORD_LIMITS.summary),
+        bannedPhrases: check.banned(raw.bannedPhrases),
+      }),
+    );
     take(value, (input) => {
-      const subject = subjectOfProject(input);
-      const claims = check.claimsOf(mergeClaims(findClaims(subject), raw.roleClaims, subject));
       const mapped = raw.parentIndex ? (indexMap[raw.parentIndex.kind][raw.parentIndex.index] ?? null) : null;
       const parentIndex = raw.parentIndex && mapped !== null ? { kind: raw.parentIndex.kind, index: mapped } : null;
-      plan.projects.push({ input, claims, parentIndex, scenes: scenesOf(raw.scenes) });
+      plan.projects.push({ input, claims: check.claims(subjectOfProject(input), raw.roleClaims), parentIndex, scenes: scenesOf(raw.scenes) });
     });
   }
   for (const raw of answer.activities) {
-    const value = validated("activity", {
-      name: check.short(raw.name),
-      organization: check.short(raw.organization),
-      startMonth: check.month(raw.startMonth),
-      endMonth: check.month(raw.endMonth),
-      isOngoing: raw.isOngoing,
-      role: check.short(raw.role),
-    });
+    const value = unless(check.identity(raw.name), (name) =>
+      validated("activity", {
+        name,
+        organization: check.optional(raw.organization),
+        startMonth: check.month(raw.startMonth),
+        endMonth: check.month(raw.endMonth),
+        isOngoing: raw.isOngoing,
+        role: check.optional(raw.role),
+      }),
+    );
     take(value, (input) => plan.activities.push({ input, scenes: scenesOf(raw.scenes) }));
   }
-  return { ok: true, plan, skipped, more };
+  // inventedDropped: 원본에 없던 숫자 때문에 비운 칸, 버린 항목·도구·산출 근거의 수
+  return { ok: true, plan, skipped, more, inventedDropped: check.dropped() };
 }
 
 export type CreatedItem = { kind: FactKind | "scene"; id: string; name: string };
