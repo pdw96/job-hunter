@@ -17,6 +17,7 @@ import {
   planMoves,
   reopenAffiliate,
   retryMove,
+  resetBlock,
   resetMoves,
   reviveFailedHeads,
   setMoveRoles,
@@ -25,10 +26,9 @@ import type { Kind } from "./options";
 import { createFact } from "./facts-repo";
 import { createExperience, listExperiences } from "./repo";
 import { insertRecordClaims } from "./record-claims-repo";
-import type { JobInput, ProjectInput } from "./record-input";
 import { createScene } from "./scenes-repo";
-import type { SceneInput } from "./record-input";
-import { gaps, jobs, moves, projects, recordClaims, scenes } from "./schema";
+import type { JobInput, ProjectInput, SceneInput } from "./record-input";
+import { education, gaps, interviews, jobs, moves, projects, recordClaims, scenes } from "./schema";
 
 let db: Db;
 const t0 = new Date("2026-11-20T03:00:00Z");
@@ -608,4 +608,114 @@ test("moveSummary는 같은 기록이라 옮기지 않은(done) 개수를 따로
   await db.update(moves).set({ role: "duplicate", ref: b.oldId, status: "done" }).where(eq(moves.id, a.id));
   await db.update(moves).set({ role: "duplicate", ref: a.oldId, status: "pending" }).where(eq(moves.id, b.id));
   expect((await moveSummary(db, "u1")).duplicateDone).toBe(1);
+});
+
+// ---- 다시 하기가 막히는 경우 ----
+
+const later = (n = 5) => new Date(Date.now() + n * 60_000);
+const manualEducation = (userId: string) =>
+  db.insert(education).values({ id: `edu-${userId}`, userId, schoolName: "학교", degree: "bachelor", status: "graduated", movedFrom: "e-old" } as typeof education.$inferInsert);
+const addInterview = (userId: string, values: Partial<typeof interviews.$inferInsert>) =>
+  db.insert(interviews).values({ id: `iv-${Math.random()}`, userId, messages: [], status: "active", ...values });
+const unchanged = async (userId: string) => {
+  expect(await rowsOf(userId)).toHaveLength(1);
+  expect(await countOf(jobs, userId)).toBe(1);
+  expect(await countOf(scenes, userId)).toBeGreaterThanOrEqual(1);
+};
+
+test("옮긴 활동에 직접 넣은 사례가 딸려 있으면 in_use다", async () => {
+  await seedMigrated("u1");
+  const { activities } = await import("./schema");
+  await db.insert(activities).values({ id: "act1", userId: "u1", name: "활동", movedFrom: "a-old" } as typeof activities.$inferInsert);
+  okId(await createScene(db, "u1", sceneInput({ kind: "activity", id: "act1" }, "직접 사례")));
+  expect(await resetBlock(db, "u1")).toBe("in_use");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  await unchanged("u1");
+});
+
+test("옮긴 학력·교육 아래 직접 만든 프로젝트가 있으면 in_use다", async () => {
+  await seedMigrated("u1");
+  await manualEducation("u1");
+  const { courses } = await import("./schema");
+  await db.insert(courses).values({ id: "crs1", userId: "u1", name: "과정", movedFrom: "c-old" } as typeof courses.$inferInsert);
+  okId(await createFact(db, "u1", "project", projectInput("학교 프로젝트", { kind: "education", id: "edu-u1" })));
+  expect(await resetBlock(db, "u1")).toBe("in_use");
+  await db.delete(projects).where(eq(projects.name, "학교 프로젝트"));
+  okId(await createFact(db, "u1", "project", projectInput("과정 프로젝트", { kind: "course", id: "crs1" })));
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  await unchanged("u1");
+});
+
+test("옮긴 머리·사례의 진행 중인 인터뷰가 있으면 in_use, 끝난 인터뷰는 막지 않는다", async () => {
+  const { jobId, sceneId } = await seedMigrated("u1");
+  await addInterview("u1", { headKind: "job", headId: jobId });
+  expect(await resetBlock(db, "u1")).toBe("in_use");
+  await db.delete(interviews);
+  await addInterview("u1", { sceneId });
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  await unchanged("u1");
+  await db.update(interviews).set({ status: "done" });
+  expect(await resetBlock(db, "u1")).toBeNull();
+});
+
+test("resetMoves는 옮긴 머리·사례의 주장과 인터뷰를 함께 지운다(재직·프로젝트 주장, 사례·머리 인터뷰)", async () => {
+  const { jobId, projectId, sceneId } = await seedMigrated("u1");
+  await insertRecordClaims(db, "u1", { kind: "job", id: jobId }, [{ kind: "role", quote: "재직", phrase: null, origin: "code", status: "pending" }]);
+  await insertRecordClaims(db, "u1", { kind: "project", id: projectId }, [{ kind: "role", quote: "프로젝트", phrase: null, origin: "code", status: "pending" }]);
+  await addInterview("u1", { sceneId, status: "done" });
+  await addInterview("u1", { headKind: "job", headId: jobId, status: "done" });
+  await addInterview("u2", { headKind: "job", headId: "other", status: "done" });
+  expect((await db.select().from(recordClaims).where(eq(recordClaims.userId, "u1"))).length).toBe(3);
+  expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+  expect(await db.select().from(recordClaims).where(eq(recordClaims.userId, "u1"))).toEqual([]);
+  expect(await db.select().from(interviews).where(eq(interviews.userId, "u1"))).toEqual([]);
+  expect(await db.select().from(interviews).where(eq(interviews.userId, "u2"))).toHaveLength(1);
+});
+
+test("옮긴 뒤 고친 행(content_version > 0)이 있으면 edited로 아무것도 바꾸지 않는다", async () => {
+  const { jobId } = await seedMigrated("u1");
+  expect(await resetBlock(db, "u1")).toBeNull();
+  await db.update(jobs).set({ contentVersion: 1 }).where(eq(jobs.id, jobId));
+  expect(await resetBlock(db, "u1")).toBe("edited");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "edited" });
+  await unchanged("u1");
+});
+
+test("옮긴 뒤 확인한 행(confirmed_at이 만든 때보다 1분 넘게 뒤)이 있으면 edited다. 장면이어도 마찬가지다", async () => {
+  const { sceneId, projectId } = await seedMigrated("u1");
+  await db.update(projects).set({ confirmedAt: later(0.5) }).where(eq(projects.id, projectId));
+  expect(await resetBlock(db, "u1")).toBeNull(); // 1분 안은 같은 때로 본다
+  await db.update(scenes).set({ confirmedAt: later(5) }).where(eq(scenes.id, sceneId));
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "edited" });
+  await unchanged("u1");
+});
+
+test("이어받은 확인(confirmed_at이 만든 때보다 앞)은 막지 않는다", async () => {
+  const { jobId } = await seedMigrated("u1");
+  await db.update(jobs).set({ confirmedAt: new Date("2020-01-01T00:00:00Z") }).where(eq(jobs.id, jobId));
+  expect(await resetBlock(db, "u1")).toBeNull();
+  expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+});
+
+test("옮긴 뒤 답한 주장(updated_at이 만든 때보다 1분 넘게 뒤)이 있으면 edited다", async () => {
+  await seedMigrated("u1");
+  await db.update(recordClaims).set({ updatedAt: later(5), status: "confirmed" as never });
+  expect(await resetBlock(db, "u1")).toBe("edited");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "edited" });
+  await unchanged("u1");
+  expect((await db.select().from(recordClaims).where(eq(recordClaims.userId, "u1"))).length).toBe(1);
+});
+
+test("직접 만든 행을 고쳤거나 다른 사용자가 고친 것은 edited로 세지 않는다", async () => {
+  await seedMigrated("u1");
+  await seedMigrated("u2");
+  const manualJob = okId(await createFact(db, "u1", "job", { ...jobInput, company: "직접 회사" }));
+  await db.update(jobs).set({ contentVersion: 3, confirmedAt: later(10) }).where(eq(jobs.id, manualJob));
+  await db.update(jobs).set({ contentVersion: 3 }).where(eq(jobs.userId, "u2"));
+  expect(await resetBlock(db, "u1")).toBeNull();
+  expect(await resetBlock(db, "u2")).toBe("edited");
+});
+
+test("resetBlock은 옮긴 기록이 없으면 null이다", async () => {
+  expect(await resetBlock(db, "u1")).toBeNull();
 });

@@ -4,7 +4,7 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import type { Claim } from "@/modules/experiences/claims";
 import { listFacts } from "@/modules/experiences/facts-repo";
-import { migratedCount, moveBanner, moveSummary } from "@/modules/experiences/move-repo";
+import { migratedCount, moveBanner, moveSummary, resetBlock } from "@/modules/experiences/move-repo";
 import { listRecordClaims } from "@/modules/experiences/record-claims-repo";
 import type { FactKind } from "@/modules/experiences/record-options";
 import { newRecordsOn } from "@/modules/experiences/switch";
@@ -41,7 +41,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
   const tab: TabId = TABS.find((t) => t.id === tabParam)?.id ?? "school";
 
   const facts = await listFacts(db, user.id);
-  const [summary, migrated] = await Promise.all([moveSummary(db, user.id), migratedCount(db, user.id)]);
+  const [summary, migrated, block] = await Promise.all([moveSummary(db, user.id), migratedCount(db, user.id), resetBlock(db, user.id)]);
   const banner = moveBanner(summary);
   // 열린 주장은 경력 탭에서만 보인다
   const claims: Record<string, Claim[]> = {};
@@ -149,7 +149,7 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
         </Section>
       )}
 
-      {migrated > 0 && <ResetMovesButton count={migrated} />}
+      {migrated > 0 && block === null && <ResetMovesButton count={migrated} />}
     </div>
   );
 }

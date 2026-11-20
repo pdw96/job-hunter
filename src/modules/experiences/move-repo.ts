@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, ne, notExists, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/db/types";
 import type { Kind } from "./options";
 import { type ExperienceSummary, listExperiences } from "./repo";
-import { activities, courses, credentials, education, experiences, gaps, jobs, moves, projects, scenes } from "./schema";
+import { activities, courses, credentials, education, experiences, gaps, interviews, jobs, moves, projects, recordClaims, scenes } from "./schema";
 
 // 옛 기록을 새 표로 옮기는 일의 목록(experiences_moves). 옛 기록 하나가 record 행 하나이고,
 // 그 앞에 옛 기록 전체를 보고 역할(같은 기록, 다른 머리의 사례)을 정하는 classify 행이,
@@ -382,47 +382,109 @@ export async function migratedCount(db: Db, userId: string): Promise<number> {
   return counts.reduce((sum, [row]) => sum + row.n, 0);
 }
 
-// 옮겨서 만든 기록을 모두 지우고 옮기기 행도 지워, 옛 기록에서 처음부터 다시 옮길 수 있게 한다. 옛 표와 다른 사용자는 건드리지 않는다.
-// 직접 넣은 기록(moved_from 없음)이 옮긴 머리에 딸려 있으면 지우지 않고 in_use로 돌려준다
-export async function resetMoves(db: Db, userId: string): Promise<{ ok: true } | { ok: false; reason: "in_use" }> {
-  return db.transaction(async (tx) => {
-    const migratedIds = async (table: (typeof HEAD_TABLES)[number]) =>
-      (await tx.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)))).map((row) => row.id);
-    const [project, activity, job, school, course] = await Promise.all([
-      migratedIds(projects),
-      migratedIds(activities),
-      migratedIds(jobs),
-      migratedIds(education),
-      migratedIds(courses),
-    ]);
-    const any = (ids: string[]) => (ids.length > 0 ? ids : [""]);
-    // 직접 넣은 사례가 옮긴 머리에 딸려 있다 / 직접 만든 프로젝트의 소속이 옮긴 경력·학교·과정이다
-    const [scene] = await tx
-      .select({ id: scenes.id })
-      .from(scenes)
-      .where(
-        and(
-          eq(scenes.userId, userId),
-          isNull(scenes.movedFrom),
-          or(inArray(scenes.projectId, any(project)), inArray(scenes.activityId, any(activity)), inArray(scenes.jobId, any(job))),
-        ),
-      )
-      .limit(1);
-    const [child] = await tx
-      .select({ id: projects.id })
-      .from(projects)
-      .where(
-        and(
-          eq(projects.userId, userId),
-          isNull(projects.movedFrom),
-          or(inArray(projects.jobId, any(job)), inArray(projects.educationId, any(school)), inArray(projects.courseId, any(course))),
-        ),
-      )
-      .limit(1);
-    if (scene || child) return { ok: false as const, reason: "in_use" as const };
+type ResetBlock = "in_use" | "edited";
 
-    // 사례(주장·인터뷰는 cascade) → 머리·이력 사실 → 옮기기 행
+const MIGRATED_TABLES = [...HEAD_TABLES, scenes] as const;
+const none = (ids: string[]) => (ids.length > 0 ? ids : [""]);
+
+// 지금 다시 하기가 막히는 까닭(막히지 않으면 null). 읽기만 한다. resetMoves는 트랜잭션 안에서 같은 검사를 한다
+// - in_use: 직접 넣은 사례·프로젝트가 옮긴 머리에 딸려 있거나, 옮긴 머리·사례의 인터뷰가 진행 중이다
+// - edited: 옮긴 뒤 옮긴 행을 고쳤거나(content_version > 0) 확인했거나(이어받은 확인은 옛 기록의 이른 시각이라 걸리지 않는다),
+//   옮긴 머리·사례의 주장에 옮긴 뒤 답했다
+export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | null> {
+  const migratedIds = async (table: (typeof MIGRATED_TABLES)[number]) =>
+    (await db.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)))).map((row) => row.id);
+  const [project, activity, job, school, course, sceneIds] = await Promise.all([
+    migratedIds(projects),
+    migratedIds(activities),
+    migratedIds(jobs),
+    migratedIds(education),
+    migratedIds(courses),
+    migratedIds(scenes),
+  ]);
+  // 직접 넣은 사례가 옮긴 머리에 딸려 있다 / 직접 만든 프로젝트의 소속이 옮긴 경력·학교·과정이다
+  const [scene] = await db
+    .select({ id: scenes.id })
+    .from(scenes)
+    .where(
+      and(
+        eq(scenes.userId, userId),
+        isNull(scenes.movedFrom),
+        or(inArray(scenes.projectId, none(project)), inArray(scenes.activityId, none(activity)), inArray(scenes.jobId, none(job))),
+      ),
+    )
+    .limit(1);
+  const [child] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.userId, userId),
+        isNull(projects.movedFrom),
+        or(inArray(projects.jobId, none(job)), inArray(projects.educationId, none(school)), inArray(projects.courseId, none(course))),
+      ),
+    )
+    .limit(1);
+  const [interview] = await db
+    .select({ id: interviews.id })
+    .from(interviews)
+    .where(
+      and(
+        eq(interviews.userId, userId),
+        eq(interviews.status, "active"),
+        or(inArray(interviews.sceneId, none(sceneIds)), inArray(interviews.headId, none([...project, ...activity, ...job]))),
+      ),
+    )
+    .limit(1);
+  if (scene || child || interview) return "in_use";
+
+  for (const table of MIGRATED_TABLES) {
+    const [row] = await db
+      .select({ id: table.id })
+      .from(table)
+      .where(
+        and(
+          eq(table.userId, userId),
+          isNotNull(table.movedFrom),
+          or(gt(table.contentVersion, 0), sql`${table.confirmedAt} > ${table.createdAt} + interval '1 minute'`),
+        ),
+      )
+      .limit(1);
+    if (row) return "edited";
+  }
+  const [claim] = await db
+    .select({ id: recordClaims.id })
+    .from(recordClaims)
+    .where(
+      and(
+        eq(recordClaims.userId, userId),
+        sql`${recordClaims.updatedAt} > ${recordClaims.createdAt} + interval '1 minute'`,
+        or(inArray(recordClaims.sceneId, none(sceneIds)), inArray(recordClaims.jobId, none(job)), inArray(recordClaims.projectId, none(project))),
+      ),
+    )
+    .limit(1);
+  return claim ? "edited" : null;
+}
+
+// 옮겨서 만든 기록을 모두 지우고 옮기기 행도 지워, 옛 기록에서 처음부터 다시 옮길 수 있게 한다. 옛 표와 다른 사용자는 건드리지 않는다.
+// 막히는 까닭(resetBlock)이 있으면 아무것도 지우지 않고 그 까닭을 돌려준다
+export async function resetMoves(db: Db, userId: string): Promise<{ ok: true } | { ok: false; reason: ResetBlock }> {
+  return db.transaction(async (tx) => {
+    // 검사하는 사이 다른 요청이 옮긴 머리·사례를 고치거나 딸림 기록을 달지 못하게 그 행을 잠근다
+    for (const table of MIGRATED_TABLES) {
+      await tx.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom))).for("update");
+    }
+    const block = await resetBlock(tx as unknown as Db, userId);
+    if (block) return { ok: false as const, reason: block };
+
+    // 사례(주장·사례 인터뷰는 cascade) → 머리 인터뷰 → 머리·이력 사실 → 옮기기 행
+    const headIds = (
+      await Promise.all(
+        [projects, activities, jobs].map((table) => tx.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)))),
+      )
+    ).flatMap((rows) => rows.map((row) => row.id));
     await tx.delete(scenes).where(and(eq(scenes.userId, userId), isNotNull(scenes.movedFrom)));
+    await tx.delete(interviews).where(and(eq(interviews.userId, userId), inArray(interviews.headId, none(headIds))));
     for (const table of HEAD_TABLES) await tx.delete(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom)));
     await tx.delete(moves).where(eq(moves.userId, userId));
     return { ok: true as const };

@@ -162,3 +162,13 @@ test("resetMovesCommand는 옮긴 기록을 지워 다시 옮길 수 있게 하�
   expect(await resetMovesCommand(db, "u1")).toEqual({ ok: false, message: "직접 넣은 사례가 옮긴 기록에 딸려 있어 다시 옮길 수 없습니다" });
   expect((await db.select().from(moves).where(eq(moves.userId, "u1"))).length).toBeGreaterThan(0);
 });
+
+test("resetMovesCommand는 옮긴 뒤 고친 기록이 있으면 그 문구로 막고 아무것도 지우지 않는다", async () => {
+  await seed();
+  const fake = ai();
+  for (let i = 0; i < 4; i += 1) await moveNext(db, fake, "u1");
+  const [head] = await db.select().from(projects).where(eq(projects.userId, "u1"));
+  await db.update(projects).set({ contentVersion: 1 }).where(eq(projects.id, head.id));
+  expect(await resetMovesCommand(db, "u1")).toEqual({ ok: false, message: "옮긴 뒤 고치거나 확인한 기록이 있어 다시 옮길 수 없습니다" });
+  expect((await db.select().from(moves).where(eq(moves.userId, "u1"))).length).toBeGreaterThan(0);
+});
