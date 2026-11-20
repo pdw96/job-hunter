@@ -4,7 +4,20 @@ import { createTestDb } from "@/db/test-db";
 import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
 import type { ExperienceInput } from "./input";
-import { claimNextMove, finishMove, moveProgress, moveBanner, moveSummary, needsMove, planMoves, reopenAffiliate, retryMove } from "./move-repo";
+import {
+  claimNextMove,
+  failPendingMoves,
+  finishMove,
+  hasSceneMoves,
+  moveBanner,
+  moveProgress,
+  moveSummary,
+  needsMove,
+  planMoves,
+  reopenAffiliate,
+  retryMove,
+  setMoveRoles,
+} from "./move-repo";
 import type { Kind } from "./options";
 import { createExperience } from "./repo";
 import { moves } from "./schema";
@@ -32,6 +45,12 @@ const old = (name: string, kind: Kind): ExperienceInput => ({
 });
 
 const rowsOf = (userId: string) => db.select().from(moves).where(eq(moves.userId, userId));
+
+// 정리(classify)가 끝난 상태로 할 일을 만든다(기록 행끼리의 순서만 보는 테스트용)
+async function planClassified(userId: string) {
+  await planMoves(db, userId);
+  await db.update(moves).set({ status: "done" }).where(and(eq(moves.userId, userId), eq(moves.step, "classify")));
+}
 
 beforeEach(async () => {
   db = await createTestDb();
@@ -65,7 +84,7 @@ test("프로젝트나 조직이 될 기록이 없으면 affiliate 행을 만들�
   await createExperience(db, "u1", old("결제 개편", "project"));
   await createExperience(db, "u1", old("봉사", "other"));
   await planMoves(db, "u1");
-  expect((await rowsOf("u1")).map((row) => row.step)).toEqual(["record", "record"]);
+  expect((await rowsOf("u1")).map((row) => row.step).sort()).toEqual(["classify", "record", "record"]);
 
   await createExperience(db, "u2", old("가나다상사", "job"));
   await planMoves(db, "u2");
@@ -86,7 +105,7 @@ test("나중에 생긴 옛 기록은 다시 부를 때 더한다", async () => {
 test("동시에 두 번 돌려도 하나만 옮긴다", async () => {
   await createExperience(db, "u1", old("가나다상사", "job"));
   await createExperience(db, "u1", old("나라상사", "job"));
-  await planMoves(db, "u1");
+  await planClassified("u1");
   const [a, b] = await Promise.all([claimNextMove(db, "u1", t0), claimNextMove(db, "u1", t0)]);
   expect(a).not.toBeNull();
   expect(b).not.toBeNull();
@@ -94,7 +113,7 @@ test("동시에 두 번 돌려도 하나만 옮긴다", async () => {
   // 둘 다 잡혀 있으면 더 잡을 것이 없다
   expect(await claimNextMove(db, "u1", t0)).toBeNull();
   const rows = await rowsOf("u1");
-  expect(rows.every((row) => row.status === "running")).toBe(true);
+  expect(rows.filter((row) => row.step === "record").every((row) => row.status === "running")).toBe(true);
 });
 
 test("running이 5분 지나면 다시 잡는다", async () => {
@@ -112,7 +131,7 @@ test("running이 5분 지나면 다시 잡는다", async () => {
 test("affiliate는 record가 모두 done·failed일 때만 잡힌다", async () => {
   const projectId = await createExperience(db, "u1", old("결제 개편", "project"));
   const jobId = await createExperience(db, "u1", old("가나다상사", "job"));
-  await planMoves(db, "u1");
+  await planClassified("u1");
 
   const first = await claimNextMove(db, "u1", t0);
   expect(first?.step).toBe("record");
@@ -132,7 +151,7 @@ test("affiliate는 record가 모두 done·failed일 때만 잡힌다", async () 
 test("affiliate는 record가 하나라도 pending이면 잡히지 않는다", async () => {
   await createExperience(db, "u1", old("결제 개편", "project"));
   await createExperience(db, "u1", old("가나다상사", "job"));
-  await planMoves(db, "u1");
+  await planClassified("u1");
   const first = await claimNextMove(db, "u1", t0);
   await finishMove(db, "u1", first!.id, { ok: true });
   const next = await claimNextMove(db, "u1", t0);
@@ -164,7 +183,7 @@ test("needsMove는 행이 없는 옛 기록이나 남은 일이 있을 때만 tr
   await createExperience(db, "u1", old("가나다상사", "job"));
   await createExperience(db, "u1", old("한국대학교", "school"));
   expect(await needsMove(db, "u1")).toBe(true);
-  await planMoves(db, "u1");
+  await planClassified("u1");
   expect(await needsMove(db, "u1")).toBe(true);
 
   const a = await claimNextMove(db, "u1", t0);
@@ -196,8 +215,9 @@ test("moveProgress는 수와 실패한 기록의 이름을 돌려준다", async 
   await createExperience(db, "u1", old("가나다상사", "job"));
   await createExperience(db, "u1", old("한국대학교", "school"));
   await createExperience(db, "u1", old("결제 개편", "project"));
-  await planMoves(db, "u1");
-  expect(await moveProgress(db, "u1")).toEqual({ total: 4, done: 0, failed: [], pending: 4 });
+  await planClassified("u1");
+  // 기록 셋 + 소속 잇기 + 끝난 정리
+  expect(await moveProgress(db, "u1")).toEqual({ total: 5, done: 1, failed: [], pending: 4 });
 
   const claimed = await claimNextMove(db, "u1", t0);
   const [row] = await db.select().from(moves).where(and(eq(moves.userId, "u1"), eq(moves.id, claimed!.id)));
@@ -206,8 +226,8 @@ test("moveProgress는 수와 실패한 기록의 이름을 돌려준다", async 
   await finishMove(db, "u1", next!.id, { ok: true });
 
   const progress = await moveProgress(db, "u1");
-  expect(progress.total).toBe(4);
-  expect(progress.done).toBe(1);
+  expect(progress.total).toBe(5);
+  expect(progress.done).toBe(2);
   expect(progress.pending).toBe(2);
   expect(progress.failed).toHaveLength(1);
   expect(progress.failed[0].id).toBe(row.id);
@@ -283,9 +303,148 @@ test("moveSummary는 옛 구분마다 전체·완료·실패·메모를 모은�
 });
 
 test("moveBanner는 기록 실패, 소속 제안만 실패, 실패 없음을 가른다", () => {
-  const base = { kinds: [], recordTotal: 2, recordDone: 2, recordFailed: 0, affiliate: null };
+  const base = { kinds: [], recordTotal: 2, recordDone: 2, recordFailed: 0, affiliate: null, classify: null };
   const failedAffiliate = { id: "a", status: "failed" as const, error: "x" };
   expect(moveBanner(base)).toBeNull();
   expect(moveBanner({ ...base, affiliate: failedAffiliate })).toBe("프로젝트 소속 제안을 하지 못했습니다 · 다시 시도");
   expect(moveBanner({ ...base, recordFailed: 1, affiliate: failedAffiliate })).toBe("옮기지 못한 기록 1개 · 다시 시도");
+});
+
+// ---- 정리(classify) ----
+
+const classifyOf = async (userId: string) => (await rowsOf(userId)).filter((row) => row.step === "classify");
+const recordOf = async (userId: string, oldId: string) => (await rowsOf(userId)).find((row) => row.oldId === oldId)!;
+
+test("planMoves는 옛 기록이 둘 이상이면 classify 행을 하나 만들고, 동시에 몇 번 불러도 하나다", async () => {
+  await createExperience(db, "u1", old("한빛대학교", "school"));
+  await createExperience(db, "u1", old("한빛대학교", "school"));
+  await Promise.all([planMoves(db, "u1"), planMoves(db, "u1"), planMoves(db, "u1")]);
+  const rows = await classifyOf("u1");
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ status: "pending", oldId: null, role: null, ref: null });
+  // 옛 기록이 하나면 정리할 것이 없다
+  await createExperience(db, "u2", old("한빛상사", "job"));
+  await planMoves(db, "u2");
+  expect(await classifyOf("u2")).toEqual([]);
+});
+
+test("이미 옮기기를 시작한(끝난 행이 있는) 사용자에게는 classify 행을 더하지 않는다", async () => {
+  await createExperience(db, "u1", old("한빛대학교", "school"));
+  await createExperience(db, "u1", old("한빛상사", "job"));
+  await planMoves(db, "u1");
+  // 정리가 없던 때 옮긴 사용자처럼 classify 행을 지우고 기록 행을 끝낸다
+  await db.delete(moves).where(and(eq(moves.userId, "u1"), eq(moves.step, "classify")));
+  await db.update(moves).set({ status: "done" }).where(eq(moves.userId, "u1"));
+  await planMoves(db, "u1");
+  expect(await classifyOf("u1")).toEqual([]);
+  expect(await needsMove(db, "u1")).toBe(false);
+});
+
+test("classify가 먼저 잡히고, 끝나기 전(pending·running·failed)에는 기록 행이 잡히지 않는다", async () => {
+  await createExperience(db, "u1", old("한빛대학교", "school"));
+  await createExperience(db, "u1", old("한빛상사", "job"));
+  await planMoves(db, "u1");
+  const first = await claimNextMove(db, "u1", t0);
+  expect(first).toMatchObject({ step: "classify", oldId: null });
+  expect(await claimNextMove(db, "u1", t0)).toBeNull(); // running
+  await finishMove(db, "u1", first!.id, { ok: false, error: "AI 서비스에 연결하지 못했습니다" });
+  expect(await claimNextMove(db, "u1", t0)).toBeNull(); // failed: 기록은 기다린다
+  const records = (await rowsOf("u1")).filter((row) => row.step === "record");
+  expect(records.every((row) => row.status === "pending")).toBe(true);
+  // 실패한 정리는 진행에서 기다림으로 세지 않아 화면이 멈추고, 실패 줄에 이름이 나온다
+  const progress = await moveProgress(db, "u1");
+  expect(progress.pending).toBe(0);
+  expect(progress.failed).toEqual([{ id: first!.id, name: "같은 기록·사례 정리", error: "AI 서비스에 연결하지 못했습니다" }]);
+  // 다시 시도하면 정리부터
+  expect(await retryMove(db, "u1", first!.id, t0)).toEqual({ ok: true });
+  const again = await claimNextMove(db, "u1", t0);
+  expect(again?.step).toBe("classify");
+  await finishMove(db, "u1", again!.id, { ok: true });
+  expect((await claimNextMove(db, "u1", t0))?.step).toBe("record");
+});
+
+test("setMoveRoles는 끝나지 않은 기록 행에 역할과 짝을 적고, claimNextMove는 장면을 머리가 done일 때만 잡는다", async () => {
+  const job = await createExperience(db, "u1", old("한빛전자", "job"));
+  const star = await createExperience(db, "u1", old("성과 사례 · 재고 정리 (STAR)", "project"));
+  const school = await createExperience(db, "u1", old("한빛대학교", "school"));
+  await planMoves(db, "u1");
+  const classify = await claimNextMove(db, "u1", t0);
+  await setMoveRoles(db, "u1", [
+    { oldId: job, role: "head", ref: null },
+    { oldId: star, role: "scene", ref: job },
+    { oldId: school, role: "fact", ref: null },
+  ]);
+  await setMoveRoles(db, "u2", [{ oldId: school, role: "duplicate", ref: job }]); // 남의 것은 바뀌지 않는다
+  await finishMove(db, "u1", classify!.id, { ok: true });
+  expect(await recordOf("u1", star)).toMatchObject({ role: "scene", ref: job });
+  expect(await recordOf("u1", school)).toMatchObject({ role: "fact", ref: null });
+  expect(await hasSceneMoves(db, "u1", job)).toBe(true);
+  expect(await hasSceneMoves(db, "u1", school)).toBe(false);
+  expect(await hasSceneMoves(db, "u2", job)).toBe(false);
+
+  const a = await claimNextMove(db, "u1", t0);
+  const b = await claimNextMove(db, "u1", t0);
+  expect([a?.oldId, b?.oldId].sort()).toEqual([job, school].sort());
+  expect(await claimNextMove(db, "u1", t0)).toBeNull(); // 머리가 아직 running
+  const jobMove = a?.oldId === job ? a : b;
+  expect(jobMove).toMatchObject({ role: "head", ref: null });
+  await finishMove(db, "u1", jobMove!.id, { ok: true });
+  const scene = await claimNextMove(db, "u1", t0);
+  expect(scene).toMatchObject({ step: "record", oldId: star, role: "scene", ref: job });
+});
+
+test("머리가 실패하면 기다리던 장면도 실패하고, 머리를 다시 시도하면 장면도 pending이 된다", async () => {
+  const job = await createExperience(db, "u1", old("한빛전자", "job"));
+  const star = await createExperience(db, "u1", old("성과 사례 · 재고 정리 (STAR)", "project"));
+  await planMoves(db, "u1");
+  const classify = await claimNextMove(db, "u1", t0);
+  await setMoveRoles(db, "u1", [
+    { oldId: job, role: "head", ref: null },
+    { oldId: star, role: "scene", ref: job },
+  ]);
+  await finishMove(db, "u1", classify!.id, { ok: true });
+  const head = await claimNextMove(db, "u1", t0);
+  await finishMove(db, "u1", head!.id, { ok: false, error: "AI 서비스에 연결하지 못했습니다" });
+  expect(await recordOf("u1", star)).toMatchObject({ status: "failed", error: "소속 기록을 옮기지 못했습니다" });
+  // 남은 기록이 없으니 소속 잇기로 넘어간다
+  const affiliate = await claimNextMove(db, "u1", t0);
+  expect(affiliate?.step).toBe("affiliate");
+  await finishMove(db, "u1", affiliate!.id, { ok: true });
+
+  await retryMove(db, "u1", head!.id, t0);
+  expect(await recordOf("u1", star)).toMatchObject({ status: "pending", error: null });
+  // 장면만 다시 시도해도 실패한 머리가 함께 pending이 된다
+  const again = await claimNextMove(db, "u1", t0);
+  await finishMove(db, "u1", again!.id, { ok: false, error: "x" });
+  await retryMove(db, "u1", (await recordOf("u1", star)).id, t0);
+  expect((await recordOf("u1", job)).status).toBe("pending");
+  expect((await claimNextMove(db, "u1", t0))?.oldId).toBe(job);
+});
+
+test("기록 행을 다시 시도하면 실패한 정리도 pending이 된다(정리 없이 기다리기만 하지 않게)", async () => {
+  const school = await createExperience(db, "u1", old("한빛대학교", "school"));
+  await createExperience(db, "u1", old("한빛상사", "job"));
+  await planMoves(db, "u1");
+  await failPendingMoves(db, "u1", "한도", t0);
+  expect((await classifyOf("u1"))[0].status).toBe("failed");
+  await retryMove(db, "u1", (await recordOf("u1", school)).id, t0);
+  expect((await classifyOf("u1"))[0].status).toBe("pending");
+  expect((await claimNextMove(db, "u1", t0))?.step).toBe("classify");
+});
+
+test("moveSummary는 classify 행을 구분 줄에 넣지 않고 따로 돌려주며, 같은 기록(done)도 옮김으로 센다", async () => {
+  const a = await createExperience(db, "u1", old("한빛대학교", "school"));
+  const b = await createExperience(db, "u1", old("한빛대학교", "school"));
+  await planMoves(db, "u1");
+  const classify = (await classifyOf("u1"))[0];
+  let summary = await moveSummary(db, "u1");
+  expect(summary.classify).toEqual({ id: classify.id, status: "pending", error: "" });
+  expect(summary.affiliate).toBeNull();
+  expect(summary.recordTotal).toBe(2);
+  await finishMove(db, "u1", classify.id, { ok: true });
+  await finishMove(db, "u1", (await recordOf("u1", a)).id, { ok: true });
+  await finishMove(db, "u1", (await recordOf("u1", b)).id, { ok: true, note: "같은 기록이 있어 하나만 옮겼습니다" });
+  summary = await moveSummary(db, "u1");
+  expect(summary).toMatchObject({ recordTotal: 2, recordDone: 2, recordFailed: 0, classify: { status: "done" } });
+  expect(summary.kinds).toHaveLength(1);
 });

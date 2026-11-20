@@ -222,12 +222,14 @@ export async function requestRecordImport(
   ai: AiClient,
   userId: string,
   sourceText: string,
-  options: { purpose?: "import_records" | "migrate"; hint?: Kind } = {},
+  // headOnly: 옮기기에서 사례 기록이 따로 딸린 재직이면 머리만 받는다(답을 짧게. 남은 장면은 옮기는 쪽이 버린다)
+  options: { purpose?: "import_records" | "migrate"; hint?: Kind; headOnly?: boolean } = {},
   now: Date = new Date(),
 ): Promise<{ ok: true; plan: ImportPlan; skipped: number; more: boolean; inventedDropped: number } | { ok: false; reason: Failure }> {
   // 옮기기는 한 목적(migrate)에 세 가지 요청이 있어, 첫 줄로 무엇을 하는지 적는다(로컬 미리보기의 가짜 AI도 이것으로 고른다)
   const tag = options.purpose === "migrate" ? "[옮기기: 나누기]\n" : "";
-  const lead = options.hint ? `이 글은 예전 기록의 '${KIND_LABELS[options.hint]}' 한 건입니다\n\n` : "";
+  const only = options.headOnly ? ". 이 회사의 사례는 따로 옮깁니다. 경력 머리(담당 업무까지)만 적고 scenes는 빈 배열로 둡니다" : "";
+  const lead = options.hint ? `이 글은 예전 기록의 '${KIND_LABELS[options.hint]}' 한 건입니다${only}\n\n` : "";
   const result = await runAi(
     db,
     ai,

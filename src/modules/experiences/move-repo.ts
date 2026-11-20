@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, lt, notExists, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, notExists, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/db/types";
 import type { Kind } from "./options";
@@ -7,14 +7,24 @@ import { type ExperienceSummary, listExperiences } from "./repo";
 import { experiences, moves } from "./schema";
 
 // 옛 기록을 새 표로 옮기는 일의 목록(experiences_moves). 옛 기록 하나가 record 행 하나이고,
+// 그 앞에 옛 기록 전체를 보고 역할(같은 기록, 다른 머리의 사례)을 정하는 classify 행이,
 // 모두 끝난 뒤 옮긴 프로젝트의 소속을 잇는 affiliate 행이 사용자마다 하나까지 있다. 옛 표는 읽기만 한다.
 
+export type MoveRole = NonNullable<typeof moves.$inferSelect.role>;
 export type MoveProgress = { total: number; done: number; failed: { id: string; name: string; error: string }[]; pending: number };
-export type ClaimedMove = { id: string; step: "record" | "affiliate"; oldId: string | null };
+export type ClaimedMove = {
+  id: string;
+  step: "classify" | "record" | "affiliate";
+  oldId: string | null;
+  role: MoveRole | null;
+  ref: string | null;
+};
 
 // running인 채로 이만큼 지나면 멈춘 것으로 보고 다시 잡는다(화면을 닫았거나 서버가 끊김)
 const STALE_MS = 5 * 60_000;
 const AFFILIATE_NAME = "프로젝트 소속 잇기";
+const CLASSIFY_NAME = "같은 기록·사례 정리";
+export const HEAD_FAILED = "소속 기록을 옮기지 못했습니다";
 // 프로젝트가 딸릴 조직이 되는 옛 구분(재직·학력·교육)
 const PARENT_KINDS: readonly Kind[] = ["job", "school", "training"];
 
@@ -24,6 +34,16 @@ const needsAffiliate = (old: ExperienceSummary[]) =>
 
 export async function planMoves(db: Db, userId: string): Promise<void> {
   const old = await listExperiences(db, userId);
+  // 정리는 옛 기록이 둘 이상이고, 아직 어느 기록도 옮기기 시작하지 않았을 때만 둔다(정리가 생기기 전에 옮긴 사용자는 건너뛴다).
+  // 기록 행보다 먼저 넣어, 그 사이 다른 탭이 기록 행을 먼저 잡지 않게 한다. 부분 고유 색인이 하나로 막는다
+  if (old.length >= 2) {
+    const [started] = await db
+      .select({ id: moves.id })
+      .from(moves)
+      .where(and(eq(moves.userId, userId), eq(moves.step, "record"), ne(moves.status, "pending")))
+      .limit(1);
+    if (!started) await db.insert(moves).values({ id: randomUUID(), userId, step: "classify", oldId: null }).onConflictDoNothing();
+  }
   // 이미 행이 있는 기록은 고유 색인(user_id, old_id)이 걸러 낸다
   if (old.length > 0) {
     await db
@@ -64,7 +84,9 @@ export async function needsMove(db: Db, userId: string): Promise<boolean> {
   return row?.needed === true;
 }
 
-// 할 일 하나를 running으로 잡는다. 고르기와 바꾸기를 한 문장으로 해서, 동시에 불러도 같은 행을 둘이 잡지 않는다.
+// 할 일 하나를 running으로 잡는다. 순서는 classify → 이력 사실·머리 → 장면 → affiliate.
+// 기록 행은 classify가 끝나야(없거나 done) 잡히고, 장면은 머리가 될 기록 행이 done이어야 잡힌다.
+// 고르기와 바꾸기를 한 문장으로 해서, 동시에 불러도 같은 행을 둘이 잡지 않는다.
 // 실제 Postgres(READ COMMITTED)에서 왜 안전한가: 두 호출이 같은 스냅숏으로 같은 행 A를 고르면, UPDATE가 A의 행 잠금을 먼저 잡은
 // 쪽만 바꾸고 다른 쪽은 그 트랜잭션이 끝날 때까지 기다린다. 기다린 쪽은 A의 새 값(running, 방금 시작)으로 바깥 WHERE의
 // claimable을 다시 평가하고(EvalPlanQual), 조건에 맞지 않아 0행을 바꾸고 null을 돌려준다. 그래서 같은 행을 둘이 잡지 않는다.
@@ -78,11 +100,28 @@ export async function claimNextMove(db: Db, userId: string, now: Date): Promise<
     .select({ id: unfinished.id })
     .from(unfinished)
     .where(and(eq(unfinished.userId, userId), eq(unfinished.step, "record"), inArray(unfinished.status, ["pending", "running"])));
+  // 기록 행은 정리가 끝나지 않았으면(pending·running·failed) 기다린다
+  const classifying = alias(moves, "classifying");
+  const classifyLeft = db
+    .select({ id: classifying.id })
+    .from(classifying)
+    .where(and(eq(classifying.userId, userId), eq(classifying.step, "classify"), ne(classifying.status, "done")));
+  // 장면은 머리가 될 기록 행이 done일 때만. 머리가 실패하면 finishMove가 장면도 실패로 둔다
+  const head = alias(moves, "head");
+  const headLeft = db
+    .select({ id: head.id })
+    .from(head)
+    .where(and(eq(head.userId, userId), eq(head.step, "record"), eq(head.oldId, moves.ref), ne(head.status, "done")));
+  const recordReady = and(eq(moves.step, "record"), notExists(classifyLeft), or(sql`${moves.role} is distinct from 'scene'`, notExists(headLeft)));
   const next = db
     .select({ id: moves.id })
     .from(moves)
-    .where(and(eq(moves.userId, userId), claimable, or(eq(moves.step, "record"), notExists(recordsLeft))))
-    .orderBy(sql`${moves.step} = 'affiliate'`, asc(moves.updatedAt), asc(moves.id))
+    .where(and(eq(moves.userId, userId), claimable, or(eq(moves.step, "classify"), recordReady, and(eq(moves.step, "affiliate"), notExists(recordsLeft)))))
+    .orderBy(
+      sql`case when ${moves.step} = 'classify' then 0 when ${moves.step} = 'affiliate' then 3 when ${moves.role} = 'scene' then 2 else 1 end`,
+      asc(moves.updatedAt),
+      asc(moves.id),
+    )
     .limit(1);
   const [row] = await db
     .update(moves)
@@ -90,8 +129,30 @@ export async function claimNextMove(db: Db, userId: string, now: Date): Promise<
     // 동시에 같은 행을 고른 쪽은 앞 문장이 끝날 때까지 기다린 뒤 이 조건을 새 값으로 다시 보고(Postgres의 다시 읽기), 0행이 된다.
     // FOR UPDATE SKIP LOCKED는 PGlite에서 잡을 행을 건너뛰는 일이 있어 쓰지 않는다
     .where(and(eq(moves.userId, userId), inArray(moves.id, next), claimable))
-    .returning({ id: moves.id, step: moves.step, oldId: moves.oldId });
+    .returning({ id: moves.id, step: moves.step, oldId: moves.oldId, role: moves.role, ref: moves.ref });
   return row ?? null;
+}
+
+// 정리가 정한 역할을 기록 행에 적는다. 이미 옮긴(done) 행은 그 때의 역할로 둔다
+export async function setMoveRoles(db: Db, userId: string, roles: { oldId: string; role: MoveRole; ref: string | null }[]): Promise<void> {
+  await db.transaction(async (tx) => {
+    for (const { oldId, role, ref } of roles) {
+      await tx
+        .update(moves)
+        .set({ role, ref })
+        .where(and(eq(moves.userId, userId), eq(moves.step, "record"), eq(moves.oldId, oldId), ne(moves.status, "done")));
+    }
+  });
+}
+
+// 그 옛 기록을 머리로 삼는 장면 행이 있는가(재직이면 사례로 나누지 않고 머리만 만든다)
+export async function hasSceneMoves(db: Db, userId: string, oldId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: moves.id })
+    .from(moves)
+    .where(and(eq(moves.userId, userId), eq(moves.step, "record"), eq(moves.role, "scene"), eq(moves.ref, oldId)))
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function finishMove(
@@ -102,7 +163,7 @@ export async function finishMove(
   result: { ok: true; note?: string } | { ok: false; error: string },
   now: Date = new Date(),
 ): Promise<void> {
-  await db
+  const [row] = await db
     .update(moves)
     .set({
       status: result.ok ? "done" : "failed",
@@ -110,22 +171,41 @@ export async function finishMove(
       attempts: sql`${moves.attempts} + 1`,
       updatedAt: now,
     })
-    .where(and(eq(moves.id, id), eq(moves.userId, userId)));
+    .where(and(eq(moves.id, id), eq(moves.userId, userId)))
+    .returning({ step: moves.step, oldId: moves.oldId });
+  // 머리가 될 기록이 실패하면 그것을 기다리던 장면도 실패로 둔다(기다리기만 하며 남지 않게)
+  if (!result.ok && row?.step === "record" && row.oldId !== null) {
+    await db
+      .update(moves)
+      .set({ status: "failed", error: HEAD_FAILED, startedAt: null, updatedAt: now })
+      .where(and(eq(moves.userId, userId), eq(moves.step, "record"), eq(moves.role, "scene"), eq(moves.ref, row.oldId), eq(moves.status, "pending")));
+  }
 }
 
-// 실패한 것만 다시 pending으로 돌린다
+// 실패한 것만 다시 pending으로 돌린다. 기록 행이면 함께 기다려야 하는 것도 되돌린다:
+// 그것을 머리로 삼는 실패한 장면, 장면이면 실패한 그 머리, 그리고 실패한 정리(정리가 끝나야 기록이 잡힌다)
 export async function retryMove(
   db: Db,
   userId: string,
   id: string,
   now: Date = new Date(),
 ): Promise<{ ok: true } | { ok: false; reason: "not_found" }> {
-  const updated = await db
+  const reset = { status: "pending" as const, error: null, startedAt: null, updatedAt: now };
+  const failedRecord = and(eq(moves.userId, userId), eq(moves.status, "failed"));
+  const [row] = await db
     .update(moves)
-    .set({ status: "pending", error: null, startedAt: null, updatedAt: now })
-    .where(and(eq(moves.id, id), eq(moves.userId, userId), eq(moves.status, "failed")))
-    .returning({ id: moves.id });
-  return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+    .set(reset)
+    .where(and(eq(moves.id, id), failedRecord))
+    .returning({ step: moves.step, oldId: moves.oldId, role: moves.role, ref: moves.ref });
+  if (!row) return { ok: false, reason: "not_found" };
+  if (row.step === "record" && row.oldId !== null) {
+    await db.update(moves).set(reset).where(and(failedRecord, eq(moves.step, "record"), eq(moves.role, "scene"), eq(moves.ref, row.oldId)));
+    if (row.role === "scene" && row.ref !== null) {
+      await db.update(moves).set(reset).where(and(failedRecord, eq(moves.step, "record"), eq(moves.oldId, row.ref)));
+    }
+    await db.update(moves).set(reset).where(and(failedRecord, eq(moves.step, "classify")));
+  }
+  return { ok: true };
 }
 
 // 한도처럼 모두에게 해당하는 까닭으로 멈출 때, 남은 pending 행(소속 잇기 포함)을 같은 문구로 실패 처리한다.
@@ -153,15 +233,15 @@ export async function moveProgress(db: Db, userId: string): Promise<MoveProgress
   const names = failedRows.some((row) => row.oldId !== null)
     ? new Map((await listExperiences(db, userId)).map((item) => [item.id, item.name]))
     : new Map<string, string>();
+  const nameOf = (row: (typeof rows)[number]) =>
+    row.step === "classify" ? CLASSIFY_NAME : row.oldId === null ? AFFILIATE_NAME : (names.get(row.oldId) ?? "지워진 기록");
+  // 정리가 실패하면 남은 일은 모두 그것을 기다리므로(다시 시도 전에는 잡히지 않음) 기다림으로 세지 않는다. 화면의 반복이 멈춘다
+  const blocked = rows.some((row) => row.step === "classify" && row.status === "failed");
   return {
     total: rows.length,
     done: rows.filter((row) => row.status === "done").length,
-    failed: failedRows.map((row) => ({
-      id: row.id,
-      name: row.oldId === null ? AFFILIATE_NAME : (names.get(row.oldId) ?? "지워진 기록"),
-      error: row.error ?? "",
-    })),
-    pending: rows.filter((row) => row.status === "pending" || row.status === "running").length,
+    failed: failedRows.map((row) => ({ id: row.id, name: nameOf(row), error: row.error ?? "" })),
+    pending: blocked ? 0 : rows.filter((row) => row.status === "pending" || row.status === "running").length,
   };
 }
 
@@ -174,7 +254,15 @@ export type KindMove = {
   // 옮겼지만 일부를 옮기지 못했거나 비웠다는 글(done 행의 error 칸)
   notes: string[];
 };
-export type MoveSummary = { kinds: KindMove[]; recordTotal: number; recordDone: number; recordFailed: number; affiliate: { id: string; status: "pending" | "running" | "done" | "failed"; error: string } | null };
+type StepLine = { id: string; status: "pending" | "running" | "done" | "failed"; error: string };
+export type MoveSummary = {
+  kinds: KindMove[];
+  recordTotal: number;
+  recordDone: number;
+  recordFailed: number;
+  affiliate: StepLine | null;
+  classify: StepLine | null;
+};
 
 export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> {
   const [rows, old] = await Promise.all([
@@ -184,7 +272,12 @@ export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> 
   const byId = new Map(old.map((item) => [item.id, item]));
   const kinds = new Map<Kind, KindMove>();
   let affiliate: MoveSummary["affiliate"] = null;
+  let classify: MoveSummary["classify"] = null;
   for (const row of rows) {
+    if (row.step === "classify") {
+      classify = { id: row.id, status: row.status, error: row.error ?? "" };
+      continue;
+    }
     if (row.step === "affiliate" || row.oldId === null) {
       affiliate = { id: row.id, status: row.status, error: row.error ?? "" };
       continue;
@@ -209,6 +302,7 @@ export async function moveSummary(db: Db, userId: string): Promise<MoveSummary> 
     recordDone: sum((l) => l.done),
     recordFailed: sum((l) => l.failed.length),
     affiliate,
+    classify,
   };
 }
 

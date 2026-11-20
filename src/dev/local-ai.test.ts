@@ -125,3 +125,31 @@ test("옮기기 흉내는 첫 줄로 나누기·주장·소속 답을 고른다"
   // 경력 장면 하나와 프로젝트 장면 하나
   expect(await listScenes(db, "u1")).toHaveLength(2);
 });
+
+test("옮기기 정리 흉내는 구분과 이름이 같은 기록을 앞의 것의 duplicate로, 나머지는 구분별 기본값으로 답한다", async () => {
+  const { createTestDb } = await import("@/db/test-db");
+  const { user } = await import("@/modules/auth/schema");
+  const { requestClassify } = await import("@/modules/experiences/move-classify");
+  const db = await createTestDb();
+  await db.insert(user).values({ id: "u1", name: "A", email: "u1@example.com" });
+  const record = (name: string, kind: "school" | "job" | "project") => ({
+    name,
+    kind,
+    organization: null,
+    role: null,
+    startMonth: null,
+    endMonth: null,
+    isOngoing: false,
+    body: "",
+  });
+  const result = await requestClassify(db, ai, "u1", [record("한국대학교", "school"), record("한국대학교", "school"), record("가나다", "job"), record("리뉴얼", "project")]);
+  expect(result).toEqual({
+    ok: true,
+    roles: [
+      { role: "fact", ref: null },
+      { role: "duplicate", ref: 0 },
+      { role: "head", ref: null },
+      { role: "head", ref: null },
+    ],
+  });
+});

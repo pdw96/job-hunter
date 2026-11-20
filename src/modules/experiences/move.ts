@@ -1,17 +1,18 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { type ClaimStatus, findClaims, type FoundClaim, mergeClaims, subjectOfScene } from "./claims";
 import { listClaims } from "./claims-repo";
 import { createFact, listFacts, setProjectParentIfUnset } from "./facts-repo";
-import { claimNextMove, finishMove, type MoveProgress, moveProgress, reopenAffiliate } from "./move-repo";
+import { classifyMoves } from "./move-classify";
+import { claimNextMove, finishMove, hasSceneMoves, type MoveProgress, moveProgress, type MoveRole, reopenAffiliate } from "./move-repo";
 import { type Kind, LIMITS, type Scope } from "./options";
 import { AFFILIATE_SYSTEM, describeExperience, MOVE_CLAIMS_SYSTEM } from "./prompts";
 import { insertRecordClaims } from "./record-claims-repo";
 import { type ImportPlan, requestRecordImport, saveImportPlan } from "./record-import";
 import { type ActivityInput, type ProjectInput, type SceneInput, validateFact, validateScene } from "./record-input";
-import type { ParentKind } from "./record-options";
+import type { HeadKind, ParentKind } from "./record-options";
 import { type Experience, getExperience, getTrackScopes } from "./repo";
 import { statuses, withStatuses } from "./rubric-store";
 import { scenePeriodStatus } from "./scene-rules";
@@ -21,6 +22,7 @@ import { rubricAfterContentEdit, verificationState } from "./verification";
 
 // 옛 기록(experiences_experiences) 하나를 새 메뉴별 표로 옮긴다. 옛 표는 읽기만 한다.
 // 프로젝트·기타는 코드가 머리와 장면 하나로, 공백은 코드가 공백 하나로 옮기고, 나머지 구분은 가져오기처럼 AI가 메뉴별로 나눈다.
+// 정리(move-classify.ts)가 정한 역할이 있으면 따른다: 같은 기록은 옮기지 않고, 다른 머리의 사례는 그 머리 아래 장면 하나로 옮긴다.
 
 // note: 옮겼지만 일부를 옮기지 못했거나 비운 것이 있을 때 화면에 보여 줄 글
 type Result = { ok: true; note?: string } | { ok: false; error: string };
@@ -77,16 +79,56 @@ async function lockOld(t: Db, userId: string, oldId: string): Promise<void> {
 
 const firstError = (errors: Record<string, string>) => `옮길 수 없는 값이 있습니다: ${Object.values(errors)[0] ?? "알 수 없음"}`;
 
-export async function moveRecord(db: Db, ai: AiClient, userId: string, oldId: string, now: Date = new Date()): Promise<Result> {
+export const DUPLICATE_NOTE = "같은 기록이 있어 하나만 옮겼습니다";
+
+type Period = { startMonth: string | null; endMonth: string | null; isOngoing: boolean };
+// 장면 기록을 붙일, 머리 기록이 옮겨 만든 머리
+type HeadTarget = { kind: HeadKind; id: string; period: Period };
+
+// 그 옛 기록에서 옮겨 온 머리(경력·프로젝트·활동) 중 먼저 만든 것. 지워졌으면 null
+async function movedHead(db: Db, userId: string, oldId: string): Promise<HeadTarget | null> {
+  const tables = [
+    ["job", jobs],
+    ["project", projects],
+    ["activity", activities],
+  ] as const;
+  for (const [kind, table] of tables) {
+    const [row] = await db
+      .select({ id: table.id, startMonth: table.startMonth, endMonth: table.endMonth, isOngoing: table.isOngoing })
+      .from(table)
+      .where(and(eq(table.userId, userId), eq(table.movedFrom, oldId)))
+      .orderBy(asc(table.createdAt), asc(table.id))
+      .limit(1);
+    if (row) return { kind, id: row.id, period: { startMonth: row.startMonth, endMonth: row.endMonth, isOngoing: row.isOngoing } };
+  }
+  return null;
+}
+
+export async function moveRecord(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  oldId: string,
+  now: Date = new Date(),
+  // 정리가 정한 역할(없으면 구분별 기본 길)
+  plan: { role: MoveRole | null; ref: string | null } = { role: null, ref: null },
+): Promise<Result> {
+  // 같은 기록: 남길 쪽이 옮기므로 아무것도 만들지 않는다
+  if (plan.role === "duplicate") return { ok: true, note: DUPLICATE_NOTE };
   const old = await getExperience(db, userId, oldId);
   if (!old) return { ok: false, error: "예전 기록을 찾을 수 없습니다" };
   // 이미 옮겼으면 AI도 부르지 않는다. 저장 직전에 트랜잭션 안에서 한 번 더 본다
   if (await alreadyMoved(db, userId, oldId)) return { ok: true };
   const trackScopes = await getTrackScopes(db, userId, oldId);
   if (old.kind === "gap") return moveGap(db, userId, old, trackScopes);
-  return old.kind === "project" || old.kind === "other"
-    ? moveNarrative(db, ai, userId, old, trackScopes, now)
-    : moveBySplitting(db, ai, userId, old, trackScopes, now);
+  if (old.kind === "project" || old.kind === "other") {
+    // 다른 머리의 사례: 머리 기록이 옮겨 만든 머리 아래 장면 하나로. 그 머리가 그 사이 지워졌으면 자기 머리로 옮긴다
+    const target = plan.role === "scene" && plan.ref !== null ? await movedHead(db, userId, plan.ref) : null;
+    return moveNarrative(db, ai, userId, old, trackScopes, now, target);
+  }
+  // 재직 머리에 사례 기록이 딸려 있으면 재직 글을 사례로 나누지 않고 경력 머리만 만든다(사례가 겹치지 않게)
+  const headOnly = old.kind === "job" && (await hasSceneMoves(db, userId, oldId));
+  return moveBySplitting(db, ai, userId, old, trackScopes, now, headOnly);
 }
 
 // 공백: AI 없이 공백 하나로. 진행 중이면 끝 월을 비우고, 메모는 서술 칸 중 처음으로 글이 있는 것을 한 줄로 줄여 100자 안에 담는다
@@ -104,7 +146,8 @@ async function moveGap(db: Db, userId: string, old: Experience, trackScopes: Rec
   });
 }
 
-// 프로젝트·기타: 머리(프로젝트 또는 활동) 하나와, 옛 서술을 글자 그대로 담은 장면 하나
+// 프로젝트·기타: 머리(프로젝트 또는 활동) 하나와, 옛 서술을 글자 그대로 담은 장면 하나.
+// target이 있으면(다른 머리의 사례) 머리를 만들지 않고 그 머리 아래 장면 하나만 만든다
 async function moveNarrative(
   db: Db,
   ai: AiClient,
@@ -112,10 +155,12 @@ async function moveNarrative(
   old: Experience,
   trackScopes: Record<string, Scope>,
   now: Date,
+  target: HeadTarget | null = null,
 ): Promise<Result> {
-  const headKind = old.kind === "project" ? ("project" as const) : ("activity" as const);
+  const ownKind = old.kind === "project" ? ("project" as const) : ("activity" as const);
+  const headKind: HeadKind = target?.kind ?? ownKind;
   const headRaw: ProjectInput | ActivityInput =
-    headKind === "project"
+    ownKind === "project"
       ? {
           name: old.name,
           parent: null, // 소속은 모두 옮긴 뒤 affiliateProjects가 잇는다
@@ -135,16 +180,31 @@ async function moveNarrative(
           isOngoing: old.isOngoing,
           role: old.role,
         };
-  const head = validateFact(headKind, headRaw);
-  if (!head.ok) return { ok: false, error: firstError(head.errors) };
+  // 사례로 붙일 때는 머리를 만들지 않으므로 머리 검사도 하지 않는다
+  let headValue: ProjectInput | ActivityInput | null = null;
+  if (!target) {
+    const checked = validateFact(ownKind, headRaw);
+    if (!checked.ok) return { ok: false, error: firstError(checked.errors) };
+    headValue = checked.value;
+  }
+  const headPeriod: Period = target?.period ?? {
+    startMonth: headValue?.startMonth ?? null,
+    endMonth: headValue?.endMonth ?? null,
+    isOngoing: headValue?.isOngoing ?? false,
+  };
 
-  // 장면의 기간은 비워 머리의 기간을 쓴다. 판단·배운 점은 옛 기록에 없던 칸이라 비운다
+  // 자기 머리 아래면 장면의 기간은 비워 머리의 기간을 쓴다. 다른 머리의 사례면 옛 기록의 기간이 머리와 다를 때만 장면에 둔다.
+  // 판단·배운 점은 옛 기록에 없던 칸이라 비운다
+  const ownPeriod =
+    target !== null &&
+    old.startMonth !== null &&
+    (old.startMonth !== headPeriod.startMonth || old.endMonth !== headPeriod.endMonth || old.isOngoing !== headPeriod.isOngoing);
   const scene = validateScene({
     head: { kind: headKind, id: "move" }, // 검사용. 저장할 때 실제 머리로 바꾼다
     title: old.name,
-    startMonth: null,
-    endMonth: null,
-    isOngoing: false,
+    startMonth: ownPeriod ? old.startMonth : null,
+    endMonth: ownPeriod && !old.isOngoing ? old.endMonth : null,
+    isOngoing: ownPeriod && old.isOngoing,
     situation: old.situation,
     judgment: null,
     actions: old.actions,
@@ -170,7 +230,6 @@ async function moveNarrative(
     claims = (await listClaims(db, userId, old.id)).map(({ kind, quote, phrase, origin, status }) => ({ kind, quote, phrase, origin, status }));
   } else {
     // 미확인: 루브릭은 새로(닫아 둔 수치·증빙은 유지), 주장은 코드가 찾은 것과 AI가 짚은 역할 구절. 옛 주장 답은 옮기지 않는다
-    const headPeriod = { startMonth: head.value.startMonth, endMonth: head.value.endMonth, isOngoing: head.value.isOngoing };
     const period = scenePeriodStatus(scene.value, headPeriod);
     carry = { rubric: withStatuses(rubricAfterContentEdit("project", statuses(old.rubric), period)), confirmedAt: null };
     const answer = await runAi(
@@ -197,19 +256,24 @@ async function moveNarrative(
     const t = tx as unknown as Db;
     await lockOld(t, userId, old.id);
     if (await alreadyMoved(t, userId, old.id)) return { ok: true as const };
-    const created =
-      headKind === "project"
-        ? await createFact(t, userId, "project", head.value as ProjectInput, { ...common, confirmedAt })
-        : await createFact(t, userId, "activity", head.value as ActivityInput, { ...common, confirmedAt });
-    if (!created.ok) throw new Error("옮길 머리를 만들지 못했습니다");
-    const saved = await createScene(t, userId, { ...scene.value, head: { kind: headKind, id: created.id } }, { ...common, carry });
+    let headId = target?.id;
+    if (!headId) {
+      const created =
+        ownKind === "project"
+          ? await createFact(t, userId, "project", headValue as ProjectInput, { ...common, confirmedAt })
+          : await createFact(t, userId, "activity", headValue as ActivityInput, { ...common, confirmedAt });
+      if (!created.ok) throw new Error("옮길 머리를 만들지 못했습니다");
+      headId = created.id;
+    }
+    const saved = await createScene(t, userId, { ...scene.value, head: { kind: headKind, id: headId } }, { ...common, carry });
     if (!saved.ok) throw new Error("옮길 장면을 만들지 못했습니다");
     await insertRecordClaims(t, userId, { kind: "scene", id: saved.id }, claims);
     return { ok: true as const };
   });
 }
 
-// 학력·교육·자격·재직: 옛 기록을 글로 풀어 가져오기처럼 AI가 메뉴별로 나눈다. 모두 미확인으로 저장한다
+// 학력·교육·자격·재직: 옛 기록을 글로 풀어 가져오기처럼 AI가 메뉴별로 나눈다. 모두 미확인으로 저장한다.
+// headOnly(사례 기록이 딸린 재직)면 경력 머리(담당 업무 줄까지)만 만들고 장면·프로젝트·활동은 버린다
 async function moveBySplitting(
   db: Db,
   ai: AiClient,
@@ -217,17 +281,21 @@ async function moveBySplitting(
   old: Experience,
   trackScopes: Record<string, Scope>,
   now: Date,
+  headOnly = false,
 ): Promise<Result> {
-  const prepared = await requestRecordImport(db, ai, userId, describeExperience(old), { purpose: "migrate", hint: old.kind }, now);
+  const prepared = await requestRecordImport(db, ai, userId, describeExperience(old), { purpose: "migrate", hint: old.kind, headOnly }, now);
   if (!prepared.ok) return { ok: false, error: errorOf(prepared.reason) };
   const menu = EXPECTED_MENU[old.kind];
   if (!menu || prepared.plan[menu].length === 0) return { ok: false, error: NOTHING_FOUND };
+  const plan: ImportPlan = headOnly
+    ? { ...prepared.plan, jobs: prepared.plan.jobs.map((job) => ({ ...job, scenes: [] })), projects: [], activities: [] }
+    : prepared.plan;
   // 검사에서 빠지거나 비운 것이 있으면 통과한 것은 옮기고, 빠진 것을 알린다
   const notes = [
     prepared.skipped > 0 ? `${prepared.skipped}개는 검사를 통과하지 못해 옮기지 못했습니다` : null,
     prepared.inventedDropped > 0 ? "원본에 없던 숫자가 있어 일부 칸을 비웠습니다" : null,
-    // 머리 하나의 사례가 한도(8개)를 넘었거나 AI가 다 담지 못했다고 한 경우
-    prepared.more ? "내용이 많아 일부를 옮기지 못했습니다. 경험 사례에서 더 추가해 주세요" : null,
+    // 머리 하나의 사례가 한도(8개)를 넘었거나 AI가 다 담지 못했다고 한 경우. 머리만 만들 때는 일부러 버린 것이라 알리지 않는다
+    prepared.more && !headOnly ? "내용이 많아 일부를 옮기지 못했습니다. 경험 사례에서 더 추가해 주세요" : null,
   ].filter((note): note is string => note !== null);
 
   return db.transaction(async (tx) => {
@@ -235,7 +303,7 @@ async function moveBySplitting(
     await lockOld(t, userId, old.id);
     if (await alreadyMoved(t, userId, old.id)) return { ok: true as const };
     // 금지 표현은 AI에 보내지 않았으므로 장면마다 옛 것을 그대로 붙인다(하지 않은 것은 장면에 없을 때만)
-    await saveImportPlan(t, userId, prepared.plan, {
+    await saveImportPlan(t, userId, plan, {
       source: "migrate",
       movedFrom: old.id,
       trackScopes,
@@ -384,11 +452,16 @@ export async function runNextMove(db: Db, ai: AiClient, userId: string, now: Dat
     let result: Result;
     let relink = false;
     try {
-      if (claimed.step === "record" && claimed.oldId !== null) {
-        // 프로젝트나 조직이 될 기록이면, 소속 잇기가 이미 끝났어도 다시 돌게 한다(실패했다가 늦게 옮긴 경우)
+      if (claimed.step === "classify") {
+        const classified = await classifyMoves(db, ai, userId, now);
+        result = classified.ok ? { ok: true } : { ok: false, error: errorOf(classified.reason) };
+      } else if (claimed.step === "record" && claimed.oldId !== null) {
+        // 프로젝트나 조직이 될 기록이면, 소속 잇기가 이미 끝났어도 다시 돌게 한다(실패했다가 늦게 옮긴 경우).
+        // 같은 기록과 사례는 새 머리를 만들지 않으므로 다시 돌 까닭이 없다
         const kind = (await getExperience(db, userId, claimed.oldId))?.kind;
-        relink = kind === "project" || kind === "job" || kind === "school" || kind === "training";
-        result = await moveRecord(db, ai, userId, claimed.oldId, now);
+        const makesHead = claimed.role !== "duplicate" && claimed.role !== "scene";
+        relink = makesHead && (kind === "project" || kind === "job" || kind === "school" || kind === "training");
+        result = await moveRecord(db, ai, userId, claimed.oldId, now, { role: claimed.role, ref: claimed.ref });
       } else {
         result = await affiliateProjects(db, ai, userId, now);
       }

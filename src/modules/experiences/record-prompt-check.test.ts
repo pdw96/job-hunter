@@ -5,7 +5,7 @@ import type { AiRequest } from "@/modules/ai/client";
 import { createFakeAi } from "@/modules/ai/fake-client";
 import { user } from "@/modules/auth/schema";
 import { describeScene, JUDGE_SYSTEM } from "./prompts";
-import { AFFILIATE_SAMPLE, MOVE_SPLIT_SAMPLE, RECORD_IMPORT_SAMPLE, runRecordCheck, SCENE_JUDGE_SAMPLES, SCENE_SAMPLES } from "./record-prompt-check";
+import { AFFILIATE_SAMPLE, CLASSIFY_SAMPLE, MOVE_SPLIT_SAMPLE, RECORD_IMPORT_SAMPLE, runRecordCheck, SCENE_JUDGE_SAMPLES, SCENE_SAMPLES } from "./record-prompt-check";
 
 let db: Db;
 
@@ -148,7 +148,21 @@ const affiliateAnswer = (text: string) => ({
   ],
 });
 
-const CALLS = SCENE_JUDGE_SAMPLES.length + SCENE_SAMPLES.length + 3;
+// 정리 예시의 기대 답: R1·R2 학력은 짝, R4·R5 성과 사례는 R3 재직의 장면, R7·R8은 R6 ERP의 장면
+const classifyAnswer = () => ({
+  records: [
+    { record: "R1", role: "fact", ref: null },
+    { record: "R2", role: "duplicate", ref: "R1" },
+    { record: "R3", role: "head", ref: null },
+    { record: "R4", role: "scene", ref: "R3" },
+    { record: "R5", role: "scene", ref: "R3" },
+    { record: "R6", role: "head", ref: null },
+    { record: "R7", role: "scene", ref: "R6" },
+    { record: "R8", role: "scene", ref: "R6" },
+  ],
+});
+
+const CALLS = SCENE_JUDGE_SAMPLES.length + SCENE_SAMPLES.length + 4;
 
 // 판정 예시마다 기대한 판정을 돌려준다(기대에 없는 항목은 충족). wrong이 주어지면 그 예시의 판정을 바꾼다
 const judgeAnswer = (text: string, wrong: Record<string, Record<string, "met" | "unmet">> = {}) => {
@@ -170,6 +184,7 @@ const answering = (
   moving: unknown = moveAnswer(),
   affiliating = affiliateAnswer,
   wrongVerdicts: Record<string, Record<string, "met" | "unmet">> = {},
+  classifying: () => unknown = classifyAnswer,
 ) =>
   createFakeAi(
     Array.from({ length: CALLS }, () => (request: AiRequest<unknown>) => {
@@ -177,6 +192,7 @@ const answering = (
       if (request.purpose === "import_records") return importing;
       if (request.purpose === "migrate") {
         const text = request.messages[0].text;
+        if (text.startsWith("[옮기기: 정리]")) return classifying();
         return text.startsWith("[옮기기: 소속]") ? affiliating(text) : moving;
       }
       return request.messages[0].text.includes("가나다물류") ? delayScene : tutoringScene;
@@ -192,8 +208,15 @@ test("기대대로 답하는 AI면 모든 줄이 통과한다", async () => {
   expect(rows.length).toBeGreaterThan(6);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
   // 예시마다 줄이 있다
-  expect(ai.requests.filter((r) => r.purpose === "migrate")).toHaveLength(2);
-  for (const sample of [...SCENE_JUDGE_SAMPLES.map((s) => s.name), ...SCENE_SAMPLES.map((s) => s.name), RECORD_IMPORT_SAMPLE.name, MOVE_SPLIT_SAMPLE.name, AFFILIATE_SAMPLE.name]) {
+  expect(ai.requests.filter((r) => r.purpose === "migrate")).toHaveLength(3);
+  for (const sample of [
+    ...SCENE_JUDGE_SAMPLES.map((s) => s.name),
+    ...SCENE_SAMPLES.map((s) => s.name),
+    RECORD_IMPORT_SAMPLE.name,
+    MOVE_SPLIT_SAMPLE.name,
+    AFFILIATE_SAMPLE.name,
+    CLASSIFY_SAMPLE.name,
+  ]) {
     expect(rows.some((row) => row.sample === sample)).toBe(true);
   }
 });
@@ -216,6 +239,7 @@ test("장면 판정 예시: 과장 후보가 나와야 하는 예시에서 없�
       if (request.purpose === "import_records") return importAnswer();
       if (request.purpose === "migrate") {
         const text = request.messages[0].text;
+        if (text.startsWith("[옮기기: 정리]")) return classifyAnswer();
         return text.startsWith("[옮기기: 소속]") ? affiliateAnswer(text) : moveAnswer();
       }
       return request.messages[0].text.includes("가나다물류") ? delayScene : tutoringScene;
@@ -251,6 +275,7 @@ test("다른 장면을 섞거나 대화에 없던 숫자를 넣으면 그 줄이
       if (request.purpose === "import_records") return importAnswer();
       if (request.purpose === "migrate") {
         const text = request.messages[0].text;
+        if (text.startsWith("[옮기기: 정리]")) return classifyAnswer();
         return text.startsWith("[옮기기: 소속]") ? affiliateAnswer(text) : moveAnswer();
       }
       return request.messages[0].text.includes("가나다물류")
@@ -296,4 +321,24 @@ test("옮기기 예시: 소속 짝이 틀리면 그 줄이 실패한다", async 
   expect(failed[0]).toMatchObject({ sample: AFFILIATE_SAMPLE.name, check: "학교에서 한 프로젝트를 학교에 잇는다" });
   const affiliate = ai.requests.find((r) => r.messages[0].text.startsWith("[옮기기: 소속]"));
   expect(affiliate?.messages[0].text).toContain("P2");
+});
+
+test("정리 예시: 같은 학력을 짝짓지 않거나, 성과 사례를 머리로 두거나, 같은 이름 프로젝트를 모두 머리로 두면 그 줄이 실패한다", async () => {
+  const wrong = () => ({
+    records: [
+      { record: "R1", role: "fact", ref: null },
+      { record: "R2", role: "fact", ref: null },
+      { record: "R3", role: "head", ref: null },
+      { record: "R4", role: "head", ref: null },
+      { record: "R5", role: "scene", ref: "R3" },
+      { record: "R6", role: "head", ref: null },
+      { record: "R7", role: "head", ref: null },
+      { record: "R8", role: "scene", ref: "R6" },
+    ],
+  });
+  const ai = answering(importAnswer(), moveAnswer(), affiliateAnswer, {}, wrong);
+  const failed = (await runRecordCheck(db, ai, "admin")).filter((row) => !row.pass);
+  expect(failed.map((row) => row.sample)).toEqual([CLASSIFY_SAMPLE.name, CLASSIFY_SAMPLE.name, CLASSIFY_SAMPLE.name]);
+  const classify = ai.requests.find((r) => r.messages[0].text.startsWith("[옮기기: 정리]"));
+  expect(classify?.messages[0].text).toContain("R8 | 이름: AI 기반 ERP 구축 · 2단계 시험 운영");
 });

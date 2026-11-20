@@ -169,12 +169,26 @@ function importNewRecords(text: string) {
   };
 }
 
-// 옮기기 흉내. 첫 줄로 세 요청을 고른다: 나누기는 옛 기록 한 건(describeExperience 모양)을 그 구분의 메뉴 하나로,
-// 주장은 고를 구절 없음, 소속은 짝 없음
+// 옮기기 전 정리 흉내: 구분과 이름이 같은 기록은 앞의 것의 duplicate, 나머지는 구분별 기본값(학력·교육·자격·공백은 fact, 그 밖은 head)
+function classifyOld(text: string) {
+  const firsts = new Map<string, string>();
+  const records = [...text.matchAll(/^(R\d+) \| 이름: (.*?) \| 구분: (.*?) \|/gm)].map(([, record, name, kind]) => {
+    const key = `${kind}:${name}`;
+    const first = firsts.get(key);
+    if (first) return { record, role: "duplicate", ref: first };
+    firsts.set(key, record);
+    return { record, role: ["학력", "교육", "자격", "공백"].includes(kind) ? "fact" : "head", ref: null };
+  });
+  return { records };
+}
+
+// 옮기기 흉내. 첫 줄로 네 요청을 고른다: 나누기는 옛 기록 한 건(describeExperience 모양)을 그 구분의 메뉴 하나로,
+// 주장은 고를 구절 없음, 소속은 짝 없음, 정리는 classifyOld
 function migrate(text: string) {
   const first = text.split("\n")[0];
   if (first === "[옮기기: 주장]") return { quotes: [] };
   if (first === "[옮기기: 소속]") return { links: [] };
+  if (first === "[옮기기: 정리]") return classifyOld(text);
   const source = text.slice(text.indexOf("[가져올 글]\n") + "[가져올 글]\n".length);
   const field = (label: string) => section(source, label);
   const [startMonth = "", endMonth = ""] = field("기간").split(/\s*~\s*/).map((month) => (/^\d{4}-\d{2}$/.test(month) ? month : ""));

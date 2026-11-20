@@ -78,7 +78,11 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const failed = [...summary.kinds.flatMap((line) => line.failed), ...(summary.affiliate?.status === "failed" ? [{ id: summary.affiliate.id }] : [])];
+  const failed = [
+    ...(summary.classify?.status === "failed" ? [{ id: summary.classify.id }] : []),
+    ...summary.kinds.flatMap((line) => line.failed),
+    ...(summary.affiliate?.status === "failed" ? [{ id: summary.affiliate.id }] : []),
+  ];
 
   async function retry(ids: string[]) {
     let reset = 0;
@@ -99,12 +103,21 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
   }
 
   const affiliate = summary.affiliate;
+  const classify = summary.classify;
   // 화면의 개수는 옛 기록만 센다(소속 제안은 따로 한 줄). 서버가 새로 읽어 준 summary를 쓴다
   const percent = summary.recordTotal === 0 ? 100 : Math.round((summary.recordDone / summary.recordTotal) * 100);
   const lines = [...summary.kinds].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
   // 서버가 새로 읽어 준 개수로 가린다(한도로 한꺼번에 실패 처리된 뒤에도 맞게 바뀐다)
-  const waiting = summary.recordTotal - summary.recordDone - summary.recordFailed > 0 || affiliate?.status === "pending" || affiliate?.status === "running";
-  const idle = !running && !waiting;
+  const recordsLeft = summary.recordTotal - summary.recordDone - summary.recordFailed > 0;
+  // 정리가 실패하면 남은 기록은 다시 시도할 때까지 기다린다(돌지 않지만 끝난 것도 아니다)
+  const blocked = classify?.status === "failed" && recordsLeft;
+  const waiting =
+    (recordsLeft && !blocked) ||
+    classify?.status === "pending" ||
+    classify?.status === "running" ||
+    affiliate?.status === "pending" ||
+    affiliate?.status === "running";
+  const idle = !running && !waiting && !blocked;
   const finished = idle && !error;
   const affiliateLabel = affiliate?.status === "done" ? "옮김" : affiliate?.status === "failed" ? "옮기지 못함" : "기다림";
 
@@ -147,6 +160,21 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
       )}
 
       <ul className="space-y-3">
+        {classify && (
+          <li className="flex items-start justify-between gap-3 rounded-lg border border-foreground/15 p-4 text-sm">
+            <p className="font-medium">
+              같은 기록·사례 정리
+              {classify.status === "failed" && classify.error && <span className="block font-normal text-foreground/60">{classify.error}</span>}
+            </p>
+            {classify.status === "failed" ? (
+              <button type="button" className={button} disabled={running} onClick={() => retry([classify.id])}>
+                다시 시도
+              </button>
+            ) : (
+              <span className="shrink-0 text-foreground/70">{classify.status === "done" ? "정리함" : "기다림"}</span>
+            )}
+          </li>
+        )}
         {lines.map((line) => (
           <li key={line.kind} className="space-y-1 rounded-lg border border-foreground/15 p-4 text-sm">
             <div className="flex items-baseline justify-between gap-3">
@@ -155,7 +183,7 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
               </span>
               <span className="shrink-0 text-foreground/70">{statusOf(line)}</span>
             </div>
-            {line.notes.map((note, index) => (
+            {[...new Set(line.notes)].map((note, index) => (
               <p key={index} className="text-foreground/60">
                 {note}
               </p>
