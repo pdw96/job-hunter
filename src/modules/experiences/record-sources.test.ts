@@ -151,9 +151,18 @@ test("머리를 확인하면 자소서 원천에 있고 소속은 회사 · 부�
     actions: "판단: 재시도보다 설계 변경\n승인 API를 다시 설계했다",
     result: "장애가 줄었다\n배운 점: 작게 나눠 배포",
     notDone: null,
-    bannedPhrases: ["혼자 구축"],
     metrics: [{ text: "월 장애 5건에서 1건", basis: "장애 보고서" }],
   });
+});
+
+test("자소서 원천의 금지 표현은 장면과 머리의 합이고 겹치면 한 번만 담는다", async () => {
+  const jobId = await fact("job", { ...job, bannedPhrases: ["주도", "혼자 구축"] });
+  await addScene(scene({ kind: "job", id: jobId }));
+  const projectId = await fact("project", { ...project, bannedPhrases: ["전담"] });
+  await addScene(scene({ kind: "project", id: projectId }, { title: "정산 자동화", bannedPhrases: [] }));
+  const byName = new Map((await listSceneWritingSources(db, "u1", t1)).map((s) => [s.name, s]));
+  expect([...byName.get("결제 장애 대응")!.bannedPhrases].sort()).toEqual(["주도", "혼자 구축"].sort());
+  expect(byName.get("정산 자동화")?.bannedPhrases).toEqual(["전담"]);
 });
 
 test("장면의 기간이 비면 머리의 기간을 쓰고, 프로젝트의 소속은 프로젝트 이름 · 소속 이름이다", async () => {

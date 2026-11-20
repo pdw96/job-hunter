@@ -42,6 +42,7 @@ type Head = Period & {
 
 const HEAD_RESUME_KIND: Record<HeadKind, Kind> = { job: "job", project: "project", activity: "other" };
 const GAP_NAME = "공백 기간";
+const unique = (list: string[]) => [...new Set(list)];
 
 const scopeIn = (trackScopes: Record<string, Scope>, trackId: string): Scope => trackScopes[trackId] ?? "use";
 const joined = (parts: (string | null | undefined)[], separator: string) => {
@@ -180,7 +181,8 @@ export async function listSceneWritingSources(db: Db, userId: string, trackId: s
     .filter(({ row, head }) => narrowerScope(scopeIn(head.trackScopes, trackId), scopeIn(row.trackScopes, trackId)) === "use")
     .map(({ row, head }) => {
       const fields = sceneFields(row, head);
-      const source: WritingSource = { ...fields, bannedPhrases: row.bannedPhrases, metrics: sceneMetrics(row) };
+      // 금지 표현은 장면과 머리(경력·프로젝트)의 합
+      const source: WritingSource = { ...fields, bannedPhrases: unique([...row.bannedPhrases, ...head.bannedPhrases]), metrics: sceneMetrics(row) };
       return { item: source, start: fields.startMonth, createdAt: row.createdAt };
     });
   return byRecent(items);
@@ -243,8 +245,6 @@ function factLines(facts: FactsByKind, withGaps: boolean): FactLines[] {
       : []),
   ];
 }
-
-const unique = (list: string[]) => [...new Set(list)];
 
 export async function listRecordResumeSources(db: Db, userId: string, trackId: string): Promise<ResumeSource[]> {
   if (!(await ownsTrack(db, userId, trackId))) return [];
