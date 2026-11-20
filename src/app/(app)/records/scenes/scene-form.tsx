@@ -64,6 +64,22 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
   const draft: SceneFormValues = { ...v, tags: tagText.split(",").map((s) => s.trim()).filter(Boolean) };
   const changed = snapshot(draft, scopes) !== snapshot(start, startScopes);
 
+  // 서버에서 값이 바뀌었으면(과장임 답이나 금지 표현 후보로 금지 목록이 늘어난 경우 등) 입력 칸도 따라간다.
+  // 사용자가 고치던 중이 아닐 때만 그렇게 하고, 고치던 중이면 저장 때 옛 목록이 덮어쓰지 않도록 서버 쪽 금지 표현을 합친다
+  const serverKey = snapshot(start, startScopes);
+  const [seenKey, setSeenKey] = useState(serverKey);
+  if (serverKey !== seenKey) {
+    setSeenKey(serverKey);
+    if (snapshot(draft, scopes) === seenKey) {
+      setV(start);
+      setTagText(start.tags.join(", "));
+      setScopes(startScopes);
+    } else {
+      const merged = [...new Set([...v.bannedPhrases, ...start.bannedPhrases])];
+      if (merged.length !== v.bannedPhrases.length) setV((cur) => ({ ...cur, bannedPhrases: merged }));
+    }
+  }
+
   // 검증 패널이 "먼저 저장해 주세요"를 보여 줄 수 있게 알린다
   useEffect(() => {
     setDirty(changed);

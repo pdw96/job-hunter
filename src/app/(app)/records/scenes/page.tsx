@@ -7,6 +7,7 @@ import { countOpenRecordClaims } from "@/modules/experiences/record-claims-repo"
 import { FACT_KIND_LABELS, type HeadKind } from "@/modules/experiences/record-options";
 import { listScenes } from "@/modules/experiences/scenes-repo";
 import { newRecordsOn } from "@/modules/experiences/switch";
+import { HeadConfirm } from "../head-confirm";
 import { StateBadge } from "../../experiences/state-badge";
 import { periodText } from "../fact-summary";
 import { HEAD_NOUN } from "./heads";
@@ -66,22 +67,24 @@ export default async function ScenesPage() {
           const noun = HEAD_NOUN[group.kind];
           return (
             <section key={`${group.kind}:${group.id}`} className="overflow-hidden rounded-lg border border-foreground/15">
-              <Link
-                href={`/records/facts/${group.kind}/${group.id}`}
-                className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-foreground/5 px-4 py-3"
-              >
-                <span className="min-w-0 truncate font-semibold">{group.name}</span>
-                <span className="text-xs text-foreground/60">
-                  {[FACT_KIND_LABELS[group.kind], group.period, `사례 ${mine.length}개`].filter(Boolean).join(" · ")}
-                </span>
-                <span
-                  className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-xs ${
-                    group.confirmed ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400" : "border-amber-600/50 text-amber-700 dark:text-amber-400"
-                  }`}
-                >
-                  {group.confirmed ? "확인됨" : `${noun} 정보 미확인`}
-                </span>
-              </Link>
+              <div className="space-y-2 bg-foreground/5 px-4 py-3">
+                <Link href={`/records/facts/${group.kind}/${group.id}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="min-w-0 truncate font-semibold">{group.name}</span>
+                  <span className="text-xs text-foreground/60">
+                    {[FACT_KIND_LABELS[group.kind], group.period, `사례 ${mine.length}개`].filter(Boolean).join(" · ")}
+                  </span>
+                  <span
+                    className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-xs ${
+                      group.confirmed ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400" : "border-amber-600/50 text-amber-700 dark:text-amber-400"
+                    }`}
+                  >
+                    {group.confirmed ? "확인됨" : `${noun} 정보 미확인`}
+                  </span>
+                </Link>
+                {!group.confirmed && group.kind !== "job" && (
+                  <HeadConfirm kind={group.kind} id={group.id} openClaims={openClaims[group.id] ?? 0} />
+                )}
+              </div>
               <ul className="divide-y divide-foreground/10">
                 {mine.map((scene) => {
                   const open = openClaims[scene.id] ?? 0;

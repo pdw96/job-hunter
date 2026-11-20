@@ -8,6 +8,7 @@ import { newRecordsOn } from "@/modules/experiences/switch";
 import { listTracks } from "@/modules/tracks/repo";
 import { FactForm } from "../../../fact-form";
 import { cardOf } from "../../../fact-summary";
+import { HeadConfirm } from "../../../head-confirm";
 import { HeadClaims } from "../../../head-claims";
 import { parentOptionsOf } from "../../../parent-options";
 
@@ -32,6 +33,12 @@ export default async function EditFactPage({ params }: { params: Promise<{ kind:
         <span className="text-sm text-foreground/60">{FACT_KIND_LABELS[kind]}</span>
       </div>
       <HeadClaims claims={claims} />
+      {(kind === "project" || kind === "activity") && !fact.isConfirmed && (
+        <div className="space-y-1">
+          <p className="text-sm text-foreground/70">내용이 맞으면 눌러 주세요. 고치려면 아래에서 고쳐 저장하세요</p>
+          <HeadConfirm kind={kind} id={id} showFix={false} openClaims={claims.filter((c) => c.status === "pending" || c.status === "needs_fix").length} />
+        </div>
+      )}
       <FactForm
         key={fact.contentVersion}
         kind={kind}
