@@ -33,7 +33,11 @@ const QUESTIONS = [
 function interview(request: AiRequest<unknown>) {
   const answers = request.messages.slice(1).filter((message) => message.role === "user").length;
   if (answers === 0) {
-    return { message: request.messages[0].text.includes("보완하는 인터뷰") ? QUESTIONS[1] : "어떤 경험을 기록할까요? 한두 문장으로 알려 주세요.", enough: false };
+    const context = request.messages[0].text;
+    if (context.includes("보완하는 인터뷰")) return { message: QUESTIONS[1], enough: false };
+    // 장면 인터뷰는 머리가 정해져 있으므로 그 안의 일 하나를 묻는다
+    if (context.includes("[장면이 속한 곳]")) return { message: "이곳에서 겪은 일 중 하나를 골라 한두 문장으로 알려 주세요.", enough: false };
+    return { message: "어떤 경험을 기록할까요? 한두 문장으로 알려 주세요.", enough: false };
   }
   return answers > QUESTIONS.length - 1
     ? { message: "충분히 들었습니다. 이제 기록으로 정리해도 좋겠습니다.", enough: true }
@@ -93,6 +97,75 @@ function importRecords(text: string) {
       };
     }),
     more: blocks.length > 12,
+  };
+}
+
+// 장면 정리 흉내. 대화의 첫 답을 상황과 한 일로 옮긴다. 보완이면 기존 장면의 칸을 이어 받는다
+function extractScene(text: string) {
+  const answers = [...text.matchAll(/^지원자: (.*)$/gm)].map((match) => match[1]);
+  const existing = text.includes("[기존 장면]");
+  const first = answers[0] ?? "";
+  return {
+    title: existing ? section(text, "장면 제목") : first.slice(0, 30) || "인터뷰 사례",
+    startMonth: "",
+    endMonth: "",
+    isOngoing: false,
+    situation: section(text, "상황") || first,
+    judgment: section(text, "판단"),
+    actions: [section(text, "본인이 한 일"), answers[1] ?? first].filter(Boolean).join(" "),
+    // 숫자 경고를 볼 수 있도록 대화에 없던 숫자를 일부러 넣는다
+    result: `${section(text, "결과")} 처리 시간을 30% 단축했다`.trim(),
+    lessons: section(text, "배운 점"),
+    metrics: [],
+    notDone: section(text, "하지 않은 것") || (answers.length > 2 ? (answers.at(-1) ?? "") : ""),
+    evidenceNote: section(text, "증빙·확인 메모"),
+    tags: [],
+  };
+}
+
+// 새 구조 가져오기 흉내. 학교 이름이 든 줄로 학력 하나를, 다른 첫 줄로 경력 하나와 그 아래 장면 하나를 만든다
+function importNewRecords(text: string) {
+  const source = text.slice(text.indexOf("[가져올 글]\n") + "[가져올 글]\n".length);
+  const lines = source.split("\n").map((line) => line.trim()).filter((line) => line !== "" && !/^\[.*\]$/.test(line) && !/^#+\s*$/.test(line));
+  const monthsOf = (line: string) => {
+    const found = line.match(/(\d{4})[.-](\d{1,2})\s*~\s*(\d{4})[.-](\d{1,2})/);
+    return found
+      ? { startMonth: `${found[1]}-${found[2].padStart(2, "0")}`, endMonth: `${found[3]}-${found[4].padStart(2, "0")}` }
+      : { startMonth: "", endMonth: "" };
+  };
+  const schoolLine = lines.find((line) => /대학교|고등학교|대학/.test(line));
+  const jobIndex = lines.findIndex((line) => line !== schoolLine);
+  const jobLine = jobIndex >= 0 ? lines[jobIndex] : "";
+  const body = lines.slice(jobIndex + 1).filter((line) => line !== schoolLine).map((line) => line.replace(/^[-•·*]\s*/, ""));
+  const school = schoolLine?.match(/\S*(대학교|고등학교|대학)/)?.[0] ?? "";
+  const company = jobLine.replace(/^#\s*/, "").split(/\s*[|(]\s*|\s+\d{4}/)[0].trim().slice(0, 60);
+  const blankScene = { startMonth: "", endMonth: "", isOngoing: false, situation: "", judgment: "", result: "", lessons: "", metrics: [], notDone: "", evidenceNote: "", tags: [], roleClaims: [] };
+  return {
+    education: school
+      ? [{ schoolName: school, location: "", degree: /고등학교/.test(school) ? "high" : "bachelor", major: "", ...monthsOf(schoolLine ?? ""), status: "graduated", gpa: "", gpaScale: "" }]
+      : [],
+    courses: [],
+    credentials: [],
+    gaps: [],
+    jobs: company
+      ? [
+          {
+            company,
+            department: "",
+            title: "",
+            employment: "regular",
+            ...monthsOf(jobLine),
+            isOngoing: false,
+            duties: body.slice(0, 2).map((line) => line.slice(0, 100)),
+            bannedPhrases: [...source.matchAll(/🚫\s*"([^"]+)"/g)].map((match) => match[1]),
+            roleClaims: [],
+            scenes: body.length > 0 ? [{ ...blankScene, title: body[0].slice(0, 40), actions: body.join("\n").slice(0, 600), bannedPhrases: [] }] : [],
+          },
+        ]
+      : [],
+    projects: [],
+    activities: [],
+    more: false,
   };
 }
 
@@ -223,6 +296,10 @@ export const ai: AiClient = {
           ? interview(request as AiRequest<unknown>)
           : request.purpose === "import"
             ? importRecords(text)
+            : request.purpose === "import_records" || request.purpose === "migrate" // 옮기기는 Task 8에서 따로 채운다
+              ? importNewRecords(text)
+              : request.purpose === "extract_scene"
+                ? extractScene(text)
             : request.purpose === "posting_image"
               ? { text: "그림상사 품질관리 담당자 채용\n경력 2년 이상, 정규직\n근무지: 대전 유성구\n접수 마감: 2026-12-10" }
               : request.purpose === "posting"

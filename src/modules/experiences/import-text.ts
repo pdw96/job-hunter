@@ -8,6 +8,16 @@ export const MAX_SOURCE_CHARS = 40_000;
 
 type ExtractFailure = "unsupported" | "too_large" | "no_text" | "unreadable";
 
+// 글 읽기 실패를 화면에 보여 줄 글. 옛 가져오기와 새 가져오기가 함께 쓴다
+export const IMPORT_TEXT_MESSAGES: Record<ExtractFailure | "empty" | "too_long", string> = {
+  unsupported: "지원하지 않는 파일입니다. PDF, 워드(.docx), 글 파일(.md, .txt, .csv)만 올릴 수 있습니다",
+  too_large: "파일이 너무 큽니다. 4MB까지 올릴 수 있습니다",
+  no_text: "글자를 읽을 수 없는 파일입니다. 스캔한 PDF는 지원하지 않습니다. 글을 복사해 붙여 넣어 주세요",
+  unreadable: "파일을 열 수 없습니다. 파일이 깨졌거나 확장자가 내용과 다릅니다",
+  empty: "가져올 글을 붙여 넣거나 파일을 골라 주세요",
+  too_long: "글이 너무 깁니다. 4만 자까지 한 번에 가져올 수 있습니다. 나눠서 올려 주세요",
+};
+
 const TEXT_EXTENSIONS = ["md", "txt", "csv"];
 
 export async function extractText(file: {

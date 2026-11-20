@@ -3,19 +3,66 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
-import { deleteExperienceAction, importAction, type ImportActionResult } from "@/modules/experiences/actions";
+import { deleteExperienceAction, importAction } from "@/modules/experiences/actions";
 import { groupPages, type PageGroup } from "@/modules/experiences/notion-export";
 import { readZip } from "./read-zip";
 import { ZipImport } from "./zip-import";
 
-type Created = Extract<ImportActionResult, { ok: true }>;
+export type ImportOutcome<C> =
+  | { ok: true; created: C[]; skipped: number; more: boolean }
+  // stop: 한도에 닿아 더 보내도 소용없다 / empty: 실패가 아니라 경험으로 볼 내용이 없었다
+  | { ok: false; message: string; stop?: boolean; empty?: boolean };
+
+// 가져오기 화면이 쓰는 액션과 결과 표시. 옛 경험 기록과 새 기록 구조가 같은 화면(붙여 넣기·파일·노션 zip)을 쓴다
+export type ImportKit<C extends { id: string }> = {
+  run: (formData: FormData) => Promise<ImportOutcome<C>>;
+  remove?: (item: C) => Promise<unknown>; // 없으면 지우기 단추를 보이지 않는다
+  Item: (props: { item: C; onRemove?: () => void; disabled?: boolean }) => React.ReactNode; // 만든 것 한 줄
+  isTrimmed?: (item: C) => boolean;
+  headline: (items: C[]) => string;
+  summary?: (items: C[]) => string; // 제목 아래 짧은 요약(메뉴별 개수 등)
+  note: string; // 결과 화면의 안내
+  intro: string; // 입력 화면의 설명
+  backHref: string;
+  backLabel: string;
+};
+
+type OldItem = { id: string; name: string; claimCount: number; trimmed: boolean };
+
+// 옛 경험 기록 가져오기
+const EXPERIENCE_KIT: ImportKit<OldItem> = {
+  run: importAction,
+  remove: (item) => deleteExperienceAction(item.id, false), // 지운 뒤 목록 화면으로 보내려는 이동은 따르지 않고 이 화면에 머문다
+  Item: ({ item, onRemove, disabled }) => (
+    <>
+      <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+      <span className="text-sm text-foreground/60">확인할 주장 {item.claimCount}개</span>
+      <Link href={`/experiences/${item.id}`} className="text-sm underline">
+        열기
+      </Link>
+      <button type="button" onClick={onRemove} disabled={disabled} className="text-sm text-red-600 underline">
+        지우기
+      </button>
+    </>
+  ),
+  isTrimmed: (item) => item.trimmed,
+  headline: (items) => `기록 ${items.length}건을 만들었습니다`,
+  note: "모두 “미확인” 상태입니다. 기록마다 주장을 하나씩 확인해야 지원서에 쓸 수 있습니다. 필요 없는 기록은 지워 주세요",
+  intro: "이력서나 자기소개서를 붙여 넣거나 파일로 올리면, AI가 경험 단위로 나눠 기록 초안을 만듭니다",
+  backHref: "/experiences",
+  backLabel: "경험 기록으로",
+};
 
 export function ImportForm() {
+  return <ImportScreen kit={EXPERIENCE_KIT} />;
+}
+
+export function ImportScreen<C extends { id: string }>({ kit }: { kit: ImportKit<C> }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [result, setResult] = useState<Created | null>(null);
+  const [result, setResult] = useState<Extract<ImportOutcome<C>, { ok: true }> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [groups, setGroups] = useState<PageGroup[] | null>(null);
@@ -46,38 +93,37 @@ export function ImportForm() {
     if (file) formData.set("file", file);
     else formData.set("text", text);
     startTransition(async () => {
-      const response = await importAction(formData);
+      const response = await kit.run(formData);
       if (response.ok) setResult(response);
       else setMessage(response.message);
     });
   }
 
-  function remove(id: string) {
-    if (!result || !window.confirm("이 기록을 지울까요?")) return;
-    setResult({ ...result, created: result.created.filter((item) => item.id !== id) });
+  function remove(item: C) {
+    if (!result || !kit.remove || !window.confirm("이 기록을 지울까요?")) return;
+    const removeItem = kit.remove;
+    setResult({ ...result, created: result.created.filter((other) => other.id !== item.id) });
     startTransition(async () => {
-      // 지운 뒤 목록 화면으로 보내려는 이동은 따르지 않고 이 화면에 머문다
-      await deleteExperienceAction(id, false);
+      await removeItem(item);
       router.refresh();
     });
   }
 
-  if (groups) return <ZipImport groups={groups} onBack={() => setGroups(null)} />;
+  if (groups) return <ZipImport kit={kit} groups={groups} onBack={() => setGroups(null)} />;
 
   if (result) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
-          <h1 className="text-2xl font-bold">기록 {result.created.length}건을 만들었습니다</h1>
-          <p className="text-sm text-foreground/70">
-            모두 “미확인” 상태입니다. 기록마다 주장을 하나씩 확인해야 지원서에 쓸 수 있습니다. 필요 없는 기록은 지워 주세요
-          </p>
+          <h1 className="text-2xl font-bold">{kit.headline(result.created)}</h1>
+          {kit.summary && <p className="text-sm font-medium">{kit.summary(result.created)}</p>}
+          <p className="text-sm text-foreground/70">{kit.note}</p>
           {result.skipped > 0 && (
             <p className="text-sm text-amber-700 dark:text-amber-400">
               형식이 맞지 않아 만들지 못한 초안이 {result.skipped}건 있습니다
             </p>
           )}
-          {result.created.some((item) => item.trimmed) && (
+          {kit.isTrimmed && result.created.some(kit.isTrimmed) && (
             <p className="text-sm text-amber-700 dark:text-amber-400">
               내용이 길어 일부가 잘린 기록이 있습니다. 원본과 비교해 빠진 내용을 채워 주세요
             </p>
@@ -91,20 +137,13 @@ export function ImportForm() {
         <ul className="divide-y divide-foreground/10 border-y border-foreground/10">
           {result.created.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center gap-3 py-3">
-              <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-              <span className="text-sm text-foreground/60">확인할 주장 {item.claimCount}개</span>
-              <Link href={`/experiences/${item.id}`} className="text-sm underline">
-                열기
-              </Link>
-              <button type="button" onClick={() => remove(item.id)} disabled={pending} className="text-sm text-red-600 underline">
-                지우기
-              </button>
+              <kit.Item item={item} onRemove={kit.remove ? () => remove(item) : undefined} disabled={pending} />
             </li>
           ))}
         </ul>
         <div className="flex gap-4 text-sm">
-          <Link href="/experiences" className="underline">
-            경험 기록으로
+          <Link href={kit.backHref} className="underline">
+            {kit.backLabel}
           </Link>
           <button
             type="button"
@@ -132,9 +171,7 @@ export function ImportForm() {
     >
       <div className="space-y-2">
         <h1 className="text-2xl font-bold">가져오기</h1>
-        <p className="text-sm text-foreground/70">
-          이력서나 자기소개서를 붙여 넣거나 파일로 올리면, AI가 경험 단위로 나눠 기록 초안을 만듭니다
-        </p>
+        <p className="text-sm text-foreground/70">{kit.intro}</p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/70">
           <li>연락처(전화번호, 이메일, 주소)는 지우고 올리는 것이 안전합니다</li>
           <li>원본 파일은 저장하지 않습니다</li>
@@ -200,7 +237,7 @@ export function ImportForm() {
         >
           {pending ? "읽는 중… (1분쯤 걸릴 수 있습니다)" : "가져오기"}
         </button>
-        <Link href="/experiences" className="text-sm underline">
+        <Link href={kit.backHref} className="text-sm underline">
           취소
         </Link>
       </div>

@@ -9,6 +9,7 @@ import { ungroundedNumbers } from "./grounding";
 import { type ExperienceInput, validateExperience } from "./input";
 import { KINDS, LIMITS, RUBRIC_ITEM_LABELS, RUBRIC_ITEMS } from "./options";
 import { describeExperience, EXTRACT_SYSTEM, INTERVIEW_SYSTEM } from "./prompts";
+import { HEAD_KINDS, type HeadRef } from "./record-options";
 import { type Experience, getExperience } from "./repo";
 import { type InterviewMessage, interviews } from "./schema";
 
@@ -40,21 +41,32 @@ export const draftSchema = z.object({
 export type Interview = {
   id: string;
   experienceId: string | null;
+  sceneId: string | null; // 새 기록: 이미 있는 장면을 보완하는 인터뷰
+  head: HeadRef | null; // 새 기록: 이 머리 아래 새 장면을 묻는 인터뷰
   trackId: string | null;
   messages: InterviewMessage[];
   status: "active" | "done";
 };
 
 type Common = "not_found" | "over_limit" | AiFailure;
+export type AnswerResult =
+  | { ok: true; message: string; suggestFinish: boolean }
+  | { ok: false; reason: Common | "finished" | "too_long" | "invalid_text" | "busy" };
+
+// 장면(새 기록) 인터뷰인가. 옛 경험 인터뷰 함수는 이것을 다루지 않는다
+export const isSceneInterview = (interview: Interview) => interview.sceneId !== null || interview.head !== null;
 
 const mine = (userId: string, id: string) => and(eq(interviews.id, id), eq(interviews.userId, userId));
 
 export async function getInterview(db: Db, userId: string, id: string): Promise<Interview | null> {
   const [row] = await db.select().from(interviews).where(mine(userId, id)).limit(1);
   if (!row) return null;
+  const headKind = HEAD_KINDS.find((kind) => kind === row.headKind);
   return {
     id: row.id,
     experienceId: row.experienceId,
+    sceneId: row.sceneId,
+    head: headKind && row.headId ? { kind: headKind, id: row.headId } : null,
     trackId: row.trackId,
     messages: row.messages,
     status: row.status,
@@ -116,20 +128,7 @@ export async function startInterview(
     return { ok: false, reason: "not_found" };
   }
 
-  const result = await runAi(
-    db,
-    ai,
-    userId,
-    {
-      purpose: "interview",
-      system: INTERVIEW_SYSTEM,
-      messages: [{ role: "user", text: await buildContext(db, userId, experience, trackId) }],
-      schema: turnSchema,
-      effort: "low",
-      maxTokens: 4000,
-    },
-    now,
-  );
+  const result = await firstQuestion(db, ai, userId, await buildContext(db, userId, experience, trackId), now);
   if (!result.ok) return { ok: false, reason: result.reason };
 
   const id = randomUUID();
@@ -138,9 +137,9 @@ export async function startInterview(
     userId,
     experienceId,
     trackId,
-    messages: [{ role: "assistant", text: result.value.message }],
+    messages: [{ role: "assistant", text: result.message }],
   });
-  return { ok: true, id, message: result.value.message };
+  return { ok: true, id, message: result.message };
 }
 
 export async function answerInterview(
@@ -150,20 +149,32 @@ export async function answerInterview(
   interviewId: string,
   text: string,
   now: Date = new Date(),
-): Promise<
-  | { ok: true; message: string; suggestFinish: boolean }
-  | { ok: false; reason: Common | "finished" | "too_long" | "invalid_text" | "busy" }
-> {
+): Promise<AnswerResult> {
   const interview = await getInterview(db, userId, interviewId);
-  if (!interview) return { ok: false, reason: "not_found" };
+  if (!interview || isSceneInterview(interview)) return { ok: false, reason: "not_found" };
+  return appendAnswer(db, ai, userId, interview, text, async () => {
+    const experience = await loadExperience(db, userId, interview.experienceId);
+    return buildContext(db, userId, experience, interview.trackId);
+  }, now);
+}
+
+// 답을 받아 다음 질문을 붙인다. 배경 글(context)은 인터뷰 종류마다 부르는 쪽이 만든다
+export async function appendAnswer(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  interview: Interview,
+  text: string,
+  context: () => Promise<string>,
+  now: Date = new Date(),
+): Promise<AnswerResult> {
   if (interview.status === "done") return { ok: false, reason: "finished" };
-  const answer = text.trim();
+  const answer = typeof text === "string" ? text.trim() : "";
   if (answer === "" || answer.length > LIMITS.longText) return { ok: false, reason: "invalid_text" };
   if (interview.messages.filter((message) => message.role === "user").length >= MAX_USER_TURNS) {
     return { ok: false, reason: "too_long" };
   }
 
-  const experience = await loadExperience(db, userId, interview.experienceId);
   const history: InterviewMessage[] = [...interview.messages, { role: "user", text: answer }];
   const result = await runAi(
     db,
@@ -172,10 +183,7 @@ export async function answerInterview(
     {
       purpose: "interview",
       system: INTERVIEW_SYSTEM,
-      messages: [
-        { role: "user", text: await buildContext(db, userId, experience, interview.trackId) },
-        ...history,
-      ],
+      messages: [{ role: "user", text: await context() }, ...history],
       schema: turnSchema,
       effort: "low",
       maxTokens: 4000,
@@ -190,7 +198,7 @@ export async function answerInterview(
     .set({ messages: [...history, { role: "assistant", text: result.value.message }], updatedAt: now })
     .where(
       and(
-        mine(userId, interviewId),
+        mine(userId, interview.id),
         eq(interviews.status, "active"),
         sql`jsonb_array_length(${interviews.messages}) = ${interview.messages.length}`,
       ),
@@ -198,6 +206,31 @@ export async function answerInterview(
     .returning({ id: interviews.id });
   if (updated.length === 0) return { ok: false, reason: "busy" };
   return { ok: true, message: result.value.message, suggestFinish: result.value.enough };
+}
+
+// 첫 질문을 받는다. 인터뷰 행은 부르는 쪽이 만든다
+export async function firstQuestion(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  context: string,
+  now: Date = new Date(),
+): Promise<{ ok: true; message: string } | { ok: false; reason: "over_limit" | AiFailure }> {
+  const result = await runAi(
+    db,
+    ai,
+    userId,
+    {
+      purpose: "interview",
+      system: INTERVIEW_SYSTEM,
+      messages: [{ role: "user", text: context }],
+      schema: turnSchema,
+      effort: "low",
+      maxTokens: 4000,
+    },
+    now,
+  );
+  return result.ok ? { ok: true, message: result.value.message } : { ok: false, reason: result.reason };
 }
 
 export type DraftWarnings = Partial<Record<keyof ExperienceInput, string>>;
@@ -268,7 +301,7 @@ export async function draftFromInterview(
   | { ok: false; reason: Common | "empty" }
 > {
   const interview = await getInterview(db, userId, interviewId);
-  if (!interview) return { ok: false, reason: "not_found" };
+  if (!interview || isSceneInterview(interview)) return { ok: false, reason: "not_found" };
   if (!interview.messages.some((message) => message.role === "user")) return { ok: false, reason: "empty" };
 
   const experience = await loadExperience(db, userId, interview.experienceId);

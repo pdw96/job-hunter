@@ -2,11 +2,14 @@ import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
 import type { ClaimAnswer } from "./claims-repo";
 import { confirmFact, createFact, deleteFact, getFact, setFactTrackScope, unconfirmFact, updateFact } from "./facts-repo";
-import { finishInterview } from "./interview";
+import { extractText, IMPORT_TEXT_MESSAGES, prepareSource } from "./import-text";
+import { finishInterview, getInterview } from "./interview";
 import { RUBRIC_ITEMS, type RubricItem, SCOPES, type Scope } from "./options";
 import { answerRecordClaim } from "./record-claims-repo";
-import { validateFact, validateScene } from "./record-input";
-import { FACT_KINDS, type FactKind } from "./record-options";
+import { type CreatedItem, importRecords } from "./record-import";
+import { type SceneInput, validateFact, validateScene } from "./record-input";
+import { FACT_KINDS, type FactKind, HEAD_KINDS, HEAD_NOUNS, type HeadRef } from "./record-options";
+import { answerSceneInterview, draftSceneFromInterview, type SceneDraftWarnings, startSceneInterview } from "./scene-interview";
 import { approveScenePhrase, dismissScenePhrase, judgeScene } from "./scene-judge";
 import {
   closeSceneRubricItem,
@@ -81,7 +84,7 @@ export async function deleteFactCommand(db: Db, userId: string, kind: FactKind, 
   const result = await deleteFact(db, userId, kind, id);
   if (result.ok) return { ok: true };
   if (result.reason === "has_scenes") {
-    return { ok: false, message: `장면 ${result.count}개가 있습니다. 장면을 먼저 지우거나 다른 곳으로 옮겨 주세요` };
+    return { ok: false, message: `사례 ${result.count}개가 있습니다. 사례를 먼저 지우거나 다른 곳으로 옮겨 주세요` };
   }
   return { ok: false, message: NOT_FOUND };
 }
@@ -122,7 +125,15 @@ const AI_MESSAGES: Record<string, string> = {
   invalid: "AI의 답을 읽지 못했습니다. 다시 시도해 주세요",
   unavailable: "AI 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요",
   changed: "판정하는 사이 내용이 바뀌었습니다. 다시 판정받아 주세요",
+  finished: "이미 끝난 인터뷰입니다",
+  too_long: "인터뷰가 너무 길어졌습니다. 지금까지의 내용으로 정리해 주세요",
+  invalid_text: "답을 입력해 주세요 (4,000자까지)",
+  busy: "앞의 답을 처리하는 중입니다. 잠시 뒤 다시 보내 주세요",
+  empty: "아직 답한 내용이 없습니다",
+  nothing_found: "기록으로 나눌 만한 내용을 찾지 못했습니다",
+  no_head: "사례가 속한 회사·프로젝트·활동을 찾을 수 없습니다",
 };
+const aiMessage = (reason: string) => AI_MESSAGES[reason] ?? "문제가 생겼습니다. 다시 시도해 주세요";
 
 // 인터뷰로 만든 초안이면 인터뷰를 끝내고 판정을 한 번 돌린다. 판정이 실패해도 저장은 그대로 둔다
 export async function saveScene(
@@ -139,21 +150,23 @@ export async function saveScene(
   if (!parsed.ok) return { ok: false, errors: parsed.errors as Record<string, string> };
   if (!isScopes(scopes)) return { ok: false, errors: {}, message: "트랙별 사용 범위를 다시 골라 주세요" };
 
+  // 본인의 인터뷰가 실제로 있을 때만 인터뷰로 만든 것으로 본다(빈 글이나 없는 id는 무시한다)
+  const interview = typeof interviewId === "string" && interviewId !== "" ? await getInterview(db, userId, interviewId) : null;
+
   let savedId: string;
   if (typeof id === "string") {
     const result = await updateScene(db, userId, id, parsed.value);
     if (!result.ok) return { ok: false, errors: {}, message: (await getScene(db, userId, id)) ? HEAD_NOT_FOUND : NOT_FOUND };
     savedId = id;
   } else {
-    const created = await createScene(db, userId, parsed.value, interviewId ? { source: "interview" } : {});
+    const created = await createScene(db, userId, parsed.value, interview ? { source: "interview" } : {});
     if (!created.ok) return { ok: false, errors: {}, message: HEAD_NOT_FOUND };
     savedId = created.id;
   }
   for (const [trackId, scope] of Object.entries(scopes)) {
     await setSceneTrackScope(db, userId, savedId, trackId, scope);
   }
-  if (typeof interviewId === "string") {
-    await finishInterview(db, userId, interviewId);
+  if (interview && (await finishInterview(db, userId, interview.id)).ok) {
     await judgeScene(db, ai, userId, savedId).catch(() => undefined);
   }
   return { ok: true, id: savedId };
@@ -170,7 +183,10 @@ export async function confirmSceneCommand(db: Db, userId: string, id: string, wi
   if (typeof id !== "string") return { ok: false, message: NOT_FOUND };
   const result = await confirmScene(db, userId, id, { withHead: withHead === true });
   if (result.ok) return { ok: true };
-  if (result.reason === "head_claims_pending") return { ok: false, message: "회사 정보에 줄 확인이 남아 있습니다" };
+  if (result.reason === "head_claims_pending") {
+    const scene = await getScene(db, userId, id);
+    return { ok: false, message: `${HEAD_NOUNS[scene?.head.kind ?? "job"]} 정보에 줄 확인이 남아 있습니다` };
+  }
   if (result.reason === "claims_pending") return { ok: false, message: "확인할 주장이 남아 있습니다. 먼저 주장을 확인해 주세요" };
   return { ok: false, message: NOT_FOUND };
 }
@@ -201,4 +217,85 @@ export async function decideScenePhrase(db: Db, userId: string, id: string, phra
   if (typeof id !== "string" || typeof phrase !== "string") return { ok: false, message: NOT_FOUND };
   const result = approve ? await approveScenePhrase(db, userId, id, phrase) : await dismissScenePhrase(db, userId, id, phrase);
   return result.ok ? { ok: true } : { ok: false, message: "후보를 찾을 수 없습니다" };
+}
+
+// ---- 사례 인터뷰 ----
+
+const parseHead = (value: unknown): HeadRef | null => {
+  if (typeof value !== "string") return null;
+  const [kind, ...rest] = value.split(":");
+  const id = rest.join(":");
+  const headKind = HEAD_KINDS.find((k) => k === kind);
+  return headKind && id !== "" ? { kind: headKind, id } : null;
+};
+
+// head는 `job:<id>` 모양. sceneId가 있으면 그 장면을 보완하는 인터뷰
+export async function startSceneInterviewCommand(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  options: { head?: unknown; sceneId?: unknown; trackId?: unknown },
+): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+  if (!newRecordsOn()) return { ok: false, message: OFF };
+  const head = parseHead(options?.head);
+  const sceneId = typeof options?.sceneId === "string" && options.sceneId !== "" ? options.sceneId : undefined;
+  if (!head && !sceneId) return { ok: false, message: "사례를 붙일 회사·프로젝트·활동을 골라 주세요" };
+  const trackId = typeof options?.trackId === "string" ? options.trackId : undefined;
+  const result = await startSceneInterview(db, ai, userId, { head: head ?? undefined, sceneId, trackId });
+  return result.ok ? { ok: true, id: result.id } : { ok: false, message: aiMessage(result.reason) };
+}
+
+export async function answerSceneInterviewCommand(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  interviewId: string,
+  text: string,
+): Promise<{ ok: true; message: string; suggestFinish: boolean } | { ok: false; message: string }> {
+  if (!newRecordsOn()) return { ok: false, message: OFF };
+  if (typeof interviewId !== "string" || typeof text !== "string") return { ok: false, message: NOT_FOUND };
+  const result = await answerSceneInterview(db, ai, userId, interviewId, text);
+  return result.ok ? result : { ok: false, message: aiMessage(result.reason) };
+}
+
+export async function draftSceneCommand(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  interviewId: string,
+): Promise<{ ok: true; draft: SceneInput; warnings: SceneDraftWarnings; sceneId: string | null } | { ok: false; message: string }> {
+  if (!newRecordsOn()) return { ok: false, message: OFF };
+  if (typeof interviewId !== "string") return { ok: false, message: NOT_FOUND };
+  const result = await draftSceneFromInterview(db, ai, userId, interviewId);
+  return result.ok ? result : { ok: false, message: aiMessage(result.reason) };
+}
+
+// ---- 새 구조로 가져오기 ----
+
+export type ImportRecordsResult =
+  | { ok: true; created: CreatedItem[]; skipped: number; more: boolean }
+  // stop: 한도에 닿아 더 보내도 소용없다 / empty: 실패가 아니라 기록으로 볼 내용이 없었다
+  | { ok: false; message: string; stop?: boolean; empty?: boolean };
+
+// 글(붙여 넣기 또는 파일)을 새 구조로 가져온다. 파일은 글자만 뽑고 저장하지 않는다
+export async function importRecordsCommand(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  input: { text?: unknown; file?: { name: string; bytes: Uint8Array } | null },
+): Promise<ImportRecordsResult> {
+  if (!newRecordsOn()) return { ok: false, message: OFF };
+  let raw = typeof input.text === "string" ? input.text : "";
+  if (input.file) {
+    const extracted = await extractText(input.file);
+    if (!extracted.ok) return { ok: false, message: IMPORT_TEXT_MESSAGES[extracted.reason] };
+    raw = extracted.text;
+  }
+  const source = prepareSource(raw);
+  if (!source.ok) return { ok: false, message: IMPORT_TEXT_MESSAGES[source.reason] };
+  const result = await importRecords(db, ai, userId, source.text);
+  if (!result.ok) {
+    return { ok: false, message: aiMessage(result.reason), stop: result.reason === "over_limit", empty: result.reason === "nothing_found" };
+  }
+  return result;
 }

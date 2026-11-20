@@ -14,16 +14,18 @@ type Props = {
   initialScopes?: Record<string, Scope>;
   tracks: { id: string; name: string }[];
   interviewId?: string; // 인터뷰로 만든 초안을 확인할 때
+  warnings?: Record<string, string | undefined>; // 대화에 없던 숫자 경고
 };
 
 const inputClass = "w-full rounded-lg border border-foreground/20 bg-transparent px-3 py-2";
 
-function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) {
+function Field({ label, hint, error, warning, children }: { label: string; hint?: string; error?: string; warning?: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1">
       <span className="text-sm font-medium">{label}</span>
       {hint && <span className="block text-xs text-foreground/60">{hint}</span>}
       {children}
+      {warning && <span className="block text-sm text-amber-700 dark:text-amber-400">{warning}</span>}
       {error && (
         <span role="alert" className="block text-sm text-red-600">
           {error}
@@ -45,7 +47,7 @@ function snapshot(v: SceneFormValues, scopes: Record<string, Scope>): string {
   ]);
 }
 
-export function SceneForm({ id, heads, initial, initialScopes, tracks, interviewId }: Props) {
+export function SceneForm({ id, heads, initial, initialScopes, tracks, interviewId, warnings = {} }: Props) {
   const router = useRouter();
   const start: SceneFormValues = { ...EMPTY_SCENE, ...initial };
   const startScopes = initialScopes ?? Object.fromEntries(tracks.map((t) => [t.id, "use" as Scope]));
@@ -109,7 +111,7 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
   }
 
   function remove() {
-    if (!id || !window.confirm("이 장면을 지울까요? 되돌릴 수 없습니다")) return;
+    if (!id || !window.confirm("이 사례를 지울까요? 되돌릴 수 없습니다")) return;
     startTransition(async () => {
       const result = await deleteSceneAction(id);
       if (!result.ok) {
@@ -132,7 +134,7 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">기본</h2>
           <div className="space-y-1">
-            <p className="text-sm font-medium">어디에 속한 장면인가요</p>
+            <p className="text-sm font-medium">어디에 속한 사례인가요</p>
             <select aria-label="소속" value={v.head} onChange={(e) => set("head", e.target.value)} className={inputClass}>
               <option value="">고르기</option>
               {heads.map((o) => (
@@ -147,14 +149,14 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
               </p>
             )}
           </div>
-          <Field label="제목" hint="나중에 알아보기 쉬운 이름. 예: 결제 장애 대응" error={err("title")}>
+          <Field label="제목" hint="나중에 알아보기 쉬운 이름. 예: 결제 장애 대응" error={err("title")} warning={warnings.title}>
             <input {...text("title")} maxLength={LIMITS.shortText} className={inputClass} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="시작 월" error={err("startMonth")}>
+            <Field label="시작 월" error={err("startMonth")} warning={warnings.startMonth}>
               <input type="month" min="1950-01" max="2099-12" value={v.startMonth} onChange={(e) => set("startMonth", e.target.value)} className={inputClass} />
             </Field>
-            <Field label="끝 월" error={err("endMonth")}>
+            <Field label="끝 월" error={err("endMonth")} warning={warnings.endMonth}>
               <input
                 type="month"
                 min="1950-01"
@@ -175,19 +177,19 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
 
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">내용</h2>
-          <Field label="상황" hint="어떤 배경과 문제가 있었나요" error={err("situation")}>
+          <Field label="상황" hint="어떤 배경과 문제가 있었나요" error={err("situation")} warning={warnings.situation}>
             <textarea {...text("situation")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
           </Field>
-          <Field label="판단" hint="어떤 선택지 중에 왜 그렇게 정했나요" error={err("judgment")}>
+          <Field label="판단" hint="어떤 선택지 중에 왜 그렇게 정했나요" error={err("judgment")} warning={warnings.judgment}>
             <textarea {...text("judgment")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
           </Field>
-          <Field label="본인이 한 일" hint="팀이나 다른 부서가 한 일과 구분해서, 본인이 직접 한 일만 적어 주세요" error={err("actions")}>
+          <Field label="본인이 한 일" hint="팀이나 다른 부서가 한 일과 구분해서, 본인이 직접 한 일만 적어 주세요" error={err("actions")} warning={warnings.actions}>
             <textarea {...text("actions")} rows={5} maxLength={LIMITS.longText} className={inputClass} />
           </Field>
-          <Field label="결과" error={err("result")}>
+          <Field label="결과" error={err("result")} warning={warnings.result}>
             <textarea {...text("result")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
           </Field>
-          <Field label="배운 점" error={err("lessons")}>
+          <Field label="배운 점" error={err("lessons")} warning={warnings.lessons}>
             <textarea {...text("lessons")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
           </Field>
         </section>
@@ -221,6 +223,7 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
               수치 추가
             </button>
           )}
+          {warnings.metrics && <p className="text-sm text-amber-700 dark:text-amber-400">{warnings.metrics}</p>}
           {err("metrics") && (
             <p role="alert" className="text-sm text-red-600">
               {err("metrics")}
@@ -230,7 +233,7 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
 
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">지원서에 쓸 때 지킬 것</h2>
-          <Field label="하지 않은 것" hint="이 장면에서 본인이 하지 않은 일. AI가 이 범위를 넘겨 쓰지 않습니다" error={err("notDone")}>
+          <Field label="하지 않은 것" hint="이 사례에서 본인이 하지 않은 일. AI가 이 범위를 넘겨 쓰지 않습니다" error={err("notDone")} warning={warnings.notDone}>
             <textarea {...text("notDone")} rows={3} maxLength={LIMITS.longText} className={inputClass} />
           </Field>
           <div className="space-y-2">
@@ -277,7 +280,7 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
 
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">그 밖에</h2>
-          <Field label="증빙·확인 메모" hint="뒷받침할 서류나 자료가 무엇이고 어디에 있는지" error={err("evidenceNote")}>
+          <Field label="증빙·확인 메모" hint="뒷받침할 서류나 자료가 무엇이고 어디에 있는지" error={err("evidenceNote")} warning={warnings.evidenceNote}>
             <textarea {...text("evidenceNote")} rows={2} maxLength={LIMITS.longText} className={inputClass} />
           </Field>
           <Field label="태그" hint={`쉼표로 구분, ${LIMITS.tags}개까지`} error={err("tags")}>
@@ -333,7 +336,7 @@ export function SceneForm({ id, heads, initial, initialScopes, tracks, interview
         </button>
         {id && (
           <button type="button" onClick={remove} disabled={pending} className="ml-auto text-sm text-red-600 underline">
-            장면 지우기
+            사례 지우기
           </button>
         )}
       </div>

@@ -7,17 +7,23 @@ import type { SurveyInput } from "@/modules/tracks/survey";
 import { findClaims, subjectOfJob } from "./claims";
 import { createFact, getFact } from "./facts-repo";
 import { createFakeAi } from "@/modules/ai/fake-client";
+import { getInterview } from "./interview";
+import { startSceneInterview } from "./scene-interview";
 import {
   answerClaimCommand,
   confirmSceneCommand,
+  answerSceneInterviewCommand,
   decideScenePhrase,
   deleteFactCommand,
+  draftSceneCommand,
+  importRecordsCommand,
   deleteSceneCommand,
   judgeSceneCommand,
   saveFact,
   saveScene,
   setFactConfirmed,
   setSceneRubricClosed,
+  startSceneInterviewCommand,
   unconfirmSceneCommand,
 } from "./record-commands";
 import { insertRecordClaims, listRecordClaims } from "./record-claims-repo";
@@ -107,7 +113,7 @@ test("장면이 달린 경력은 지울 수 없다", async () => {
   if (!j.ok) throw new Error();
   const s = await createScene(db, "u1", { head: { kind: "job", id: j.id }, title: "장면", startMonth: null, endMonth: null, isOngoing: false, situation: null, judgment: null, actions: null, result: null, lessons: null, metrics: [], notDone: null, bannedPhrases: [], evidenceNote: null, tags: [] });
   expect(s.ok).toBe(true);
-  expect(await deleteFactCommand(db, "u1", "job", j.id)).toEqual({ ok: false, message: "장면 1개가 있습니다. 장면을 먼저 지우거나 다른 곳으로 옮겨 주세요" });
+  expect(await deleteFactCommand(db, "u1", "job", j.id)).toEqual({ ok: false, message: "사례 1개가 있습니다. 사례를 먼저 지우거나 다른 곳으로 옮겨 주세요" });
   expect(await getFact(db, "u1", "job", j.id)).not.toBeNull();
   const e = await createFact(db, "u1", "education", school as never);
   if (!e.ok) throw new Error();
@@ -135,6 +141,7 @@ const sceneIn = (head: { kind: "job" | "project" | "activity"; id: string }, ove
   actions: "승인 API를 다시 설계했다", result: null, lessons: null, metrics: [], notDone: null, bannedPhrases: [], evidenceNote: null, tags: [], ...over,
 });
 const met = { status: "met", note: "" };
+const q = (message: string, enough = false) => ({ message, enough });
 const allMet = { role: met, level: met, metrics: met, evidence: met, phraseCandidates: ["혼자 구축"] };
 async function jobWithScene(over: Record<string, unknown> = {}, source: "manual" | "import" = "manual") {
   const j = await createFact(db, "u1", "job", job, { source });
@@ -182,16 +189,55 @@ test("장면: 저장 검사, 남의 머리, 고치기, 범위", async () => {
 test("장면: 인터뷰로 만든 초안은 인터뷰를 끝내고 판정을 한 번 돌린다. 판정이 실패해도 저장된다", async () => {
   const j = await createFact(db, "u1", "job", job);
   if (!j.ok) throw new Error();
+  const iv1 = await startSceneInterview(db, createFakeAi([q("?")]), "u1", { head: { kind: "job", id: j.id } });
+  const iv2 = await startSceneInterview(db, createFakeAi([q("?")]), "u1", { head: { kind: "job", id: j.id } });
+  if (!iv1.ok || !iv2.ok) throw new Error();
   const ai = createFakeAi([allMet]);
-  const saved = await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: j.id }), {}, "iv1");
+  const saved = await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: j.id }), {}, iv1.id);
   expect(saved.ok).toBe(true);
   expect(ai.requests).toHaveLength(1);
   if (!saved.ok) return;
-  expect((await getScene(db, "u1", saved.id))?.judgedAt).not.toBeNull();
+  const got = await getScene(db, "u1", saved.id);
+  expect(got?.judgedAt).not.toBeNull();
+  expect(got?.source).toBe("interview");
+  expect((await getInterview(db, "u1", iv1.id))?.status).toBe("done");
   const failing = createFakeAi([{ fail: "unavailable" }]);
-  const again = await saveScene(db, failing, "u1", null, sceneIn({ kind: "job", id: j.id }, { title: "둘째" }), {}, "iv2");
+  const again = await saveScene(db, failing, "u1", null, sceneIn({ kind: "job", id: j.id }, { title: "둘째" }), {}, iv2.id);
   expect(again.ok).toBe(true);
   expect(failing.requests).toHaveLength(1);
+});
+
+test("장면: 없는 인터뷰나 빈 인터뷰 id면 판정하지 않고 출처도 인터뷰로 두지 않는다", async () => {
+  const j = await createFact(db, "u1", "job", job);
+  if (!j.ok) throw new Error();
+  const ai = createFakeAi([]);
+  for (const interviewId of ["none", ""]) {
+    const saved = await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: j.id }), {}, interviewId);
+    expect(saved.ok).toBe(true);
+    if (saved.ok) expect((await getScene(db, "u1", saved.id))?.source).toBe("manual");
+  }
+  // 남의 인터뷰도 없는 것과 같다
+  const theirs = await createFact(db, "u2", "job", job);
+  if (!theirs.ok) throw new Error();
+  const iv = await startSceneInterview(db, createFakeAi([q("?")]), "u2", { head: { kind: "job", id: theirs.id } });
+  if (!iv.ok) throw new Error();
+  const saved = await saveScene(db, ai, "u1", null, sceneIn({ kind: "job", id: j.id }), {}, iv.id);
+  if (saved.ok) expect((await getScene(db, "u1", saved.id))?.source).toBe("manual");
+  expect((await getInterview(db, "u2", iv.id))?.status).toBe("active");
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("장면: 프로젝트 머리에 열린 줄이 있으면 프로젝트 정보라고 알린다", async () => {
+  const p = await createFact(
+    db, "u1", "project",
+    { name: "리뉴얼", parent: null, startMonth: null, endMonth: null, isOngoing: false, role: null, tools: [], summary: "TF를 주도했다", bannedPhrases: [] },
+    { source: "import" },
+  );
+  if (!p.ok) throw new Error();
+  await insertRecordClaims(db, "u1", { kind: "project", id: p.id }, [{ kind: "role", quote: "TF를 주도했다", phrase: "주도", origin: "code" }]);
+  const s = await saveScene(db, createFakeAi([]), "u1", null, sceneIn({ kind: "project", id: p.id }), {});
+  if (!s.ok) throw new Error();
+  expect(await confirmSceneCommand(db, "u1", s.id, true)).toEqual({ ok: false, message: "프로젝트 정보에 줄 확인이 남아 있습니다" });
 });
 
 test("장면: 머리까지 확인, 머리에 열린 줄이 있으면 둘 다 미확인", async () => {
@@ -232,4 +278,70 @@ test("장면: 판정, 닫기, 후보 결정, 지우기", async () => {
   expect(await deleteSceneCommand(db, "u2", sceneId)).toEqual({ ok: false, message: "기록을 찾을 수 없습니다" });
   expect(await deleteSceneCommand(db, "u1", sceneId)).toEqual({ ok: true });
   expect(await getScene(db, "u1", sceneId)).toBeNull();
+});
+
+// ---- 사례 인터뷰와 가져오기 ----
+const draftAnswer = {
+  title: "결제 장애 대응", startMonth: "", endMonth: "", isOngoing: false, situation: "장애가 잦았다", judgment: "",
+  actions: "로그를 모아 원인을 찾았다", result: "", lessons: "", metrics: [], notDone: "", evidenceNote: "", tags: [],
+};
+
+test("사례 인터뷰: 스위치, 머리 고르기, 답, 정리", async () => {
+  vi.stubEnv("NEW_RECORDS", "");
+  const off = createFakeAi([]);
+  expect(await startSceneInterviewCommand(db, off, "u1", { head: "job:x" })).toEqual({ ok: false, message: OFF });
+  expect(await answerSceneInterviewCommand(db, off, "u1", "x", "답")).toEqual({ ok: false, message: OFF });
+  expect(await draftSceneCommand(db, off, "u1", "x")).toEqual({ ok: false, message: OFF });
+  expect(await importRecordsCommand(db, off, "u1", { text: "글" })).toEqual({ ok: false, message: OFF });
+  vi.stubEnv("NEW_RECORDS", "1");
+
+  const j = await createFact(db, "u1", "job", job);
+  if (!j.ok) throw new Error();
+  const none = createFakeAi([]);
+  expect(await startSceneInterviewCommand(db, none, "u1", {})).toEqual({ ok: false, message: "사례를 붙일 회사·프로젝트·활동을 골라 주세요" });
+  expect(await startSceneInterviewCommand(db, none, "u2", { head: `job:${j.id}` })).toEqual({ ok: false, message: "기록을 찾을 수 없습니다" });
+  expect(await startSceneInterviewCommand(db, none, "u1", { head: "school:1" })).toEqual({ ok: false, message: "사례를 붙일 회사·프로젝트·활동을 골라 주세요" });
+  expect(none.requests).toHaveLength(0);
+
+  const started = await startSceneInterviewCommand(db, createFakeAi([q("어떤 일이었나요?")]), "u1", { head: `job:${j.id}` });
+  expect(started.ok).toBe(true);
+  if (!started.ok) return;
+  expect(await draftSceneCommand(db, createFakeAi([]), "u1", started.id)).toEqual({ ok: false, message: "아직 답한 내용이 없습니다" });
+  expect(await answerSceneInterviewCommand(db, createFakeAi([q("결과는요?", true)]), "u1", started.id, "장애 원인을 찾았어요")).toEqual({
+    ok: true, message: "결과는요?", suggestFinish: true,
+  });
+  expect(await answerSceneInterviewCommand(db, createFakeAi([]), "u1", started.id, " ")).toEqual({ ok: false, message: "답을 입력해 주세요 (4,000자까지)" });
+  const drafted = await draftSceneCommand(db, createFakeAi([draftAnswer]), "u1", started.id);
+  expect(drafted).toMatchObject({ ok: true, sceneId: null, draft: { head: { kind: "job", id: j.id }, title: "결제 장애 대응" } });
+  expect(await draftSceneCommand(db, createFakeAi([{ fail: "over_limit" }]), "u1", started.id)).toEqual({
+    ok: false, message: "이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 쓸 수 있습니다",
+  });
+});
+
+test("사례 인터뷰: 보완 인터뷰는 장면 id를 돌려준다", async () => {
+  const { sceneId } = await jobWithScene();
+  const started = await startSceneInterviewCommand(db, createFakeAi([q("?")]), "u1", { sceneId });
+  if (!started.ok) throw new Error(started.message);
+  await answerSceneInterviewCommand(db, createFakeAi([q("?")]), "u1", started.id, "실제로는 둘이 했어요");
+  expect(await draftSceneCommand(db, createFakeAi([draftAnswer]), "u1", started.id)).toMatchObject({ ok: true, sceneId });
+  expect(await startSceneInterviewCommand(db, createFakeAi([]), "u2", { sceneId })).toEqual({ ok: false, message: "기록을 찾을 수 없습니다" });
+});
+
+test("새 가져오기: 빈 글, 성공, 한도", async () => {
+  const ai = createFakeAi([]);
+  expect(await importRecordsCommand(db, ai, "u1", { text: "  " })).toEqual({ ok: false, message: "가져올 글을 붙여 넣거나 파일을 골라 주세요" });
+  expect(await importRecordsCommand(db, ai, "u1", { text: "글", file: { name: "a.exe", bytes: new Uint8Array([1]) } })).toEqual({
+    ok: false, message: "지원하지 않는 파일입니다. PDF, 워드(.docx), 글 파일(.md, .txt, .csv)만 올릴 수 있습니다",
+  });
+  const answer = {
+    education: [], courses: [], gaps: [], projects: [], activities: [], more: false,
+    credentials: [{ type: "license", name: "정보처리기사", issuer: "", month: "", score: "" }],
+    jobs: [],
+  };
+  const ok = await importRecordsCommand(db, createFakeAi([answer]), "u1", { text: "정보처리기사" });
+  expect(ok).toMatchObject({ ok: true, skipped: 0, more: false, created: [{ kind: "credential", name: "정보처리기사" }] });
+  const limit = await importRecordsCommand(db, createFakeAi([{ fail: "over_limit" }]), "u1", { text: "정보처리기사" });
+  expect(limit).toMatchObject({ ok: false, stop: true });
+  const empty = await importRecordsCommand(db, createFakeAi([{ ...answer, credentials: [] }]), "u1", { text: "안녕하세요" });
+  expect(empty).toMatchObject({ ok: false, empty: true });
 });

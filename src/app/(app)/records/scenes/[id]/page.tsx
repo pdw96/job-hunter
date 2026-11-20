@@ -11,6 +11,7 @@ import {
   judgeSceneAction,
   setSceneConfirmedAction,
   setSceneRubricClosedAction,
+  startSceneSupplementAction,
 } from "@/modules/experiences/record-actions";
 import { getScene } from "@/modules/experiences/scenes-repo";
 import { newRecordsOn } from "@/modules/experiences/switch";
@@ -69,7 +70,28 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
         </Link>
       </div>
 
-      <ClaimsPanel experienceId={id} claims={claims} actions={{ answer: answerSceneClaimAction }} />
+      <ClaimsPanel experienceId={id} claims={claims} actions={{ answer: answerSceneClaimAction, startInterview: startSceneSupplementAction }} />
+      {/* 확인은 긴 폼 위에 둔다. 폰에서 폼 끝까지 내리지 않아도 보이게 한다 */}
+      {!scene.isConfirmed && (
+        <section aria-label="사례 확인" className="space-y-3 rounded-lg border border-foreground/15 p-4">
+          <div className="space-y-1">
+            <p className="font-medium">이 사례가 맞는지 확인해 주세요</p>
+            <p className="text-xs text-foreground/60">
+              확인한 사례만 자소서에 쓰입니다.{!headFact.isConfirmed && ` ${noun} 정보도 함께 확인합니다.`}
+            </p>
+          </div>
+          <ConfirmScene
+            sceneId={id}
+            headConfirmed={headFact.isConfirmed}
+            headNoun={noun}
+            headName={card.title}
+            headLines={card.lines}
+            headHref={headHref}
+            claimsOpen={claimsOpen}
+            headClaimsOpen={blocksConfirmation(headClaims)}
+          />
+        </section>
+      )}
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <SceneForm
           key={scene.contentVersion}
@@ -85,19 +107,9 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
             setClosed: setSceneRubricClosedAction,
             decidePhrase: decideScenePhraseAction,
             setConfirmed: setSceneConfirmedAction,
+            startInterview: startSceneSupplementAction,
           }}
-          confirmSlot={
-            <ConfirmScene
-              sceneId={id}
-              headConfirmed={headFact.isConfirmed}
-              headNoun={noun}
-              headName={card.title}
-              headLines={card.lines}
-              headHref={headHref}
-              claimsOpen={claimsOpen}
-              headClaimsOpen={blocksConfirmation(headClaims)}
-            />
-          }
+          confirmSlot={<p className="text-xs text-foreground/60">위의 사례 확인 칸에서 확인합니다</p>}
           id={id}
           kind="project"
           rubric={scene.rubric}

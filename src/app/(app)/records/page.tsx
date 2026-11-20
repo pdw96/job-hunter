@@ -65,7 +65,12 @@ export default async function RecordsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">경험 기록</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-2xl font-bold">경험 기록</h1>
+        <Link href="/records/import" className="ml-auto rounded-lg border border-foreground/20 px-3 py-1.5 text-sm font-medium">
+          가져오기
+        </Link>
+      </div>
       <nav aria-label="기록 메뉴" className="-mx-4 flex gap-1 overflow-x-auto border-b border-foreground/10 px-4 text-sm">
         {TABS.map((t) => (
           <Link

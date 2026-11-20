@@ -10,6 +10,7 @@ import { newRecordsOn } from "@/modules/experiences/switch";
 import { StateBadge } from "../../experiences/state-badge";
 import { periodText } from "../fact-summary";
 import { HEAD_NOUN } from "./heads";
+import { StartSceneInterview } from "./start-scene-interview";
 
 const addLink = "block rounded-lg border border-dashed border-foreground/30 px-4 py-3 text-center text-sm text-foreground/70";
 
@@ -55,7 +56,7 @@ export default async function ScenesPage() {
         </span>
       </nav>
 
-      <p className="text-sm text-foreground/70">회사·프로젝트·활동마다 겪은 일을 장면으로 적습니다. 장면까지 확인돼야 자소서에 쓰입니다.</p>
+      <p className="text-sm text-foreground/70">회사·프로젝트·활동마다 겪은 일을 사례로 적습니다. 사례까지 확인돼야 자소서에 쓰입니다.</p>
 
       {groups.length === 0 && <p className="text-sm text-foreground/60">아직 경력, 프로젝트, 활동이 없습니다. 경력은 경력 탭에서 만들 수 있습니다.</p>}
 
@@ -71,7 +72,7 @@ export default async function ScenesPage() {
               >
                 <span className="min-w-0 truncate font-semibold">{group.name}</span>
                 <span className="text-xs text-foreground/60">
-                  {[FACT_KIND_LABELS[group.kind], group.period, `장면 ${mine.length}개`].filter(Boolean).join(" · ")}
+                  {[FACT_KIND_LABELS[group.kind], group.period, `사례 ${mine.length}개`].filter(Boolean).join(" · ")}
                 </span>
                 <span
                   className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-xs ${
@@ -101,9 +102,14 @@ export default async function ScenesPage() {
                   );
                 })}
               </ul>
-              <div className="border-t border-foreground/10 px-4 py-3">
-                <Link href={`/records/scenes/new?head=${group.kind}:${group.id}`} className="text-sm text-foreground/70 underline">
-                  + 장면 추가 (AI 인터뷰 또는 직접 쓰기)
+              <div className="flex flex-wrap items-center gap-2 border-t border-foreground/10 px-4 py-3">
+                <span className="mr-auto text-sm text-foreground/70">+ 사례 추가</span>
+                <StartSceneInterview head={`${group.kind}:${group.id}`} />
+                <Link
+                  href={`/records/scenes/new?head=${group.kind}:${group.id}`}
+                  className="rounded-lg border border-foreground/20 px-3 py-1.5 text-sm font-medium"
+                >
+                  직접 쓰기
                 </Link>
               </div>
             </section>

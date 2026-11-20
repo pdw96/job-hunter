@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
-import { getInterview } from "@/modules/experiences/interview";
+import { getInterview, isSceneInterview } from "@/modules/experiences/interview";
 import { getTrackScopes } from "@/modules/experiences/repo";
 import { listTracks } from "@/modules/tracks/repo";
 import { InterviewChat } from "../chat";
@@ -9,9 +9,9 @@ import { InterviewChat } from "../chat";
 export default async function InterviewPage({ params }: { params: Promise<{ interviewId: string }> }) {
   const user = await requireUser();
   const { interviewId } = await params;
-  // 없는 인터뷰와 남의 인터뷰를 구분하지 않고 404로 보낸다
+  // 없는 인터뷰와 남의 인터뷰를 구분하지 않고 404로 보낸다. 사례(새 기록) 인터뷰는 /records/interview에서 연다
   const interview = await getInterview(db, user.id, interviewId);
-  if (!interview) notFound();
+  if (!interview || isSceneInterview(interview)) notFound();
 
   const [tracks, scopes] = await Promise.all([
     listTracks(db, user.id),

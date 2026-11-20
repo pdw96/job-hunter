@@ -50,7 +50,7 @@ export function ConfirmScene({ sceneId, headConfirmed, headNoun, headName, headL
       {asking && !headConfirmed && !blocked && (
         <div role="dialog" aria-label={`${headNoun} 정보도 맞나요?`} className="space-y-3 rounded-lg border border-amber-600/40 bg-amber-600/5 p-3">
           <p className="font-medium">{headNoun} 정보도 맞나요?</p>
-          <p className="text-xs text-foreground/70">장면 내용이 맞나요? 이 장면을 자소서에 쓰려면 {headNoun} 정보도 확인돼야 합니다.</p>
+          <p className="text-xs text-foreground/70">사례 내용이 맞나요? 이 사례를 자소서에 쓰려면 {headNoun} 정보도 확인돼야 합니다.</p>
           <div className="space-y-0.5 rounded-lg bg-background/60 px-3 py-2">
             <p className="font-medium">{headName}</p>
             {headLines.map((line) => (
@@ -75,13 +75,13 @@ export function ConfirmScene({ sceneId, headConfirmed, headNoun, headName, headL
               onClick={() => confirm(false)}
               className="rounded-lg border border-foreground/20 px-3 py-2 text-sm font-medium disabled:opacity-50"
             >
-              장면만 맞음
+              사례만 맞음
             </button>
             <Link href={headHref} className="rounded-lg border border-foreground/20 px-3 py-2 text-center text-sm font-medium">
               고치기
             </Link>
           </div>
-          <p className="text-xs text-foreground/60">장면만 맞음을 누르면 {headNoun} 정보가 확인될 때까지 자소서에는 쓰이지 않습니다</p>
+          <p className="text-xs text-foreground/60">사례만 맞음을 누르면 {headNoun} 정보가 확인될 때까지 자소서에는 쓰이지 않습니다</p>
         </div>
       )}
 

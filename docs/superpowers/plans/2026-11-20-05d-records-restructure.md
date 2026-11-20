@@ -501,6 +501,18 @@ PR 1 (Task 1~4)
 - (검토) 장면 AI 판정 결과는 판정하는 사이 증빙 메모나 머리(회사·프로젝트·활동)의 내용이 바뀌었으면 저장하지 않는다(`changed`). 증빙 메모만 고치면 확인은 유지하고 증빙 판정만 미판정으로 되돌린다(증빙 메모는 지원서에 쓰이지 않아 내용 칸이 아니다)
 - 옮기기(Task 8)에 넘길 것: `experiences_moves`의 고유 색인은 `old_id`가 빈 affiliate 행의 중복을 막지 못한다. `planMoves`가 사용자마다 affiliate 행이 하나뿐이게 해야 한다
 
+PR 2 (Task 5~7)
+- (사용자 결정 2026-11-20) 화면 문구에서 장면을 "사례"라고 부른다(메뉴 이름은 "경험 사례"). 코드 이름(scene*)과 DB 이름은 그대로. AI 프롬프트 글은 "장면" 그대로 둔다
+- 장면 인터뷰는 `experiences_interviews`를 그대로 쓴다(새 장면은 `head_kind`·`head_id`, 보완은 `scene_id`). 옛 `answerInterview`·`draftFromInterview`와 옛 인터뷰 화면은 장면 인터뷰를 not_found로 다루고, 질문 턴의 공통 부분은 `interview.ts`의 `appendAnswer`·`firstQuestion`으로 나눴다
+- 가져오기 계획의 프로젝트 소속은 `parentIndex: { kind: "job" | "education" | "course"; index }`(같은 묶음의 배열 순서)로 받고, 그 경력·학교·과정이 검사에서 빠지면 개인(null)으로 둔다
+- 가져오기의 이력 사실(학력·과정·자격·공백·활동)과 머리의 월·학점·시간·점수에 원본에 없던 숫자가 있으면 그 칸을 비운다(주장이 없는 칸이라 물어볼 수 없다). 장면은 옛 가져오기처럼 기간·수치 주장을 `needs_fix`로 둔다
+- 장면 초안(인터뷰·가져오기)은 `fitScene`으로 한도에 맞추고 잘못된 월은 비운 뒤 `validateScene`을 거친다
+- `startSceneInterview`는 `{ ok: true; id; message }`를 돌려주고, 정리 결과에 `sceneId`(보완이면 그 장면)를 함께 준다. `answerSceneInterview`를 따로 두었다(머리가 지워졌으면 `no_head`)
+- 옛 `chat.tsx`·`import-form.tsx`·`zip-import.tsx`는 `Chat`·`ImportScreen`(+`ImportKit`)으로 일반화하고, 옛 `InterviewChat`·`ImportForm`은 옛 액션을 넘기는 껍데기로 남겼다(옛 화면 동작은 같다)
+- 새 가져오기 결과에는 지우기 단추를 두지 않았다(열기만). 사례 인터뷰는 트랙을 고르지 않고 시작한다
+- (Task 6 검토) `saveScene`은 본인의 인터뷰가 실제로 있을 때만 출처를 "interview"로 두고 판정한다. 머리의 열린 줄 안내는 머리 종류의 이름(회사·프로젝트·활동)을 쓴다. 사례 화면의 확인 칸은 폼 위에 둔다
+- 프롬프트 점검은 `runRecordCheck`(사례 정리 2, 새 가져오기 1)를 더해 호출이 21번이다
+
 ## 판단 기록
 
 (PR마다 PR 본문에 적고, 끝나면 여기에 모은다)
