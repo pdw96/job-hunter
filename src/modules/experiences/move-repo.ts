@@ -18,6 +18,7 @@ export type ClaimedMove = {
   oldId: string | null;
   role: MoveRole | null;
   ref: string | null;
+  attempts: number; // 이번 시도 전까지 끝낸 수
 };
 
 // running인 채로 이만큼 지나면 멈춘 것으로 보고 다시 잡는다(화면을 닫았거나 서버가 끊김)
@@ -129,7 +130,7 @@ export async function claimNextMove(db: Db, userId: string, now: Date): Promise<
     // 동시에 같은 행을 고른 쪽은 앞 문장이 끝날 때까지 기다린 뒤 이 조건을 새 값으로 다시 보고(Postgres의 다시 읽기), 0행이 된다.
     // FOR UPDATE SKIP LOCKED는 PGlite에서 잡을 행을 건너뛰는 일이 있어 쓰지 않는다
     .where(and(eq(moves.userId, userId), inArray(moves.id, next), claimable))
-    .returning({ id: moves.id, step: moves.step, oldId: moves.oldId, role: moves.role, ref: moves.ref });
+    .returning({ id: moves.id, step: moves.step, oldId: moves.oldId, role: moves.role, ref: moves.ref, attempts: moves.attempts });
   return row ?? null;
 }
 

@@ -825,3 +825,32 @@ test("같은 기록 행은 AI를 부르지 않고 아무것도 만들지 않는�
   expect(result).toEqual({ ok: true, note: "같은 기록이 있어 하나만 옮겼습니다" });
   expect((await listFacts(db, "u1")).project).toHaveLength(0);
 });
+
+test("정리가 한도 밖의 까닭으로 두 번 실패하면 모두 기본값으로 정리를 끝내고 메모를 남기며, 기록은 하나씩 옮겨진다", async () => {
+  const a = await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  const b = await createExperience(db, "u1", old({ kind: "school", name: "한빛대학교", organization: "한빛대학교" }));
+  await planMoves(db, "u1");
+  const ai = movingAi(() => ({ fail: "invalid" }));
+  let progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.failed.map((item) => item.name)).toEqual(["같은 기록·사례 정리"]);
+  await retryMove(db, "u1", progress.failed[0].id, now);
+  progress = await runNextMove(db, ai, "u1", now);
+  expect(progress.failed).toEqual([]);
+  const rows = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  expect(rows.find((row) => row.step === "classify")).toMatchObject({ status: "done", attempts: 2, error: "기록 정리를 하지 못해 하나씩 옮겼습니다" });
+  expect(rows.find((row) => row.oldId === a)).toMatchObject({ role: "head", ref: null, status: "pending" });
+  expect(rows.find((row) => row.oldId === b)).toMatchObject({ role: "fact", ref: null, status: "pending" });
+  // 기록 행이 이어서 잡힌다
+  expect((await claimNextMove(db, "u1", now))?.step).toBe("record");
+});
+
+test("정리가 한도에 걸리면 두 번째여도 기본값으로 넘기지 않고 실패로 둔다", async () => {
+  await createExperience(db, "u1", old({ kind: "project", name: "고객 문의 대시보드" }));
+  await createExperience(db, "u1", old({ kind: "project", name: "재고 시스템" }));
+  await planMoves(db, "u1");
+  await db.update(moves).set({ attempts: 1 }).where(eq(moves.step, "classify"));
+  process.env.AI_MONTHLY_LIMIT_USD = "0";
+  const progress = await runNextMove(db, movingAi(() => ({ records: [] })), "u1", now);
+  expect(progress.failed.map((item) => item.name)).toEqual(["같은 기록·사례 정리"]);
+  expect(progress.failed[0].error).toBe("이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 시도해 주세요");
+});

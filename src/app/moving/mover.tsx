@@ -164,7 +164,7 @@ export function Mover({ progress: initial, summary }: { progress: MoveProgress; 
           <li className="flex items-start justify-between gap-3 rounded-lg border border-foreground/15 p-4 text-sm">
             <p className="font-medium">
               같은 기록·사례 정리
-              {classify.status === "failed" && classify.error && <span className="block font-normal text-foreground/60">{classify.error}</span>}
+              {classify.error && <span className="block font-normal text-foreground/60">{classify.error}</span>}
             </p>
             {classify.status === "failed" ? (
               <button type="button" className={button} disabled={running} onClick={() => retry([classify.id])}>

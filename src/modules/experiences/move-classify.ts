@@ -166,6 +166,16 @@ export function settleRoles(records: KeepInfo[], roles: RoleChoice[]): RoleChoic
 const proseLength = (row: { situation: string | null; actions: string | null; result: string | null }) =>
   (row.situation ?? "").length + (row.actions ?? "").length + (row.result ?? "").length;
 
+// 정리를 할 수 없을 때(거듭 실패): 모든 기록을 구분별 기본값으로 둔다. 같은 기록·사례는 묶지 않는다
+export async function applyDefaultRoles(db: Db, userId: string): Promise<void> {
+  const rows = await db.select({ id: experiences.id, kind: experiences.kind }).from(experiences).where(eq(experiences.userId, userId));
+  await setMoveRoles(
+    db,
+    userId,
+    rows.map((row) => ({ oldId: row.id, role: defaultRole(row.kind), ref: null })),
+  );
+}
+
 // 정리 한 번: 옛 기록을 읽어 묻고, 정한 역할을 기록 행에 적는다
 export async function classifyMoves(
   db: Db,

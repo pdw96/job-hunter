@@ -5,7 +5,7 @@ import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { type ClaimStatus, findClaims, type FoundClaim, mergeClaims, subjectOfScene } from "./claims";
 import { listClaims } from "./claims-repo";
 import { createFact, listFacts, setProjectParentIfUnset } from "./facts-repo";
-import { classifyMoves } from "./move-classify";
+import { applyDefaultRoles, classifyMoves } from "./move-classify";
 import { claimNextMove, finishMove, hasSceneMoves, type MoveProgress, moveProgress, type MoveRole, reopenAffiliate } from "./move-repo";
 import { type Kind, LIMITS, type Scope } from "./options";
 import { AFFILIATE_SYSTEM, describeExperience, MOVE_CLAIMS_SYSTEM } from "./prompts";
@@ -80,6 +80,9 @@ async function lockOld(t: Db, userId: string, oldId: string): Promise<void> {
 const firstError = (errors: Record<string, string>) => `옮길 수 없는 값이 있습니다: ${Object.values(errors)[0] ?? "알 수 없음"}`;
 
 export const DUPLICATE_NOTE = "같은 기록이 있어 하나만 옮겼습니다";
+export const CLASSIFY_FALLBACK_NOTE = "기록 정리를 하지 못해 하나씩 옮겼습니다";
+// 정리가 한도 밖의 까닭으로 이만큼 실패하면 기본값으로 넘긴다(사용자가 /moving에 갇히지 않게)
+const CLASSIFY_TRIES = 2;
 
 type Period = { startMonth: string | null; endMonth: string | null; isOngoing: boolean };
 // 장면 기록을 붙일, 머리 기록이 옮겨 만든 머리
@@ -454,7 +457,15 @@ export async function runNextMove(db: Db, ai: AiClient, userId: string, now: Dat
     try {
       if (claimed.step === "classify") {
         const classified = await classifyMoves(db, ai, userId, now);
-        result = classified.ok ? { ok: true } : { ok: false, error: errorOf(classified.reason) };
+        if (classified.ok) {
+          result = { ok: true };
+        } else if (classified.reason !== "over_limit" && claimed.attempts + 1 >= CLASSIFY_TRIES) {
+          // 두 번째 실패: 모든 기록을 구분별 기본값으로 두고 정리를 끝낸다. 한도는 모두를 멈추는 기존 길로 간다
+          await applyDefaultRoles(db, userId);
+          result = { ok: true, note: CLASSIFY_FALLBACK_NOTE };
+        } else {
+          result = { ok: false, error: errorOf(classified.reason) };
+        }
       } else if (claimed.step === "record" && claimed.oldId !== null) {
         // 프로젝트나 조직이 될 기록이면, 소속 잇기가 이미 끝났어도 다시 돌게 한다(실패했다가 늦게 옮긴 경우).
         // 같은 기록과 사례는 새 머리를 만들지 않으므로 다시 돌 까닭이 없다

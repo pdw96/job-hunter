@@ -448,3 +448,14 @@ test("moveSummary는 classify 행을 구분 줄에 넣지 않고 따로 돌려�
   expect(summary).toMatchObject({ recordTotal: 2, recordDone: 2, recordFailed: 0, classify: { status: "done" } });
   expect(summary.kinds).toHaveLength(1);
 });
+
+test("claimNextMove는 지금까지 시도한 수를 함께 돌려준다", async () => {
+  await createExperience(db, "u1", old("한빛대학교", "school"));
+  await createExperience(db, "u1", old("한빛상사", "job"));
+  await planMoves(db, "u1");
+  const first = await claimNextMove(db, "u1", t0);
+  expect(first).toMatchObject({ step: "classify", attempts: 0 });
+  await finishMove(db, "u1", first!.id, { ok: false, error: "x" });
+  await retryMove(db, "u1", first!.id, t0);
+  expect(await claimNextMove(db, "u1", t0)).toMatchObject({ step: "classify", attempts: 1 });
+});
