@@ -6,7 +6,7 @@ import { type ClaimStatus, findClaims, type FoundClaim, mergeClaims, subjectOfSc
 import { listClaims } from "./claims-repo";
 import { createFact, listFacts, setProjectParentIfUnset } from "./facts-repo";
 import { applyDefaultRoles, classifyMoves } from "./move-classify";
-import { claimNextMove, finishMove, hasSceneMoves, type MoveProgress, moveProgress, type MoveRole, reopenAffiliate } from "./move-repo";
+import { claimNextMove, finishMove, hasSceneMoves, holdMove, type MoveProgress, moveProgress, type MoveRole, reopenAffiliate } from "./move-repo";
 import { type Kind, LIMITS, type Scope } from "./options";
 import { AFFILIATE_SYSTEM, describeExperience, MOVE_CLAIMS_SYSTEM } from "./prompts";
 import { insertRecordClaims } from "./record-claims-repo";
@@ -77,6 +77,13 @@ async function lockOld(t: Db, userId: string, oldId: string): Promise<void> {
   await t.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`experiences_move:${userId}:${oldId}`}, 0))`);
 }
 
+// 저장 직전 확인(트랜잭션 안에서): 잡은 옮기기 행(guard)이 그 사이 다시 옮기기로 지워졌거나, 이미 옮겼으면 저장하지 않는다
+async function staleOrMoved(t: Db, userId: string, oldId: string, guard: string | undefined): Promise<boolean> {
+  await lockOld(t, userId, oldId);
+  if (guard && !(await holdMove(t, userId, guard))) return true;
+  return alreadyMoved(t, userId, oldId);
+}
+
 const firstError = (errors: Record<string, string>) => `옮길 수 없는 값이 있습니다: ${Object.values(errors)[0] ?? "알 수 없음"}`;
 
 export const DUPLICATE_NOTE = "같은 기록이 있어 하나만 옮겼습니다";
@@ -114,8 +121,10 @@ export async function moveRecord(
   oldId: string,
   now: Date = new Date(),
   // 정리가 정한 역할(없으면 구분별 기본 길)
-  plan: { role: MoveRole | null; ref: string | null } = { role: null, ref: null },
+  // guard: 잡은 옮기기 행의 id. 주면 저장 직전에 그 행이 아직 있는지 본다(다시 옮기기 뒤 늦은 답을 저장하지 않게)
+  plan: { role: MoveRole | null; ref: string | null; guard?: string } = { role: null, ref: null },
 ): Promise<Result> {
+  const guard = plan.guard;
   // 같은 기록: 남길 쪽이 옮기므로 아무것도 만들지 않는다
   if (plan.role === "duplicate") return { ok: true, note: DUPLICATE_NOTE };
   const old = await getExperience(db, userId, oldId);
@@ -123,27 +132,26 @@ export async function moveRecord(
   // 이미 옮겼으면 AI도 부르지 않는다. 저장 직전에 트랜잭션 안에서 한 번 더 본다
   if (await alreadyMoved(db, userId, oldId)) return { ok: true };
   const trackScopes = await getTrackScopes(db, userId, oldId);
-  if (old.kind === "gap") return moveGap(db, userId, old, trackScopes);
+  if (old.kind === "gap") return moveGap(db, userId, old, trackScopes, guard);
   if (old.kind === "project" || old.kind === "other") {
     // 다른 머리의 사례: 머리 기록이 옮겨 만든 머리 아래 장면 하나로. 그 머리가 그 사이 지워졌으면 자기 머리로 옮긴다
     const target = plan.role === "scene" && plan.ref !== null ? await movedHead(db, userId, plan.ref) : null;
-    return moveNarrative(db, ai, userId, old, trackScopes, now, target);
+    return moveNarrative(db, ai, userId, old, trackScopes, now, target, guard);
   }
   // 재직 머리에 사례 기록이 딸려 있으면 재직 글을 사례로 나누지 않고 경력 머리만 만든다(사례가 겹치지 않게)
   const headOnly = old.kind === "job" && (await hasSceneMoves(db, userId, oldId));
-  return moveBySplitting(db, ai, userId, old, trackScopes, now, headOnly);
+  return moveBySplitting(db, ai, userId, old, trackScopes, now, headOnly, guard);
 }
 
 // 공백: AI 없이 공백 하나로. 진행 중이면 끝 월을 비우고, 메모는 서술 칸 중 처음으로 글이 있는 것을 한 줄로 줄여 100자 안에 담는다
-async function moveGap(db: Db, userId: string, old: Experience, trackScopes: Record<string, Scope>): Promise<Result> {
+async function moveGap(db: Db, userId: string, old: Experience, trackScopes: Record<string, Scope>, guard?: string): Promise<Result> {
   const text = [old.actions, old.situation, old.result].map((value) => value?.replace(/\s+/g, " ").trim() ?? "").find((value) => value !== "") ?? null;
   const note = text !== null && text.length > LIMITS.shortText ? `${text.slice(0, LIMITS.shortText - 1)}…` : text;
   const gap = validateFact("gap", { startMonth: old.startMonth, endMonth: old.isOngoing ? null : old.endMonth, note });
   if (!gap.ok) return { ok: false, error: firstError(gap.errors) };
   return db.transaction(async (tx) => {
     const t = tx as unknown as Db;
-    await lockOld(t, userId, old.id);
-    if (await alreadyMoved(t, userId, old.id)) return { ok: true as const };
+    if (await staleOrMoved(t, userId, old.id, guard)) return { ok: true as const };
     await createFact(t, userId, "gap", gap.value, { source: "migrate", movedFrom: old.id, trackScopes });
     return { ok: true as const };
   });
@@ -159,6 +167,7 @@ async function moveNarrative(
   trackScopes: Record<string, Scope>,
   now: Date,
   target: HeadTarget | null = null,
+  guard?: string,
 ): Promise<Result> {
   const ownKind = old.kind === "project" ? ("project" as const) : ("activity" as const);
   const headKind: HeadKind = target?.kind ?? ownKind;
@@ -257,8 +266,7 @@ async function moveNarrative(
   const common = { source: "migrate" as const, movedFrom: old.id, trackScopes };
   return db.transaction(async (tx) => {
     const t = tx as unknown as Db;
-    await lockOld(t, userId, old.id);
-    if (await alreadyMoved(t, userId, old.id)) return { ok: true as const };
+    if (await staleOrMoved(t, userId, old.id, guard)) return { ok: true as const };
     let headId = target?.id;
     if (!headId) {
       const created =
@@ -285,6 +293,7 @@ async function moveBySplitting(
   trackScopes: Record<string, Scope>,
   now: Date,
   headOnly = false,
+  guard?: string,
 ): Promise<Result> {
   const prepared = await requestRecordImport(db, ai, userId, describeExperience(old), { purpose: "migrate", hint: old.kind, headOnly }, now);
   if (!prepared.ok) return { ok: false, error: errorOf(prepared.reason) };
@@ -303,8 +312,7 @@ async function moveBySplitting(
 
   return db.transaction(async (tx) => {
     const t = tx as unknown as Db;
-    await lockOld(t, userId, old.id);
-    if (await alreadyMoved(t, userId, old.id)) return { ok: true as const };
+    if (await staleOrMoved(t, userId, old.id, guard)) return { ok: true as const };
     // 금지 표현은 AI에 보내지 않았으므로 장면마다 옛 것을 그대로 붙인다(하지 않은 것은 장면에 없을 때만)
     await saveImportPlan(t, userId, plan, {
       source: "migrate",
@@ -406,7 +414,7 @@ export async function requestAffiliation(
   return { ok: true, links };
 }
 
-export async function affiliateProjects(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<Result> {
+export async function affiliateProjects(db: Db, ai: AiClient, userId: string, now: Date = new Date(), guard?: string): Promise<Result> {
   const facts = await listFacts(db, userId);
   // 옮겨 온 개인 프로젝트만 보낸다(사용자가 직접 만들거나 소속을 정한 것은 건드리지 않는다)
   const moved = facts.project.filter((project) => project.source === "migrate" && project.movedFrom !== null && project.value.parent === null);
@@ -435,6 +443,8 @@ export async function affiliateProjects(db: Db, ai: AiClient, userId: string, no
   };
   await db.transaction(async (tx) => {
     const t = tx as unknown as Db;
+    // 그 사이 다시 옮기기로 이 행이 지워졌으면 쓰지 않는다
+    if (guard && !(await holdMove(t, userId, guard))) return;
     for (const link of result.links) {
       const project = moved[link.project];
       const parent = { kind: link.parent.kind, id: parentIds[link.parent.kind][link.parent.index] };
@@ -450,10 +460,10 @@ export async function affiliateProjects(db: Db, ai: AiClient, userId: string, no
 
 // 정리 한 번. 한도 밖의 실패(예외 포함)가 두 번째면 모든 기록을 구분별 기본값으로 두고 정리를 끝낸다(사용자가 /moving에 갇히지 않게).
 // 한도는 모두를 멈추는 기존 길로 간다(시도로 세지 않는다)
-async function runClassify(db: Db, ai: AiClient, userId: string, attempts: number, now: Date): Promise<Result> {
+async function runClassify(db: Db, ai: AiClient, userId: string, attempts: number, now: Date, guard: string): Promise<Result> {
   let reason: string;
   try {
-    const classified = await classifyMoves(db, ai, userId, now);
+    const classified = await classifyMoves(db, ai, userId, now, guard);
     if (classified.ok) return { ok: true };
     reason = classified.reason;
   } catch (error) {
@@ -462,7 +472,7 @@ async function runClassify(db: Db, ai: AiClient, userId: string, attempts: numbe
   }
   if (reason === "over_limit") return { ok: false, error: OVER_LIMIT_MESSAGE };
   if (attempts + 1 >= CLASSIFY_TRIES) {
-    await applyDefaultRoles(db, userId);
+    await applyDefaultRoles(db, userId, guard);
     return { ok: true, note: CLASSIFY_FALLBACK_NOTE };
   }
   return { ok: false, error: errorOf(reason) };
@@ -478,17 +488,17 @@ export async function runNextMove(db: Db, ai: AiClient, userId: string, now: Dat
     let relink = false;
     try {
       if (claimed.step === "classify") {
-        result = await runClassify(db, ai, userId, claimed.attempts, now);
+        result = await runClassify(db, ai, userId, claimed.attempts, now, claimed.id);
       } else if (claimed.step === "record" && claimed.oldId !== null) {
         const kind = (await getExperience(db, userId, claimed.oldId))?.kind;
-        result = await moveRecord(db, ai, userId, claimed.oldId, now, { role: claimed.role, ref: claimed.ref });
+        result = await moveRecord(db, ai, userId, claimed.oldId, now, { role: claimed.role, ref: claimed.ref, guard: claimed.id });
         // 프로젝트나 조직이 될 기록이면, 소속 잇기가 이미 끝났어도 다시 돌게 한다(실패했다가 늦게 옮긴 경우).
         // 같은 기록은 새 머리를 만들지 않는다. 사례는 머리가 지워져 자기 프로젝트로 옮겨졌을 때만 다시 돈다
         if (result.ok && kind && RELINK_KINDS.includes(kind) && claimed.role !== "duplicate") {
           relink = claimed.role !== "scene" || (await movedHead(db, userId, claimed.oldId))?.kind === "project";
         }
       } else {
-        result = await affiliateProjects(db, ai, userId, now);
+        result = await affiliateProjects(db, ai, userId, now, claimed.id);
       }
     } catch (error) {
       console.error("기록 옮기기 실패", error);

@@ -965,3 +965,43 @@ test("옮긴 기록을 모두 지우고 다시 옮기면 같은 정리된 구조
   expect(first.moved).toEqual([ids.school[1], ids.jobs[1]].sort());
   expect((await moveSummary(db, "u1")).duplicateDone).toBe(8);
 });
+
+test("AI 답을 기다리는 사이 다른 탭에서 다시 옮기기를 하면, 늦게 온 답은 저장하지 않는다(새로 옮기는 것만 남는다)", async () => {
+  await createExperience(db, "u1", old({ kind: "school", name: "한국대학교 컴퓨터공학과", startMonth: "2015-03", endMonth: "2019-02" }));
+  await planMoves(db, "u1");
+  const school = {
+    ...emptyImport,
+    education: [
+      { schoolName: "한국대학교", location: "", degree: "bachelor", major: "컴퓨터공학과", startMonth: "2015-03", endMonth: "2019-02", status: "graduated", gpa: "", gpaScale: "" },
+    ],
+  };
+  const stale = createFakeAi([
+    async () => {
+      expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+      return school;
+    },
+  ]);
+  await runNextMove(db, stale, "u1", now);
+  expect((await listFacts(db, "u1")).education).toHaveLength(0);
+
+  await planMoves(db, "u1");
+  await runNextMove(db, createFakeAi([school]), "u1", now);
+  expect((await listFacts(db, "u1")).education).toHaveLength(1);
+});
+
+test("정리 답을 기다리는 사이 다시 옮기기를 하면, 늦게 온 정리는 새 기록 행의 역할을 바꾸지 않는다", async () => {
+  await createExperience(db, "u1", old({ kind: "school", name: "한국대학교", startMonth: "2015-03", endMonth: "2019-02" }));
+  await createExperience(db, "u1", old({ kind: "school", name: "한국대학교", startMonth: "2015-03", endMonth: "2019-02" }));
+  await planMoves(db, "u1");
+  const stale = createFakeAi([
+    async () => {
+      expect(await resetMoves(db, "u1")).toEqual({ ok: true });
+      await planMoves(db, "u1");
+      return { records: [{ record: "R1", role: "fact", ref: null }, { record: "R2", role: "duplicate", ref: "R1" }] };
+    },
+  ]);
+  await runNextMove(db, stale, "u1", now);
+  const rows = await db.select().from(moves).where(eq(moves.userId, "u1"));
+  expect(rows.filter((row) => row.step === "record").map((row) => row.role)).toEqual([null, null]);
+  expect(rows.find((row) => row.step === "classify")?.status).toBe("pending");
+});

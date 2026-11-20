@@ -143,14 +143,33 @@ export async function claimNextMove(db: Db, userId: string, now: Date): Promise<
 }
 
 // 정리가 정한 역할을 기록 행에 적는다. 이미 옮긴(done) 행은 그 때의 역할로 둔다
-export async function setMoveRoles(db: Db, userId: string, roles: { oldId: string; role: MoveRole; ref: string | null }[]): Promise<void> {
-  await db.transaction(async (tx) => {
+// 잡은 옮기기 행이 아직 있고 돌고 있는지 잠가서 본다(트랜잭션 안에서). AI를 기다리는 사이 다시 옮기기(resetMoves)가 지웠으면
+// 거짓이라 늦게 온 답을 저장하지 않는다. resetMoves는 옮기기 행을 먼저 잠그므로, 먼저 잡은 쪽이 끝난 뒤에 다른 쪽이 본다
+export async function holdMove(db: Db, userId: string, moveId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: moves.id })
+    .from(moves)
+    .where(and(eq(moves.id, moveId), eq(moves.userId, userId), eq(moves.status, "running")))
+    .for("update");
+  return rows.length > 0;
+}
+
+// guard: 정리 행의 id. 주면 그 행이 아직 돌고 있을 때만 쓴다(다시 옮기기 뒤 새 기록 행을 늦은 답으로 바꾸지 않게)
+export async function setMoveRoles(
+  db: Db,
+  userId: string,
+  roles: { oldId: string; role: MoveRole; ref: string | null }[],
+  guard?: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    if (guard && !(await holdMove(tx as unknown as Db, userId, guard))) return false;
     for (const { oldId, role, ref } of roles) {
       await tx
         .update(moves)
         .set({ role, ref })
         .where(and(eq(moves.userId, userId), eq(moves.step, "record"), eq(moves.oldId, oldId), ne(moves.status, "done")));
     }
+    return true;
   });
 }
 
@@ -473,6 +492,9 @@ export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | n
 // 막히는 까닭(resetBlock)이 있으면 아무것도 지우지 않고 그 까닭을 돌려준다
 export async function resetMoves(db: Db, userId: string): Promise<{ ok: true } | { ok: false; reason: ResetBlock }> {
   return db.transaction(async (tx) => {
+    // 옮기기 행을 먼저 잠근다: 저장 중인 옮기기(holdMove)가 있으면 끝날 때까지 기다리고(그 결과도 함께 지운다),
+    // 아직 AI를 기다리는 옮기기는 행이 지워진 것을 보고 저장하지 않는다
+    await tx.select({ id: moves.id }).from(moves).where(eq(moves.userId, userId)).for("update");
     // 검사하는 사이 다른 요청이 옮긴 머리·사례를 고치거나 딸림 기록을 달지 못하게 그 행을 잠근다
     for (const table of MIGRATED_TABLES) {
       await tx.select({ id: table.id }).from(table).where(and(eq(table.userId, userId), isNotNull(table.movedFrom))).for("update");

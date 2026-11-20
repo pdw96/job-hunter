@@ -183,12 +183,13 @@ const proseLength = (row: { situation: string | null; actions: string | null; re
   (row.situation ?? "").length + (row.actions ?? "").length + (row.result ?? "").length;
 
 // 정리를 할 수 없을 때(거듭 실패): 모든 기록을 구분별 기본값으로 둔다. 같은 기록·사례는 묶지 않는다
-export async function applyDefaultRoles(db: Db, userId: string): Promise<void> {
+export async function applyDefaultRoles(db: Db, userId: string, guard?: string): Promise<void> {
   const rows = await db.select({ id: experiences.id, kind: experiences.kind }).from(experiences).where(eq(experiences.userId, userId));
   await setMoveRoles(
     db,
     userId,
     rows.map((row) => ({ oldId: row.id, role: defaultRole(row.kind), ref: null })),
+    guard,
   );
 }
 
@@ -198,6 +199,7 @@ export async function classifyMoves(
   ai: AiClient,
   userId: string,
   now: Date = new Date(),
+  guard?: string, // 정리 행의 id(setMoveRoles 참고)
 ): Promise<{ ok: true } | { ok: false; reason: "over_limit" | AiFailure }> {
   const rows = await db
     .select()
@@ -221,11 +223,14 @@ export async function classifyMoves(
     rows.map((row) => ({ confirmed: row.confirmedAt !== null, length: proseLength(row), createdAt: row.createdAt })),
     asked.roles,
   );
-  await setMoveRoles(
+  const written = await setMoveRoles(
     db,
     userId,
     settled.map((item, index) => ({ oldId: rows[index].id, role: item.role, ref: item.ref === null ? null : rows[item.ref].id })),
+    guard,
   );
+  // 그 사이 다시 옮기기로 정리 행이 지워졌으면 아무것도 하지 않는다
+  if (!written) return { ok: true };
   // 장면이 된 기록의 머리가 (한도 등으로) 실패해 있으면 머리를 되살린다. 아니면 장면이 잡히지 않고 남는다
   await reviveFailedHeads(db, userId, now);
   return { ok: true };
