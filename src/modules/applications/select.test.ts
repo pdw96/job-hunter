@@ -200,6 +200,33 @@ test("글자 수 제한이 없으면 '없음', 공고 분석이 없으면 요구
   expect(text).toContain("[공고 요구 사항]\n없음");
 });
 
+test("학력·자격 경험은 자소서 고르기 후보로 AI에 보내지 않는다(요건 충족만으로 뽑히지 않게)", async () => {
+  await addExperience();
+  await addExperience({ name: "가나다대학교 컴퓨터공학 학사", kind: "school", startMonth: "2015-03", endMonth: "2021-02" });
+  await addExperience({ name: "정보처리기사", kind: "certificate", startMonth: "2022-11", endMonth: null });
+  const questionId = await addQuestion(await addPosting());
+  const ai = createFakeAi([reply()]);
+
+  await selectForQuestion(db, ai, "u1", questionId, now);
+
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain("결제 시스템 개편");
+  expect(sent).not.toContain("가나다대학교");
+  expect(sent).not.toContain("정보처리기사");
+  expect(sent).not.toContain("E2");
+});
+
+test("학력·자격만 확인돼 있으면 AI를 부르지 않고 noMatch", async () => {
+  await addExperience({ name: "가나다대학교 컴퓨터공학 학사", kind: "school", startMonth: "2015-03", endMonth: "2021-02" });
+  const questionId = await addQuestion(await addPosting());
+  const ai = createFakeAi([]);
+
+  const result = await selectForQuestion(db, ai, "u1", questionId, now);
+
+  expect(ai.requests).toHaveLength(0);
+  expect(result.ok && result.value.noMatch).toBe(true);
+});
+
 test("확인된 사용 경험이 없으면 AI를 부르지 않고 noMatch로 저장한다", async () => {
   await addExperience({}, false); // 미확인
   const questionId = await addQuestion(await addPosting());
