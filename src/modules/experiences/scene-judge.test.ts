@@ -123,7 +123,7 @@ test("다른 사용자의 장면은 not_found이고 AI를 부르지 않는다", 
   expect(ai.requests).toHaveLength(0);
 });
 
-test("보낸 글에 머리의 회사 이름과 장면 내용이 있고 증빙 메모·금지 표현·연락처·사용자 정보는 없다", async () => {
+test("보낸 글에 머리의 회사 이름과 장면 내용이 있고 증빙 메모도 있으며 금지 표현·연락처·사용자 정보는 없다", async () => {
   const id = await make();
   const ai = createFakeAi([allMet]);
   await judgeScene(db, ai, "u1", id, now);
@@ -134,7 +134,8 @@ test("보낸 글에 머리의 회사 이름과 장면 내용이 있고 증빙 �
   expect(sent).toContain("2022-03 ~ 2024-08");
   expect(sent).toContain("승인 API를 다시 설계했다");
   expect(sent).toContain("원인을 먼저 가렸다");
-  expect(sent).not.toContain("공유 드라이브");
+  expect(sent).toContain("증빙·확인 메모");
+  expect(sent).toContain("공유 드라이브");
   expect(sent).not.toContain("혼자 구축");
   expect(sent).not.toContain("010-1234-5678");
   expect(sent).not.toContain("u1@example.com");

@@ -46,7 +46,7 @@ export function describeExperience(experience: Experience): string {
 }
 
 // 장면을 판정할 글. 머리(회사·프로젝트·활동)의 이름 칸과 판정에 쓸 기간을 함께 준다.
-// 증빙 메모와 금지 표현은 보내지 않는다
+// 금지 표현은 보내지 않는다(증빙 메모는 describeExperience처럼 보낸다)
 export function describeScene(scene: Scene, head: SceneHead): string {
   const range = scene.startMonth === null ? head.period : scene;
   const period = `${range.startMonth ?? "없음"} ~ ${range.isOngoing ? "진행 중" : (range.endMonth ?? "없음")}`;
@@ -66,6 +66,7 @@ export function describeScene(scene: Scene, head: SceneHead): string {
     ["배운 점", scene.lessons],
     ["수치", metrics],
     ["하지 않은 것", scene.notDone],
+    ["증빙·확인 메모", scene.evidenceNote],
   ];
   return lines.map(([label, value]) => `[${label}]\n${value ?? "없음"}`).join("\n\n");
 }
