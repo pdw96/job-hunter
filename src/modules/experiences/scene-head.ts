@@ -30,6 +30,13 @@ export async function loadHead(db: Tx, userId: string, ref: HeadRef): Promise<Sc
   return row && toHead(ref, row, [["활동", row.name], ["기관", row.organization]]);
 }
 
+// 머리 행을 잠그고 아직 있는지 본다(트랜잭션 안에서). 다시 옮기기(resetMoves)와 같은 순서(머리 → 사례)로 잠가, 지워지는 머리에 딸림 행을 달지 않게 한다
+export async function lockHead(tx: Tx, userId: string, ref: HeadRef): Promise<boolean> {
+  const table = ref.kind === "job" ? jobs : ref.kind === "project" ? projects : activities;
+  const rows = await tx.select({ id: table.id }).from(table).where(and(eq(table.id, ref.id), eq(table.userId, userId))).for("update");
+  return rows.length > 0;
+}
+
 function toHead(ref: HeadRef, row: HeadPeriod & { confirmedAt: Date | null; contentVersion: number }, labels: SceneHead["labels"]): SceneHead {
   return {
     ref,

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
@@ -11,9 +12,9 @@ import { describeScene, SCENE_EXTRACT_SYSTEM, SCENE_INTERVIEW_CONTEXT } from "./
 import { listRecordClaims } from "./record-claims-repo";
 import { type SceneInput, validateScene } from "./record-input";
 import type { HeadRef } from "./record-options";
-import { loadHead, type SceneHead } from "./scene-head";
+import { loadHead, lockHead, type SceneHead } from "./scene-head";
 import { getScene, type Scene } from "./scenes-repo";
-import { type InterviewMessage, interviews } from "./schema";
+import { type InterviewMessage, interviews, scenes } from "./schema";
 
 // 장면 인터뷰. 머리(경력·프로젝트·활동)가 정해진 뒤에 그 안의 장면 하나를 묻는다.
 // 질문은 옛 인터뷰와 같은 시스템 프롬프트를 쓰고, 머리 정보는 대화 맨 앞의 배경 글로 준다.
@@ -135,16 +136,26 @@ export async function startSceneInterview(
   const result = await firstQuestion(db, ai, userId, await buildSceneContext(db, userId, head, scene, trackId), now);
   if (!result.ok) return result;
 
+  // AI를 기다리는 사이 머리·사례가 지워졌을 수 있다(다시 옮기기). 잠그고 다시 본 뒤 넣는다(headId는 외래 키가 없다)
   const id = randomUUID();
-  await db.insert(interviews).values({
-    id,
-    userId,
-    sceneId: scene?.id ?? null,
-    headKind: scene ? null : head.ref.kind,
-    headId: scene ? null : head.ref.id,
-    trackId,
-    messages: [{ role: "assistant", text: result.message }],
+  const saved = await db.transaction(async (tx) => {
+    if (!(await lockHead(tx, userId, head.ref))) return false;
+    if (scene) {
+      const rows = await tx.select({ id: scenes.id }).from(scenes).where(and(eq(scenes.id, scene.id), eq(scenes.userId, userId))).for("update");
+      if (rows.length === 0) return false;
+    }
+    await tx.insert(interviews).values({
+      id,
+      userId,
+      sceneId: scene?.id ?? null,
+      headKind: scene ? null : head.ref.kind,
+      headId: scene ? null : head.ref.id,
+      trackId,
+      messages: [{ role: "assistant", text: result.message }],
+    });
+    return true;
   });
+  if (!saved) return { ok: false, reason: "not_found" };
   return { ok: true, id, message: result.message };
 }
 

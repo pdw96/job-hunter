@@ -83,6 +83,30 @@ test("남의 머리나 남의 장면으로는 시작할 수 없다", async () =>
   expect(ai.requests).toHaveLength(0);
 });
 
+test("첫 질문을 받는 사이 머리나 사례가 지워지면(다시 옮기기 등) not_found이고 인터뷰를 만들지 않는다", async () => {
+  const head = await jobId();
+  const goneHead = createFakeAi([
+    async () => {
+      await db.delete(scenes).where(eq(scenes.jobId, head));
+      expect(await deleteFact(db, "u1", "job", head)).toEqual({ ok: true });
+      return q("어떤 일이었나요?");
+    },
+  ]);
+  expect(await startSceneInterview(db, goneHead, "u1", { head: { kind: "job", id: head } }, now)).toEqual({ ok: false, reason: "not_found" });
+
+  const other = await jobId();
+  const scene = await createScene(db, "u1", { ...sceneInput(other) });
+  if (!scene.ok) throw new Error();
+  const goneScene = createFakeAi([
+    async () => {
+      await db.delete(scenes).where(eq(scenes.id, scene.id));
+      return q("어떤 일이었나요?");
+    },
+  ]);
+  expect(await startSceneInterview(db, goneScene, "u1", { sceneId: scene.id }, now)).toEqual({ ok: false, reason: "not_found" });
+  expect(await db.select().from(interviews)).toHaveLength(0);
+});
+
 test("시작하면 머리 정보가 대화 앞머리에 들어가고, 인터뷰에 머리가 저장된다", async () => {
   const head = await jobId();
   const ai = createFakeAi([q("이 회사에서 있었던 일 하나를 골라 주세요")]);
