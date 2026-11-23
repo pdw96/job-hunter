@@ -59,7 +59,7 @@ export const DOCUMENT_LABELS: Record<DocumentKind, string> = {
 export const DOCUMENT_WRITER: Record<DocumentKind, "ai" | "self"> = {
   resume: "ai",
   cover_letter: "ai",
-  career: "self",
+  career: "ai",
   portfolio: "self",
   other: "self",
 };

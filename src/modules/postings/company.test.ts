@@ -17,3 +17,9 @@ test("영문 대소문자는 무시한다", () => {
 test("(유)는 뺀다", () => {
   expect(companyKey("가나다(유)")).toBe(companyKey("가나다"));
 });
+
+test("앞이나 뒤의 법인 표기와 괄호를 뺀다", () => {
+  expect(companyKey("주식회사 가나다")).toBe(companyKey("가나다"));
+  expect(companyKey("가나다 유한회사")).toBe(companyKey("가나다"));
+  expect(companyKey("가나다(서울)")).toBe("가나다서울");
+});

@@ -5,5 +5,6 @@ export function companyKey(name: string): string {
     .toLowerCase()
     .replace(/\(\s*(주|유|사|합|재)\s*\)/g, "")
     .replace(/주식회사|유한회사|유한책임회사|합자회사|합명회사/g, "")
+    .replace(/[()[\]【】]/g, "")
     .replace(/[\s.,·]+/g, "");
 }

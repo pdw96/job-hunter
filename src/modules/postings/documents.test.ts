@@ -1,20 +1,16 @@
 import { expect, test } from "vitest";
 import { chosenDocuments, cleanFound } from "./documents";
+import { DOCUMENT_WRITER } from "./options";
 
 const text = "자기소개서: 지원 동기를 쓰시오 (500자)\n성장 과정을 쓰시오";
 const q = (over: Record<string, unknown> = {}) => ({ prompt: "지원 동기를 쓰시오", charLimit: 500, countSpaces: true, ...over });
 
-test("목록 밖 종류와 빈 이름은 버린다", () => {
+test("목록 밖 종류와 빈 이름(글이 아닌 값 포함)은 버린다", () => {
   const found = cleanFound(
     { documents: [{ kind: "resume", label: "이력서" }, { kind: "x", label: "?" }, { kind: "portfolio", label: "  " }, { kind: "other", label: 3 }, null], questions: [] },
     text,
   );
-  // 빈 이름은 종류의 기본 이름으로 대신한다
-  expect(found.documents).toEqual([
-    { kind: "resume", label: "이력서" },
-    { kind: "portfolio", label: "포트폴리오" },
-    { kind: "other", label: "기타" },
-  ]);
+  expect(found.documents).toEqual([{ kind: "resume", label: "이력서" }]);
 });
 
 test("같은 종류·이름은 한 번만", () => {
@@ -86,4 +82,13 @@ test("chosenDocuments: 둘 다 없으면 이력서·자기소개서", () => {
 
 test("chosenDocuments: 찾았지만 빈 배열이면 이력서·자기소개서", () => {
   expect(chosenDocuments({ foundDocuments: [], chosenDocuments: [] })).toEqual(["resume", "cover_letter"]);
+});
+
+test("글이 아닌 문항 글은 버리고, countSpaces가 불린이 아니면 true", () => {
+  const found = cleanFound({ documents: [], questions: [q({ prompt: 5 }), q({ countSpaces: "yes" })] }, text);
+  expect(found.questions).toEqual([{ prompt: "지원 동기를 쓰시오", charLimit: 500, countSpaces: true }]);
+});
+
+test("DOCUMENT_WRITER: 이력서·자기소개서·경력기술서는 ai, 포트폴리오·기타는 self", () => {
+  expect(DOCUMENT_WRITER).toEqual({ resume: "ai", cover_letter: "ai", career: "ai", portfolio: "self", other: "self" });
 });

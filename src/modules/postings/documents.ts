@@ -1,4 +1,4 @@
-import { DEFAULT_DOCUMENTS, DOCUMENT_KINDS, DOCUMENT_LABELS, type DocumentKind, POSTING_LIMITS } from "./options";
+import { DEFAULT_DOCUMENTS, DOCUMENT_KINDS, type DocumentKind, POSTING_LIMITS } from "./options";
 
 // 공고에서 찾은 제출 서류와 자소서 문항. 화면과 DB를 모르는 순수 함수
 
@@ -21,7 +21,8 @@ export function cleanFound(raw: unknown, rawText: string): Found {
     if (documents.length >= POSTING_LIMITS.documents) break;
     if (!isObject(item) || !DOCUMENT_KINDS.includes(item.kind as DocumentKind)) continue;
     const kind = item.kind as DocumentKind;
-    const label = (typeof item.label === "string" ? item.label.trim() : "").slice(0, POSTING_LIMITS.documentLabel) || DOCUMENT_LABELS[kind];
+    const label = (typeof item.label === "string" ? item.label.trim() : "").slice(0, POSTING_LIMITS.documentLabel);
+    if (label === "") continue;
     const key = `${kind}\n${label}`;
     if (seen.has(key)) continue;
     seen.add(key);
