@@ -224,7 +224,9 @@ export async function answerAsks(
           .map((a) => a.id),
       );
       if (text === "" && previous.length === 0) continue;
-      plans.push({ index: pick.index, topic: item.topic, question: item.question, text, previous });
+      // 질문이 연결고리를 "그 교육이 …"처럼 가리키므로, 연결고리가 있으면 질문 글 앞 줄에 함께 담는다(쓰기가 어떤 기록 이야기인지 알게)
+      const question = item.link !== "" ? `${item.link}\n${item.question}` : item.question;
+      plans.push({ index: pick.index, topic: item.topic, question, text, previous });
     }
     if (plans.length === 0) return { ok: false as const, reason: "empty" as const };
 

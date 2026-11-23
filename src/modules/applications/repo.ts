@@ -231,7 +231,15 @@ export async function approveSelection(
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
 }
 
-// 쓴 답을 저장한다. 읽은 때의 문항 글, 승인, 붙인 답, 지금 답(없으면 null) 그대로일 때만 쓴다.
+// 쓰는 사이 유형을 바꾸면(setQuestionKinds는 version을 올리지 않는다) 읽은 때의 유형·주제로 고른 답이 맞지 않으므로 저장하지 않는다
+export type KindsSnapshot = { kinds: QuestionKind[] | null; topics: AnswerTopic[] | null };
+const sameKinds = (read: KindsSnapshot) =>
+  and(
+    read.kinds === null ? isNull(questions.kinds) : sql`${questions.kinds} = ${json(read.kinds)}`,
+    read.topics === null ? isNull(questions.topics) : sql`${questions.topics} = ${json(read.topics)}`,
+  );
+
+// 쓴 답을 저장한다. 읽은 때의 문항 글, 유형·주제, 승인, 붙인 답, 지금 답(없으면 null) 그대로일 때만 쓴다.
 // approved가 null이면 고르기 없이 답만으로 쓴 것이므로 그사이 고르기도 하지 않았어야 한다.
 // 쓰는 동안 직접 고친 문단을 덮어쓰지 않으려고 지금 답도 비교한다
 export async function saveDraft(
@@ -239,7 +247,7 @@ export async function saveDraft(
   userId: string,
   id: string,
   draft: Draft,
-  readAs: { version: number; approved: SourceRef[] | null; answerIds: string[]; draft: Draft | null },
+  readAs: KindsSnapshot & { version: number; approved: SourceRef[] | null; answerIds: string[]; draft: Draft | null },
 ): Promise<Stale> {
   const updated = await db
     .update(questions)
@@ -250,6 +258,7 @@ export async function saveDraft(
         eq(questions.version, readAs.version),
         readAs.approved === null ? isNull(questions.selection) : sql`${questions.selection}->'approved' = ${json(readAs.approved)}`,
         sql`${questions.answerIds} = ${json(readAs.answerIds)}`,
+        sameKinds(readAs),
         readAs.draft === null ? isNull(questions.draft) : sql`${questions.draft} = ${json(readAs.draft)}`,
       ),
     )
@@ -257,12 +266,13 @@ export async function saveDraft(
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
 }
 
-// 부분 수정·직접 수정으로 답을 바꾼다. 지금 답이 읽은 것과 같을 때만 쓴다
-export async function replaceDraft(db: Db, userId: string, id: string, expected: Draft, next: Draft): Promise<Stale> {
+// 부분 수정·직접 수정으로 답을 바꾼다. 지금 답이 읽은 것과 같을 때만 쓴다.
+// AI 부분 수정은 kinds도 넘겨, 고치는 사이 유형·주제가 바뀌었으면 저장하지 않는다(직접 수정은 유형과 상관없다)
+export async function replaceDraft(db: Db, userId: string, id: string, expected: Draft, next: Draft, kinds?: KindsSnapshot): Promise<Stale> {
   const updated = await db
     .update(questions)
     .set({ draft: next, updatedAt: new Date() })
-    .where(and(mine(userId, id), sql`${questions.draft} = ${json(expected)}`))
+    .where(and(mine(userId, id), sql`${questions.draft} = ${json(expected)}`, kinds ? sameKinds(kinds) : undefined))
     .returning({ id: questions.id });
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
 }

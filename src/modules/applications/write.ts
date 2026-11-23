@@ -54,9 +54,14 @@ function limitText(charLimit: number | null, countSpaces: boolean): string {
   return charLimit === null ? "제한 없음" : `${charLimit}자 이내(${countSpaces ? "공백 포함" : "공백 제외"})`;
 }
 
-// 답의 질문 글에는 연결고리로 쓰인 교육·전공 이름이 남아 있을 수 있다(지시문이 한 줄만 쓰게 한다)
+// 답의 질문 글에는 연결고리로 쓰인 교육·전공 이름이 남아 있을 수 있다(지시문이 한 줄만 쓰게 한다).
+// 연결고리가 있던 질문은 "연결고리\n질문"으로 저장되어 있다(묻기의 answerAsks)
+function describeQuestion(question: string): string {
+  const [first, ...rest] = question.split("\n");
+  return rest.length > 0 ? `(연결고리: ${first}) ${rest.join(" ")}` : question;
+}
 const describeAnswer = (alias: string, a: Answer) =>
-  [alias, `- 주제: ${ANSWER_TOPIC_LABELS[a.topic]}`, `- 질문: ${a.question}`, `- 답: ${a.answer}`].join("\n");
+  [alias, `- 주제: ${ANSWER_TOPIC_LABELS[a.topic]}`, `- 질문: ${describeQuestion(a.question)}`, `- 답: ${a.answer}`].join("\n");
 
 const orNone = (blocks: string[]) => (blocks.length > 0 ? blocks.join("\n\n") : "없음");
 
@@ -234,7 +239,14 @@ export async function approveAndWrite(
     writtenAt: now.toISOString(),
   };
   const saved = await withEditLock(db, userId, posting.id, (tx) =>
-    saveDraft(tx, userId, questionId, draft, { version: question.version, approved, answerIds: question.answerIds, draft: question.draft }),
+    saveDraft(tx, userId, questionId, draft, {
+      version: question.version,
+      kinds: question.kinds,
+      topics: question.topics,
+      approved,
+      answerIds: question.answerIds,
+      draft: question.draft,
+    }),
   );
   return saved.ok ? { ok: true, value: draft } : saved;
 }
@@ -317,7 +329,9 @@ export async function reviseParagraph(
     ...stored,
     paragraphs: stored.paragraphs.map((p, i) => (i === index ? { ...cleaned, edited: false } : p)),
   };
-  const saved = await withEditLock(db, userId, posting.id, (tx) => replaceDraft(tx, userId, questionId, expected, next));
+  const saved = await withEditLock(db, userId, posting.id, (tx) =>
+    replaceDraft(tx, userId, questionId, expected, next, { kinds: question.kinds, topics: question.topics }),
+  );
   return saved.ok ? { ok: true, value: next } : saved;
 }
 

@@ -545,3 +545,19 @@ test("회사 정리 값이 없는 옛 질문은 changed", async () => {
   await db.update(questions).set({ asks: old }).where(eq(questions.id, id));
   expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
 });
+
+test("연결고리가 있는 질문의 답은 연결고리를 질문 글에 함께 담는다", async () => {
+  const { id } = await addQuestion(["motive"]);
+  const link = "공고의 주문·결제 서비스 API 개발 ↔ 교육 Kotlin 백엔드 개발 과정";
+  const asks = await asked(id, ["motive"], [item({ link, question: "그 교육이 이 직무를 고른 이유와 이어지나요?" })]);
+  await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now);
+  const [answer] = await listAnswersByIds(db, "u1", (await getQuestion(db, "u1", id))?.answerIds ?? []);
+  expect(answer.question).toBe(`${link}\n그 교육이 이 직무를 고른 이유와 이어지나요?`);
+
+  // 연결고리가 없는 질문은 질문 글만
+  const plain = await addQuestion(["motive"]);
+  const plainAsks = await asked(plain.id, ["motive"], [item()]);
+  await answerAsks(db, "u1", plain.id, [{ id: plainAsks.items[0].id, options: [0], previous: [], note: "" }], now);
+  const [plainAnswer] = await listAnswersByIds(db, "u1", (await getQuestion(db, "u1", plain.id))?.answerIds ?? []);
+  expect(plainAnswer.question).toBe("이 직무를 고른 이유는 무엇인가요?");
+});

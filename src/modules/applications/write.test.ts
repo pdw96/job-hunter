@@ -1014,3 +1014,40 @@ test("회사 이름이 바뀐 공고의 부분 수정은 다른 회사의 지원
   // 남은 답(A1 = 자기소개 답)만 근거로 남는다
   expect(revised.ok && revised.value.paragraphs[0].answers).toEqual([self]);
 });
+
+test("[내 답]의 질문에 연결고리가 있으면 연결고리를 함께 보낸다", async () => {
+  const { questionId } = await answered(["motive"], 0);
+  const linked = await addAnswer({ question: "공고의 사내 업무 시스템 개발 ↔ 교육 ERP 개발 과정\n그 교육이 이 직무를 고른 이유와 이어지나요?" });
+  expect((await attachAnswer(db, "u1", questionId, linked)).ok).toBe(true);
+  const ai = createFakeAi([answerReply()]);
+  await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(ai.requests[0].messages[0].text).toContain(
+    "- 질문: (연결고리: 공고의 사내 업무 시스템 개발 ↔ 교육 ERP 개발 과정) 그 교육이 이 직무를 고른 이유와 이어지나요?",
+  );
+});
+
+test("쓰는 사이 유형을 바꾸면 저장하지 않는다(changed)", async () => {
+  const { questionId } = await answered(["motive"]);
+  const ai = createFakeAi([
+    async () => {
+      expect((await setQuestionKinds(db, "u1", questionId, ["experience", "motive"])).ok).toBe(true);
+      return answerReply();
+    },
+  ]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [], now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toBeNull();
+});
+
+test("부분 수정하는 사이 유형을 바꾸면 저장하지 않는다(changed)", async () => {
+  const { questionId } = await answered(["motive"]);
+  const first = await approveAndWrite(db, createFakeAi([answerReply()]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  const ai = createFakeAi([
+    async () => {
+      expect((await setQuestionKinds(db, "u1", questionId, ["self"])).ok).toBe(true);
+      return { text: "고친 문단입니다.", sources: ["A1"] };
+    },
+  ]);
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(first.value);
+});
