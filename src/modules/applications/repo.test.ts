@@ -147,6 +147,24 @@ test("지원 공고에만 문항을 더한다", async () => {
   expect((await listQuestions(db, "u1", postingId)).map((x) => x.position)).toEqual([0, 1, 2]);
 });
 
+test("onlyIfEmpty는 문항이 있으면 넣지 않는다", async () => {
+  const postingId = await addPosting();
+  expect(await addQuestions(db, "u1", postingId, [q("첫째")], { onlyIfEmpty: true })).toMatchObject({ ok: true });
+  expect(await addQuestions(db, "u1", postingId, [q("둘째")], { onlyIfEmpty: true })).toEqual({ ok: true, ids: [] });
+  expect((await listQuestions(db, "u1", postingId)).map((x) => x.prompt)).toEqual(["첫째"]);
+});
+
+// PGlite는 한 연결이라 이 시험은 고치기 전에도 통과할 수 있다. 같은 공고의 두 호출이 겹쳐도 한 번만 들어간다는 약속을 남겨 둔다
+test("onlyIfEmpty 두 번을 동시에 불러도 한 번만 들어간다", async () => {
+  const postingId = await addPosting();
+  const results = await Promise.all([
+    addQuestions(db, "u1", postingId, [q("가"), q("나")], { onlyIfEmpty: true }),
+    addQuestions(db, "u1", postingId, [q("가"), q("나")], { onlyIfEmpty: true }),
+  ]);
+  expect(results.map((r) => (r.ok ? r.ids.length : -1)).sort()).toEqual([0, 2]);
+  expect(await listQuestions(db, "u1", postingId)).toHaveLength(2);
+});
+
 test("남의 공고는 not_found", async () => {
   const theirs = await addPosting("u2");
   expect(await addQuestions(db, "u1", theirs, [q("가")])).toEqual({ ok: false, reason: "not_found" });

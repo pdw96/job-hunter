@@ -36,7 +36,34 @@ export const POSTING_LIMITS = {
   companyNote: 10_000,
   maxYears: 40,
   perUser: 500,
+  // 공고에서 뽑는 서류와 자소서 문항. 문항 값은 APPLICATION_LIMITS와 같다(applications가 postings를 읽으므로 거꾸로 가져오지 않는다)
+  documents: 10,
+  documentLabel: 100,
+  questions: 10,
+  questionPrompt: 1000,
+  charLimitMin: 50,
+  charLimitMax: 10_000,
 };
+
+// 공고가 내라고 적은 서류의 종류
+export const DOCUMENT_KINDS = ["resume", "cover_letter", "career", "portfolio", "other"] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+export const DOCUMENT_LABELS: Record<DocumentKind, string> = {
+  resume: "이력서",
+  cover_letter: "자기소개서",
+  career: "경력기술서",
+  portfolio: "포트폴리오",
+  other: "기타",
+};
+// 서류마다 누가 쓰나. 포트폴리오를 AI가 쓰게 바꿀 때 여기와 작성 화면만 더한다
+export const DOCUMENT_WRITER: Record<DocumentKind, "ai" | "self"> = {
+  resume: "ai",
+  cover_letter: "ai",
+  career: "ai",
+  portfolio: "self",
+  other: "self",
+};
+export const DEFAULT_DOCUMENTS: DocumentKind[] = ["resume", "cover_letter"];
 
 // 요구 경력이 내 경력보다 이만큼(년) 넘게 높으면 제외 사유로 본다
 export const YEARS_GAP = 2;

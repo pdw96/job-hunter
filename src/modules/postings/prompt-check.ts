@@ -4,7 +4,7 @@ import type { EvidenceCandidate } from "@/modules/experiences/evidence";
 import { analyzeText, type TextAnalysis } from "./analyze";
 import { type ExtractedPosting, extractPosting } from "./extract";
 
-// 준비한 공고 예시를 실제 AI에 돌려, 값을 맞게 뽑고 없는 값은 비워 두는지, 요구 사항에 맞는 경험만 근거로 짚는지 본다(관리자 전용, 호출 4번)
+// 준비한 공고 예시를 실제 AI에 돌려, 값을 맞게 뽑고 없는 값은 비워 두는지, 요구 사항에 맞는 경험만 근거로 짚는지 본다(관리자 전용, 호출 5번)
 
 export type PostingCheckRow = { sample: string; check: string; expected: string; actual: string; pass: boolean };
 
@@ -48,6 +48,21 @@ export const SPARSE_POSTING = {
 - 새로운 시도를 즐기는 분
 
 지원 방법: 이력서와 포트폴리오를 메일로 보내 주세요. 채용 시 마감합니다.`,
+};
+
+// 제출 서류와 자소서 문항이 적힌 공고. 서류 종류와 문항을 원문 그대로 뽑고, 글자 수 제한과 공백 포함 여부를 읽는지 본다
+export const DOCS_POSTING = {
+  name: "서류와 문항이 적힌 공고",
+  source: `마바사소프트 서비스 기획자 신입 채용
+
+담당 업무
+- 서비스 기획과 운영
+
+제출 서류: 이력서, 자기소개서, 포트폴리오(선택)
+
+자기소개서 항목
+1. 지원 동기 (500자 이내)
+2. 입사 후 포부 (공백 제외 300자)`,
 };
 
 // 주소로 읽었을 때 공고 내용은 빠지고 사이트의 틀만 읽힌 글. 공고 내용이 없다고 가려내는지 본다
@@ -150,6 +165,8 @@ function fullRows(value: ExtractedPosting, row: Row): PostingCheckRow[] {
     row("고용 형태", "regular", value.employmentType, value.employmentType === "regular"),
     row("원문에 없는 이름을 쓰지 않는다", "없음", show(value.unverified), value.unverified.length === 0),
     row("공고 내용이 있다고 본다", "true", String(value.hasDetails), value.hasDetails),
+    row("제출 서류를 지어내지 않는다", "비어 있음", show(value.documents.map((d) => d.label)), value.documents.length === 0),
+    row("자소서 문항을 지어내지 않는다", "비어 있음", show(value.questions.map((q) => q.prompt)), value.questions.length === 0),
   ];
 }
 
@@ -164,6 +181,19 @@ function sparseRows(value: ExtractedPosting, row: Row): PostingCheckRow[] {
     row("신입·경력 구분을 지어내지 않는다", "any", value.careerType, value.careerType === "any"),
     row("고용 형태를 지어내지 않는다", "unknown", value.employmentType, value.employmentType === "unknown"),
     row("적힌 값이 적어도 공고 내용은 있다고 본다", "true", String(value.hasDetails), value.hasDetails),
+    row("제출 서류는 이력서와 포트폴리오", "resume, portfolio", show(value.documents.map((d) => d.kind)), kindsOf(value).join() === "portfolio,resume"),
+  ];
+}
+
+const kindsOf = (value: ExtractedPosting) => [...new Set(value.documents.map((d) => d.kind))].sort();
+
+function docsRows(value: ExtractedPosting, row: Row): PostingCheckRow[] {
+  const [first, second] = value.questions;
+  return [
+    row("서류 종류에 이력서·자기소개서·포트폴리오", "resume, cover_letter, portfolio", show(value.documents.map((d) => d.kind)), kindsOf(value).join() === "cover_letter,portfolio,resume"),
+    row("문항 2개를 원문 그대로", "지원 동기, 입사 후 포부", show(value.questions.map((q) => q.prompt)), value.questions.length === 2 && !!first.prompt.includes("지원 동기") && !!second.prompt.includes("입사 후 포부")),
+    row("글자 수 제한 500·300", "500, 300", show(value.questions.map((q) => q.charLimit ?? "없음")), value.questions.length === 2 && first.charLimit === 500 && second.charLimit === 300),
+    row("둘째 문항은 공백 제외", "공백 제외", show(value.questions.map((q) => (q.countSpaces ? "공백 포함" : "공백 제외"))), value.questions.length === 2 && !second.countSpaces),
   ];
 }
 
@@ -188,5 +218,5 @@ export async function runPostingCheck(db: Db, ai: AiClient, userId: string, now:
     );
     return result.ok ? matchRows(result.value, row) : [row("AI 호출", "성공", `실패: ${result.reason}`, false)];
   };
-  return (await Promise.all([run(FULL_POSTING, fullRows), run(SPARSE_POSTING, sparseRows), run(CHROME_ONLY, chromeRows), match()])).flat();
+  return (await Promise.all([run(FULL_POSTING, fullRows), run(SPARSE_POSTING, sparseRows), run(DOCS_POSTING, docsRows), run(CHROME_ONLY, chromeRows), match()])).flat();
 }

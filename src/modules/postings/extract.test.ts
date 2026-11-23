@@ -27,6 +27,8 @@ const answer = (over: Record<string, unknown> = {}) => ({
   minYears: 3,
   employmentType: "regular",
   hasDetails: true,
+  documents: [] as unknown[],
+  questions: [] as unknown[],
   ...over,
 });
 
@@ -52,6 +54,8 @@ test("AI가 뽑은 값을 그대로 돌려주고, 사용량을 posting으로 기
       employmentType: "regular",
       hasDetails: true,
       unverified: [],
+      documents: [],
+      questions: [],
     },
   });
   expect((await db.select().from(aiUsage)).map((row) => row.purpose)).toEqual(["posting"]);
@@ -99,4 +103,29 @@ test("AI가 거절하거나 한도를 넘으면 실패를 돌려준다", async (
 test("공고 내용이 없는 글이면 hasDetails가 false로 온다", async () => {
   const result = await extractPosting(db, createFakeAi([answer({ hasDetails: false })]), "u1", "채용사이트 로그인 회원가입", today, now);
   expect(result.ok && result.value.hasDetails).toBe(false);
+});
+
+test("서류와 문항을 정리해 돌려준다", async () => {
+  const text = `${rawText}\n제출 서류: 이력서, 포트폴리오(선택)\n1. 지원 동기 (공백 제외 500자)`;
+  const found = answer({
+    documents: [{ kind: "resume", label: "이력서" }, { kind: "portfolio", label: "포트폴리오(선택)" }, { kind: "resume", label: "이력서" }],
+    questions: [{ prompt: "지원 동기", charLimit: 500, countSpaces: false }],
+  });
+  const result = await extractPosting(db, createFakeAi([found]), "u1", text, today, now);
+  expect(result.ok && result.value).toMatchObject({
+    documents: [{ kind: "resume", label: "이력서" }, { kind: "portfolio", label: "포트폴리오(선택)" }],
+    questions: [{ prompt: "지원 동기", charLimit: 500, countSpaces: false }],
+  });
+});
+
+test("원문에 없는 문항은 버린다", async () => {
+  const found = answer({ questions: [{ prompt: "입사 후 포부를 쓰시오", charLimit: -1, countSpaces: null }] });
+  const result = await extractPosting(db, createFakeAi([found]), "u1", rawText, today, now);
+  expect(result.ok && result.value.questions).toEqual([]);
+});
+
+test("서류와 문항을 위해 출력 한도를 6000으로 보낸다", async () => {
+  const ai = createFakeAi([answer()]);
+  await extractPosting(db, ai, "u1", rawText, today, now);
+  expect(ai.requests[0].maxTokens).toBe(6000);
 });

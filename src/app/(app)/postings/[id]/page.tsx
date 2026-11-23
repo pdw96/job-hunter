@@ -10,6 +10,7 @@ import { listQuestions } from "@/modules/applications/repo";
 import { getTailoredResume } from "@/modules/applications/resume-repo";
 import { isLocked, listSubmissions } from "@/modules/applications/submission-repo";
 import { submitPreview } from "@/modules/applications/submit";
+import { chosenDocuments } from "@/modules/postings/documents";
 import { getPosting } from "@/modules/postings/repo";
 import { fieldStale, scorePosting, usableOf } from "@/modules/postings/score";
 import { koreaDate, koreaMonthDay, todayInKorea } from "@/modules/postings/today";
@@ -17,6 +18,7 @@ import { REGIONS } from "@/modules/tracks/options";
 import { getTrack } from "@/modules/tracks/repo";
 import { deadlineLabel } from "../deadline";
 import { PostingActions } from "../posting-actions";
+import { DocumentsSection } from "./documents-section";
 import { ScoreSection } from "./score-section";
 import { SubmitPanel } from "./submit-panel";
 
@@ -41,6 +43,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
   const latest = submissions.at(-1) ?? null;
   const locked = isLocked(latest);
   const preview = posting.status === "apply" && !locked ? await submitPreview(db, user.id, posting) : null;
+  const chosen = chosenDocuments(posting);
   const reasons = track ? exclusionReasons(posting, track, today) : [];
   // 점수는 그릴 때마다 지금의 경험 후보로 계산한다(지웠거나 확인을 풀었거나 맞댄 뒤 고친 경험은 바로 빠진다)
   const score =
@@ -100,36 +103,29 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         candidates={candidates.map((c) => ({ id: c.id, name: c.name, contentVersion: c.contentVersion, href: hrefs.get(c.id) ?? null }))}
       />
 
-      {posting.status === "apply" ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href={`/postings/${posting.id}/application`}
-            className="inline-block rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background"
-          >
-            {locked ? "자소서 보기" : questions.length > 0 ? `자소서 쓰기 · 문항 ${questions.length}개` : "자소서 쓰기"}
-          </Link>
-          <Link
-            href={`/postings/${posting.id}/resume`}
-            className="inline-block rounded-lg border border-foreground/20 px-4 py-2 text-sm font-medium"
-          >
-            {locked ? "이력서 맞춤본 보기" : "이력서 맞춤본"}
-          </Link>
+      <DocumentsSection
+        id={posting.id}
+        isApply={posting.status === "apply"}
+        locked={locked}
+        found={posting.foundDocuments}
+        chosen={chosen}
+        userChose={(posting.chosenDocuments?.length ?? 0) > 0}
+        questionCount={questions.length}
+      />
+
+      {posting.status !== "apply" && (questions.length > 0 || tailored?.content) && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {questions.length > 0 && (
+            <Link href={`/postings/${posting.id}/application`} className="inline-block text-sm underline">
+              자소서 보기 · 문항 {questions.length}개
+            </Link>
+          )}
+          {tailored?.content && (
+            <Link href={`/postings/${posting.id}/resume`} className="inline-block text-sm underline">
+              이력서 맞춤본 보기
+            </Link>
+          )}
         </div>
-      ) : (
-        (questions.length > 0 || tailored?.content) && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            {questions.length > 0 && (
-              <Link href={`/postings/${posting.id}/application`} className="inline-block text-sm underline">
-                자소서 보기 · 문항 {questions.length}개
-              </Link>
-            )}
-            {tailored?.content && (
-              <Link href={`/postings/${posting.id}/resume`} className="inline-block text-sm underline">
-                이력서 맞춤본 보기
-              </Link>
-            )}
-          </div>
-        )
       )}
 
       <SubmitPanel
@@ -138,6 +134,8 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         locked={locked}
         isApply={posting.status === "apply"}
         preview={preview}
+        withResume={chosen.includes("resume")}
+        withLetter={chosen.includes("cover_letter")}
         submissions={submissions.map((item) => ({
           number: item.number,
           dateLabel: koreaDate(item.submittedAt),

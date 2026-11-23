@@ -2,7 +2,8 @@ import { boolean, date, index, integer, jsonb, pgTable, text, timestamp } from "
 import { user } from "../auth/schema";
 import { tracks } from "../tracks/schema";
 import type { AppliedScore, PostingAnalysis } from "./analysis";
-import type { CareerType, PostingEmploymentType, PostingStatus } from "./options";
+import type { FoundDocument, FoundQuestion } from "./documents";
+import type { CareerType, DocumentKind, PostingEmploymentType, PostingStatus } from "./options";
 
 // postings 모듈: 사용자가 붙여 넣은 채용 공고. 트랙 하나에 속한다
 
@@ -28,6 +29,9 @@ export const postings = pgTable(
     url: text("url"),
     rawText: text("raw_text").notNull(), // 공고 원문 전체. 고치지 않는다
     companyNote: text("company_note"), // 사용자가 더 붙여 넣은 인재상·회사 소개
+    foundDocuments: jsonb("found_documents").$type<FoundDocument[]>(), // 공고가 내라고 적은 서류. 못 읽었으면 null
+    foundQuestions: jsonb("found_questions").$type<FoundQuestion[]>(), // 공고에 적힌 자소서 문항. 못 읽었으면 null
+    chosenDocuments: jsonb("chosen_documents").$type<DocumentKind[]>(), // 사용자가 정한 제출 서류. 고르지 않았으면 null
     status: text("status").$type<PostingStatus>().notNull().default("interest"),
     excludeOverride: boolean("exclude_override").notNull().default(false), // 제외 사유가 있어도 진행하기로 함
     analysis: jsonb("analysis").$type<PostingAnalysis>(), // 요구 사항 분석. 원문이나 인재상 글이 바뀌면 지운다

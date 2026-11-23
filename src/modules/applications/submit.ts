@@ -1,5 +1,6 @@
 import type { Db } from "@/db/types";
 import { listResumeSources, listWritingSources, oldRecordIds, sourceNames } from "@/modules/experiences/sources";
+import { chosenDocuments } from "@/modules/postings/documents";
 import { getPosting, type Posting } from "@/modules/postings/repo";
 import { checkDraft } from "./check";
 import { listQuestions, type Question } from "./repo";
@@ -13,6 +14,7 @@ import type { SubmissionContent, SubmittedResume } from "./types";
 const DELETED = "지운 경험";
 
 // 순수 함수. names는 경험 id → 지금 이름(지운 경험은 없음 → "지운 경험")
+// 고르지 않은 서류는 얼리지 않는다: 자기소개서를 고르지 않았으면 answers가 빈 배열, 이력서는 resume이 null(호출하는 쪽이 정한다)
 export function freeze(
   posting: Posting,
   questions: Question[],
@@ -70,9 +72,12 @@ export async function submitPosting(
 
   // 읽기와 넣기를 잠금 안에서 한다: 그 사이에 끼어드는 저장이 없어야 제출본에 최신 답이 얼려진다
   return withPostingLock(db, postingId, async (tx) => {
+    // 고른 서류는 잠금 안에서 다시 읽은 공고로 본다
+    const current = (await getPosting(tx, userId, postingId)) ?? posting;
+    const chosen = chosenDocuments(current);
     const [questions, picked, names] = await Promise.all([
-      listQuestions(tx, userId, postingId),
-      pickResume(tx, userId, posting),
+      chosen.includes("cover_letter") ? listQuestions(tx, userId, postingId) : Promise.resolve([]),
+      chosen.includes("resume") ? pickResume(tx, userId, posting) : Promise.resolve(null),
       sourceNames(tx, userId),
     ]);
     const resume = picked ? { from: picked.from, content: picked.content } : null;
@@ -99,17 +104,20 @@ export async function submitPreview(
   userId: string,
   posting: Posting,
 ): Promise<{ resumeFrom: "tailored" | "common" | null; questionCount: number; warnings: string[] }> {
+  const chosen = chosenDocuments(posting);
+  const withLetter = chosen.includes("cover_letter");
+  const withResume = chosen.includes("resume");
   const [questions, writingSources, resumeSources, picked, oldIds] = await Promise.all([
-    listQuestions(db, userId, posting.id),
+    withLetter ? listQuestions(db, userId, posting.id) : Promise.resolve([]),
     listWritingSources(db, userId, posting.trackId),
     listResumeSources(db, userId, posting.trackId),
-    pickResume(db, userId, posting),
+    withResume ? pickResume(db, userId, posting) : Promise.resolve(null),
     oldRecordIds(db, userId),
   ]);
   const ordered = [...questions].sort((a, b) => a.position - b.position);
   const warnings: string[] = [];
 
-  if (ordered.length === 0) warnings.push("자소서 문항이 없습니다");
+  if (withLetter && ordered.length === 0) warnings.push("자소서 문항이 없습니다");
 
   const empty: number[] = [];
   const over: number[] = [];
@@ -132,7 +140,9 @@ export async function submitPreview(
   if (over.length > 0) warnings.push(`글자 수를 넘은 문항: ${numbers(over)}`);
   if (marked.length > 0) warnings.push(`표시가 남은 문항: ${numbers(marked)}`);
 
-  if (!picked) {
+  if (!withResume) {
+    // 이력서를 내지 않는 공고라 말하지 않는다
+  } else if (!picked) {
     warnings.push("이력서가 없습니다");
   } else {
     if (picked.from === "common") warnings.push("맞춤본이 없어 트랙 공통본으로 냅니다");

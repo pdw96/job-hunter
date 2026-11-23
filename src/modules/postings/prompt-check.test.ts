@@ -18,6 +18,8 @@ const full = {
   minYears: 3,
   employmentType: "regular",
   hasDetails: true,
+  documents: [],
+  questions: [],
 };
 const sparse = {
   company: "다라마 스튜디오",
@@ -30,8 +32,25 @@ const sparse = {
   minYears: -1,
   employmentType: "unknown",
   hasDetails: true,
+  documents: [{ kind: "resume", label: "이력서" }, { kind: "portfolio", label: "포트폴리오" }],
+  questions: [],
 };
-const chrome = { ...sparse, company: "가나다(주)", title: "조립 신입 채용", isRolling: false, hasDetails: false };
+const docs = {
+  ...sparse,
+  company: "마바사소프트",
+  title: "서비스 기획자",
+  careerType: "new",
+  documents: [
+    { kind: "resume", label: "이력서" },
+    { kind: "cover_letter", label: "자기소개서" },
+    { kind: "portfolio", label: "포트폴리오(선택)" },
+  ],
+  questions: [
+    { prompt: "지원 동기", charLimit: 500, countSpaces: null },
+    { prompt: "입사 후 포부", charLimit: 300, countSpaces: false },
+  ],
+};
+const chrome = { ...sparse, documents: [], company: "가나다(주)", title: "조립 신입 채용", isRolling: false, hasDetails: false };
 // 맞대기 예시의 맞는 답. ①(E1)은 Java·Kotlin 요구 사항의 근거이고, ②(E2)는 어디에도 쓰이지 않는다.
 // "경력 3~5년"은 코드가 따로 점수를 매기므로, 입사 가능 시기·병역은 어떤 경험으로도 채울 수 없으므로 뽑지 않는다.
 // 담당 업무는 우대로 뽑는다
@@ -44,12 +63,13 @@ const match = {
   ],
 };
 // 어느 예시의 요청인지 보고 답한다(요청 순서가 정해져 있지 않다)
-const answering = (fullAnswer: unknown, sparseAnswer: unknown, chromeAnswer: unknown = chrome, matchAnswer: unknown = match) =>
+const answering = (fullAnswer: unknown, sparseAnswer: unknown, chromeAnswer: unknown = chrome, matchAnswer: unknown = match, docsAnswer: unknown = docs) =>
   createFakeAi(
-    Array.from({ length: 4 }, () => (request: { messages: { text: string }[] }) => {
+    Array.from({ length: 5 }, () => (request: { messages: { text: string }[] }) => {
       const text = request.messages[0].text;
       return text.includes("[경험 기록]")
         ? matchAnswer
+        : text.includes("마바사소프트") ? docsAnswer
         : text.includes("가나다테크") ? fullAnswer : text.includes("다라마 스튜디오") ? sparseAnswer : chromeAnswer;
     }),
   );
@@ -62,7 +82,7 @@ beforeEach(async () => {
 
 test("값을 맞게 뽑고 없는 값을 비워 두면 모두 통과한다", async () => {
   const rows = await runPostingCheck(db, answering(full, sparse), "admin");
-  expect(rows).toHaveLength(27);
+  expect(rows).toHaveLength(34);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
 });
 
@@ -186,4 +206,18 @@ test("맞대기 예시에 입사 가능 시기와 병역 조건이 담긴 인재
   expect(texts).toHaveLength(1);
   expect(texts[0]).toContain("2027년 1월 입사 가능한 자");
   expect(texts[0]).toContain("병역필 또는 면제자");
+});
+
+test("서류와 문항을 지어내거나 놓치면 잡아낸다", async () => {
+  const wrongFull = { ...full, documents: [{ kind: "resume", label: "이력서" }], questions: [{ prompt: "Java 또는 Kotlin 개발 경험", charLimit: 500, countSpaces: true }] };
+  const wrongSparse = { ...sparse, documents: [{ kind: "resume", label: "이력서" }] };
+  const wrongDocs = { ...docs, documents: docs.documents.slice(0, 2), questions: [{ prompt: "지원 동기", charLimit: 500, countSpaces: true }, { prompt: "입사 후 포부", charLimit: 300, countSpaces: true }] };
+  const rows = await runPostingCheck(db, answering(wrongFull, wrongSparse, chrome, match, wrongDocs), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual([
+    "제출 서류를 지어내지 않는다",
+    "자소서 문항을 지어내지 않는다",
+    "제출 서류는 이력서와 포트폴리오",
+    "서류 종류에 이력서·자기소개서·포트폴리오",
+    "둘째 문항은 공백 제외",
+  ]);
 });

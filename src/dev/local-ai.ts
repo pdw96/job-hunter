@@ -248,6 +248,15 @@ function posting(text: string) {
     minYears: years ? Number(years[1]) : -1,
     employmentType: /정규직/.test(source) ? "regular" : /계약직/.test(source) ? "contract" : /인턴/.test(source) ? "intern" : "unknown",
     hasDetails: /담당 업무|자격 요건|근무지|경력|정규직|채용 시 마감|영업/.test(source),
+    // 원문에 "지원 동기"가 있으면 서류와 문항을 하나씩 찾은 것으로 흉내 낸다(원문에 있는 글만 문항으로 남는다)
+    documents: /지원 동기/.test(source)
+      ? [
+          { kind: "resume", label: "이력서" },
+          { kind: "cover_letter", label: "자기소개서" },
+          { kind: "portfolio", label: "포트폴리오" },
+        ]
+      : [],
+    questions: /지원 동기/.test(source) ? [{ prompt: "지원 동기를 쓰시오", charLimit: 500, countSpaces: false }] : [],
   };
 }
 

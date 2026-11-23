@@ -38,12 +38,14 @@ async function whyNot(db: Db, userId: string, id: string): Promise<{ ok: false; 
   return { ok: false, reason: exists ? "changed" : "not_found" };
 }
 
-// 지원으로 정한 공고에만 문항을 더한다. 한도를 넘으면 하나도 넣지 않는다
+// 지원으로 정한 공고에만 문항을 더한다. 한도를 넘으면 하나도 넣지 않는다.
+// onlyIfEmpty면 잠금 안에서 그 공고의 문항이 하나도 없을 때만 넣고, 있으면 아무것도 넣지 않고 ok(ids 없음)를 돌려준다
 export async function addQuestions(
   db: Db,
   userId: string,
   postingId: string,
   inputs: QuestionInput[],
+  options: { onlyIfEmpty?: boolean } = {},
 ): Promise<{ ok: true; ids: string[] } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "too_many" }> {
   const posting = await getPosting(db, userId, postingId);
   if (!posting) return { ok: false, reason: "not_found" };
@@ -56,6 +58,7 @@ export async function addQuestions(
       .select({ value: count() })
       .from(questions)
       .where(and(eq(questions.userId, userId), eq(questions.postingId, postingId)));
+    if (options.onlyIfEmpty && value > 0) return { ok: true as const, ids: [] as string[] };
     if (value + inputs.length > APPLICATION_LIMITS.questions) return { ok: false as const, reason: "too_many" as const };
     const [{ last }] = await tx
       .select({ last: sql<number>`coalesce(max(${questions.position}), -1)` })

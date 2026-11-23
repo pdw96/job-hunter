@@ -2,8 +2,9 @@ import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { REGION_IDS } from "@/modules/tracks/options";
+import { cleanFound, type FoundDocument, type FoundQuestion, squash } from "./documents";
 import { isDate } from "./input";
-import { CAREER_TYPES, type CareerType, POSTING_EMPLOYMENT_TYPES, type PostingEmploymentType, POSTING_LIMITS } from "./options";
+import { CAREER_TYPES, type CareerType, DOCUMENT_KINDS, POSTING_EMPLOYMENT_TYPES, type PostingEmploymentType, POSTING_LIMITS } from "./options";
 import { POSTING_SYSTEM } from "./prompts";
 
 // 공고 원문에서 값을 뽑는다. 저장하지 않는다. 뽑은 값은 사용자가 화면에서 확인하고 고친 뒤에 저장한다.
@@ -19,6 +20,8 @@ const extractSchema = z.object({
   minYears: z.number(),
   employmentType: z.enum(POSTING_EMPLOYMENT_TYPES),
   hasDetails: z.boolean(),
+  documents: z.array(z.object({ kind: z.enum(DOCUMENT_KINDS), label: z.string() })),
+  questions: z.array(z.object({ prompt: z.string(), charLimit: z.number(), countSpaces: z.boolean().nullable() })), // charLimit은 없으면 -1
 });
 
 export type ExtractedPosting = {
@@ -35,9 +38,10 @@ export type ExtractedPosting = {
   hasDetails: boolean;
   // 원문에서 글자 그대로 찾지 못한 값. 화면에서 다시 보라고 알린다
   unverified: ("company" | "title")[];
+  // 공고가 내라고 적은 서류와 자소서 문항. 코드가 검사한 값
+  documents: FoundDocument[];
+  questions: FoundQuestion[];
 };
-
-const squash = (text: string) => text.replace(/\s+/g, "").toLowerCase();
 
 export async function extractPosting(
   db: Db,
@@ -57,7 +61,7 @@ export async function extractPosting(
       messages: [{ role: "user", text: `오늘 날짜: ${today}\n\n[공고 원문]\n${rawText}` }],
       schema: extractSchema,
       effort: "low",
-      maxTokens: 2000,
+      maxTokens: 6000,
     },
     now,
   );
@@ -87,6 +91,7 @@ export async function extractPosting(
       unverified: (["company", "title"] as const).filter(
         (field) => raw[field].trim() !== "" && !source.includes(squash(raw[field])),
       ),
+      ...cleanFound(raw, rawText),
     },
   };
 }

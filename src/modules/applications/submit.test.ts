@@ -8,7 +8,7 @@ import { confirmExperience, createExperience, deleteExperience, updateExperience
 import { experiences } from "@/modules/experiences/schema";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { validatePosting } from "@/modules/postings/input";
-import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus, updatePosting } from "@/modules/postings/repo";
+import { applyToPosting, createPosting, getPosting, saveAnalysis, setChosenDocuments, setStatus, updatePosting } from "@/modules/postings/repo";
 import { saveContact } from "@/modules/profile/repo";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
@@ -309,6 +309,47 @@ test("submitPreview: 답이 없는 문항과 한도를 넘은 문항, 공통본�
   expect(preview.resumeFrom).toBe("common");
   expect(preview.questionCount).toBe(2);
   expect(preview.warnings).toEqual(["답이 없는 문항: 2번", "글자 수를 넘은 문항: 1번", "맞춤본이 없어 트랙 공통본으로 냅니다"]);
+});
+
+test("자기소개서를 고르지 않으면 문항 경고가 없고 제출본의 answers가 빈 배열", async () => {
+  const exp = await addExperience();
+  const postingId = await addPosting();
+  await insertCommonResume(db, "u1", trackId, resumeOf([entryOf(exp, "Java로 결제 승인 API를 다시 설계했다")], null));
+  await addQuestionWithDraft(postingId, "지원 동기", ["답이 있다"], null, [exp]);
+  await setChosenDocuments(db, "u1", postingId, ["resume"]);
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  const preview = await submitPreview(db, "u1", posting);
+  expect(preview.warnings.filter((w) => w.includes("문항"))).toEqual([]);
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  const saved = await getSubmission(db, "u1", postingId, 1);
+  expect(saved?.content.answers).toEqual([]);
+  expect(saved?.content.resume?.from).toBe("common");
+});
+
+test("이력서를 고르지 않으면 이력서 경고가 없고 resume이 null", async () => {
+  const exp = await addExperience();
+  const postingId = await addPosting();
+  await insertCommonResume(db, "u1", trackId, resumeOf([entryOf(exp, "Java로 결제 승인 API를 다시 설계했다")], null));
+  await addQuestionWithDraft(postingId, "지원 동기", ["답이 있다"], null, [exp]);
+  await setChosenDocuments(db, "u1", postingId, ["cover_letter"]);
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  const preview = await submitPreview(db, "u1", posting);
+  expect(preview.resumeFrom).toBeNull();
+  expect(preview.warnings.filter((w) => w.includes("이력서"))).toEqual([]);
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  const saved = await getSubmission(db, "u1", postingId, 1);
+  expect(saved?.content.resume).toBeNull();
+  expect(saved?.content.answers.map((a) => a.prompt)).toEqual(["지원 동기"]);
+});
+
+test("고른 서류가 기본값이면 지금과 같다", async () => {
+  const postingId = await addPosting();
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  expect(await submitPreview(db, "u1", posting)).toEqual({ resumeFrom: null, questionCount: 0, warnings: ["자소서 문항이 없습니다", "이력서가 없습니다"] });
+  // 찾은 서류에 자소서·이력서가 없어도 고르지 않았을 뿐 기본값이 아니면 같은 규칙을 따른다
+  await setChosenDocuments(db, "u1", postingId, ["resume", "cover_letter"]);
+  const chosen = (await getPosting(db, "u1", postingId)) as Posting;
+  expect((await submitPreview(db, "u1", chosen)).warnings).toEqual(["자소서 문항이 없습니다", "이력서가 없습니다"]);
 });
 
 test("맞춤본의 항목이 모두 빠져 0개면 공통본으로 내고, 공통본도 비었으면 이력서 없이 낸다", async () => {
