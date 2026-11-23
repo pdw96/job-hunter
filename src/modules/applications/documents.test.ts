@@ -8,9 +8,11 @@ import { applyToPosting, createPosting, getPosting, saveAnalysis } from "@/modul
 import type { Found } from "@/modules/postings/documents";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
-import { chooseDocuments, seedQuestionsFromPosting } from "./documents";
+import { createFakeAi } from "@/modules/ai/fake-client";
+import { chooseDocuments, rereadAndSeed, seedQuestionsFromPosting } from "./documents";
 import { addQuestions, listQuestions } from "./repo";
 import { submitPosting } from "./submit";
+import { insertSubmission } from "./submission-repo";
 
 let db: Db;
 let trackId: string;
@@ -136,4 +138,61 @@ test("chooseDocuments는 지원이 아니면 not_apply, 잠겼으면 submitted",
   expect(await submitPosting(db, "u1", id, 0, now)).toEqual({ ok: true, number: 1 });
   expect(await chooseDocuments(db, "u1", id, ["resume"])).toEqual({ ok: false, reason: "submitted" });
   expect(await chooseDocuments(db, "u2", id, ["resume"])).toEqual({ ok: false, reason: "not_found" });
+});
+
+const aiAnswer = (over: Record<string, unknown> = {}) => ({
+  company: "가나다 주식회사",
+  title: "백엔드 개발자",
+  deadline: "",
+  isRolling: false,
+  locationText: "",
+  regions: [],
+  careerType: "any",
+  minYears: -1,
+  employmentType: "unknown",
+  hasDetails: true,
+  documents: [{ kind: "portfolio", label: "포트폴리오" }],
+  questions: [{ prompt: "성장 과정을 쓰시오", charLimit: -1, countSpaces: null }],
+  ...over,
+});
+
+test("잠긴 공고는 AI를 부르지 않고 submitted", async () => {
+  for (const apply of [true, false]) {
+    const id = await addPosting({ apply });
+    // 관심 공고도 제출본이 잠겨 있으면 막는다(제출 뒤 관심으로 되돌린 경우)
+    const content = { posting: {}, resume: null, answers: [] } as never;
+    if (!apply) expect(await insertSubmission(db, "u1", id, 0, content, now)).toMatchObject({ ok: true });
+    else expect(await submitPosting(db, "u1", id, 0, now)).toMatchObject({ ok: true });
+    const ai = createFakeAi([aiAnswer()]);
+    expect(await rereadAndSeed(db, ai, "u1", id, "2026-11-19", now)).toEqual({ ok: false, reason: "submitted" });
+    expect(ai.requests).toHaveLength(0);
+    expect((await getPosting(db, "u1", id))?.foundDocuments).toEqual(found.documents);
+  }
+});
+
+test("AI가 읽는 사이 제출했으면 저장하지 않는다", async () => {
+  const id = await addPosting();
+  const ai = createFakeAi([
+    async () => {
+      await submitPosting(db, "u1", id, 0, now);
+      return aiAnswer();
+    },
+  ]);
+  expect(await rereadAndSeed(db, ai, "u1", id, "2026-11-19", now)).toEqual({ ok: false, reason: "submitted" });
+  expect(await getPosting(db, "u1", id)).toMatchObject({ foundDocuments: found.documents, foundQuestions: found.questions });
+});
+
+test("지원 공고는 다시 읽은 뒤 문항을 채운다", async () => {
+  const id = await addPosting({ found: { documents: [], questions: [] } });
+  const ai = createFakeAi([aiAnswer()]);
+  expect(await rereadAndSeed(db, ai, "u1", id, "2026-11-19", now)).toEqual({ ok: true });
+  expect((await getPosting(db, "u1", id))?.foundDocuments).toEqual([{ kind: "portfolio", label: "포트폴리오" }]);
+  expect((await listQuestions(db, "u1", id)).map((x) => x.prompt)).toEqual(["성장 과정을 쓰시오"]);
+
+  // 관심 공고는 찾은 값만 새로 하고 문항은 넣지 않는다
+  const interest = await addPosting({ apply: false, found: null });
+  expect(await rereadAndSeed(db, createFakeAi([aiAnswer()]), "u1", interest, "2026-11-19", now)).toEqual({ ok: true });
+  expect((await getPosting(db, "u1", interest))?.foundQuestions).toHaveLength(1);
+  expect(await listQuestions(db, "u1", interest)).toEqual([]);
+  expect(await rereadAndSeed(db, createFakeAi([]), "u2", id, "2026-11-19", now)).toEqual({ ok: false, reason: "not_found" });
 });

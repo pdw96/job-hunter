@@ -334,11 +334,34 @@ const found = {
   questions: [{ prompt: "지원 동기", charLimit: 500, countSpaces: true }],
 };
 
+const withQuestionText = `${raw.rawText}\n1. 지원 동기 (500자)`;
+
 test("새 공고에 찾은 값을 함께 저장한다", async () => {
-  const created = await createPosting(db, "u1", trackId, input(), found);
+  const created = await createPosting(db, "u1", trackId, input({ rawText: withQuestionText }), found);
   if (!created.ok) throw new Error("create");
   const got = await getPosting(db, "u1", created.id);
   expect(got).toMatchObject({ foundDocuments: found.documents, foundQuestions: found.questions, chosenDocuments: null });
+});
+
+test("브라우저가 보낸 원문에 없는 문항은 저장하지 않는다", async () => {
+  const sent = {
+    documents: [{ kind: "resume", label: "이력서" }, { kind: "hack", label: "x" }],
+    questions: [{ prompt: "원문에 없는 문항", charLimit: 500, countSpaces: true }, { prompt: "지원 동기", charLimit: 500, countSpaces: true }],
+  };
+  const created = await createPosting(db, "u1", trackId, input({ rawText: withQuestionText }), sent);
+  if (!created.ok) throw new Error("create");
+  expect(await getPosting(db, "u1", created.id)).toMatchObject({
+    foundDocuments: [{ kind: "resume", label: "이력서" }],
+    foundQuestions: [{ prompt: "지원 동기", charLimit: 500, countSpaces: true }],
+  });
+});
+
+test("모양이 틀린 found는 빈 값으로 저장한다", async () => {
+  for (const bad of ["문자열", 7, null, { documents: "x", questions: 3 }, []]) {
+    const created = await createPosting(db, "u1", trackId, input(), bad);
+    if (!created.ok) throw new Error("create");
+    expect(await getPosting(db, "u1", created.id)).toMatchObject({ foundDocuments: [], foundQuestions: [] });
+  }
 });
 
 test("찾은 값 없이 만들면 셋 다 null", async () => {
@@ -348,10 +371,10 @@ test("찾은 값 없이 만들면 셋 다 null", async () => {
 });
 
 test("공고를 고쳐도 찾은 값과 고른 서류는 그대로", async () => {
-  const created = await createPosting(db, "u1", trackId, input(), found);
+  const created = await createPosting(db, "u1", trackId, input({ rawText: withQuestionText }), found);
   if (!created.ok) throw new Error("create");
   await setChosenDocuments(db, "u1", created.id, ["portfolio"]);
-  await updatePosting(db, "u1", created.id, input({ title: "바뀐 직무" }));
+  await updatePosting(db, "u1", created.id, input({ title: "바뀐 직무", rawText: withQuestionText }));
   expect(await getPosting(db, "u1", created.id)).toMatchObject({ title: "바뀐 직무", foundDocuments: found.documents, foundQuestions: found.questions, chosenDocuments: ["portfolio"] });
 });
 

@@ -12,7 +12,6 @@ import { type ExtractedPosting, extractPosting } from "./extract";
 // 로컬 미리보기에서는 next.config.ts가 이 파일을 src/dev/local-fetch-page.ts로 바꿔 끼운다
 import { fetchPosting } from "@/modules/postings/fetch-page";
 import { seedQuestionsFromPosting } from "@/modules/applications/documents";
-import { cleanFound } from "./documents";
 import { type PostingErrors, validatePosting } from "./input";
 import { POSTING_LIMITS } from "./options";
 import { transcribePosting, validateTiles } from "./read-image";
@@ -119,9 +118,8 @@ export async function savePostingAction(
     const similar = await findSimilar(db, user.id, trackId, checked.value.company, checked.value.title);
     if (similar.length > 0) return { ok: false, similar };
   }
-  // 값 뽑기 때 찾은 서류와 문항. 브라우저가 보낸 값이라 저장할 원문으로 다시 검사한다(공고를 고쳐도 찾은 값은 다시 읽기로만 바뀐다)
-  const found = options.found === undefined || options.found === null ? undefined : cleanFound(options.found, checked.value.rawText);
-  const created = await createPosting(db, user.id, trackId, checked.value, found);
+  // 값 뽑기 때 찾은 서류와 문항(브라우저가 보낸 값). createPosting이 저장할 원문으로 다시 검사한다
+  const created = await createPosting(db, user.id, trackId, checked.value, options.found ?? undefined);
   if (!created.ok) {
     return {
       ok: false,

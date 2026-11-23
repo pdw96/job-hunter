@@ -4,7 +4,7 @@ import type { Db } from "@/db/types";
 import { ownsTrack } from "@/modules/tracks/repo";
 import type { AppliedScore, PostingAnalysis, PostingScore } from "./analysis";
 import { DOCUMENT_KINDS, type DocumentKind, POSTING_LIMITS, type PostingStatus } from "./options";
-import type { Found, FoundDocument, FoundQuestion } from "./documents";
+import { cleanFound, type Found, type FoundDocument, type FoundQuestion } from "./documents";
 import type { PostingInput } from "./input";
 import { postings } from "./schema";
 
@@ -39,7 +39,7 @@ export async function createPosting(
   userId: string,
   trackId: string,
   input: PostingInput,
-  found?: Found,
+  found?: unknown, // 브라우저가 보낸 값일 수 있어 저장할 원문으로 다시 검사한다. 없으면(undefined) 읽지 않은 것(null)
 ): Promise<{ ok: true; id: string } | { ok: false; reason: "invalid_track" | "too_many" }> {
   // 남의 트랙이나 없는 트랙에는 넣을 수 없다
   if (!(await ownsTrack(db, userId, trackId))) return { ok: false, reason: "invalid_track" };
@@ -47,7 +47,8 @@ export async function createPosting(
   if (value >= POSTING_LIMITS.perUser) return { ok: false, reason: "too_many" };
 
   const id = randomUUID();
-  await db.insert(postings).values({ id, userId, trackId, ...input, foundDocuments: found?.documents ?? null, foundQuestions: found?.questions ?? null });
+  const checked = found === undefined ? null : cleanFound(found, input.rawText);
+  await db.insert(postings).values({ id, userId, trackId, ...input, foundDocuments: checked?.documents ?? null, foundQuestions: checked?.questions ?? null });
   return { ok: true, id };
 }
 

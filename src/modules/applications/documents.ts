@@ -1,8 +1,10 @@
 import type { Db } from "@/db/types";
+import type { AiClient, AiFailure } from "@/modules/ai/client";
 import type { DocumentKind } from "@/modules/postings/options";
-import { getPosting, setChosenDocuments } from "@/modules/postings/repo";
+import { getPosting, saveFound, setChosenDocuments } from "@/modules/postings/repo";
+import { readFound } from "@/modules/postings/reread";
 import { addQuestions } from "./repo";
-import { editBlock, withEditLock } from "./submission-repo";
+import { editBlock, isLocked, latestSubmission, withEditLock, withPostingLock } from "./submission-repo";
 
 // 공고에서 찾은 문항을 지원 공고의 문항으로 넣고, 낼 서류를 고른다
 
@@ -34,4 +36,31 @@ export async function chooseDocuments(
   const block = await editBlock(db, userId, posting);
   if (block) return { ok: false, reason: block };
   return withEditLock(db, userId, postingId, (tx) => setChosenDocuments(tx, userId, postingId, kinds));
+}
+
+// 공고를 다시 읽는다. 제출로 잠긴 공고는(어떤 판단이든) AI를 부르기 전에 막고, AI가 읽는 사이 제출했으면 저장하지 않는다.
+// 저장은 공고 잠금 안에서 잠김을 다시 확인한 뒤 postings의 saveFound로 한다. 지원 공고면 이어서 문항을 채운다
+export async function rereadAndSeed(
+  db: Db,
+  ai: AiClient,
+  userId: string,
+  id: string,
+  today: string,
+  now: Date = new Date(),
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "submitted" | "changed" | "over_limit" | "too_many" | AiFailure }> {
+  const posting = await getPosting(db, userId, id);
+  if (!posting) return { ok: false, reason: "not_found" };
+  if (isLocked(await latestSubmission(db, userId, id))) return { ok: false, reason: "submitted" };
+
+  const read = await readFound(db, ai, userId, id, today, now);
+  if (!read.ok) return read;
+  const saved = await withPostingLock(db, id, async (tx) => {
+    if (isLocked(await latestSubmission(tx, userId, id))) return { ok: false as const, reason: "submitted" as const };
+    return saveFound(tx, userId, id, read.found, read.readAs);
+  });
+  if (!saved.ok) return saved;
+
+  // 문항을 못 넣어도(한도 등) 다시 읽기는 성공이다. 지원이 아닌 공고에는 seed가 아무것도 넣지 않는다
+  await seedQuestionsFromPosting(db, userId, id);
+  return { ok: true };
 }

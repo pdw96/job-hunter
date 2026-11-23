@@ -6,10 +6,8 @@ import { requireUser } from "@/lib/session";
 import type { AiFailure } from "@/modules/ai/client";
 import { ai } from "@/modules/ai/provider";
 import { DOCUMENT_KINDS, type DocumentKind } from "@/modules/postings/options";
-import { rereadPosting } from "@/modules/postings/reread";
-import { getPosting } from "@/modules/postings/repo";
 import { todayInKorea } from "@/modules/postings/today";
-import { chooseDocuments, seedQuestionsFromPosting } from "./documents";
+import { chooseDocuments, rereadAndSeed } from "./documents";
 
 // 모든 액션은 requireUser()로 얻은 userId만 쓴다. 끝나면 공고 화면과 자소서 화면을 다시 그리게 한다.
 
@@ -44,11 +42,8 @@ function refresh(id: string) {
 export async function rereadPostingAction(id: string): Promise<Result> {
   const user = await requireUser();
   if (typeof id !== "string") return { ok: false, message: MESSAGES.not_found };
-  const result = await rereadPosting(db, ai, user.id, id, todayInKorea());
+  const result = await rereadAndSeed(db, ai, user.id, id, todayInKorea());
   if (!result.ok) return { ok: false, message: messageOf(result.reason) };
-  // 문항을 못 넣어도 다시 읽기는 성공이다
-  const posting = await getPosting(db, user.id, id);
-  if (posting?.status === "apply") await seedQuestionsFromPosting(db, user.id, id);
   refresh(id);
   return { ok: true };
 }

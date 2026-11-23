@@ -48,6 +48,12 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
   const last = submissions.at(-1);
   const resumeText = preview?.resumeFrom ? RESUME_LABELS[preview.resumeFrom] : "없음";
 
+  // 끝말에 맞는 조사(을/를)를 붙인다: 원문만 있으면 "원문을", 서류가 이어지면 "이력서(…)를"·"문항 n개를"
+  const frozen = ["지금의 공고 원문", withResume && `이력서(${resumeText})`, withLetter && `자소서 문항 ${preview?.questionCount ?? 0}개`].filter(
+    (item): item is string => Boolean(item),
+  );
+  const frozenText = `${frozen.join(", ")}${frozen.length === 1 ? "을" : "를"}`;
+
   return (
     <section className="space-y-3" aria-label="제출">
       {isApply && locked && last && (
@@ -86,10 +92,7 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
           {confirming && (
             <div className="space-y-3 rounded-lg border border-foreground/20 p-4" role="group" aria-label="제출 확인">
               <p className="text-sm">
-                {["지금의 공고 원문", withResume && `이력서(${resumeText})`, withLetter && `자소서 문항 ${preview.questionCount}개`]
-                  .filter(Boolean)
-                  .join(", ")}
-                를 얼립니다. 얼린 제출본은 고칠 수 없습니다
+                {frozenText} 얼립니다. 얼린 제출본은 고칠 수 없습니다
               </p>
               {preview.warnings.length > 0 && (
                 <ul className="list-disc space-y-1 pl-5 text-sm text-amber-700 dark:text-amber-400">
