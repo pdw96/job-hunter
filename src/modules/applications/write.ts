@@ -4,8 +4,8 @@ import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
 import { type Answer, listAnswersByIds } from "./answers-repo";
-import { needsAnswers } from "./kinds";
-import { ANSWER_TOPIC_LABELS, APPLICATION_LIMITS, type QuestionKind, QUESTION_KIND_LABELS } from "./options";
+import { unansweredKinds, unansweredTopics } from "./kinds";
+import { ANSWER_TOPIC_LABELS, type AnswerTopic, APPLICATION_LIMITS, type QuestionKind, QUESTION_KIND_LABELS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
@@ -40,6 +40,7 @@ export type WriteInput = {
   sources: WritingSource[]; // 승인한 경험
   kinds: QuestionKind[];
   answers: Answer[]; // 문항에 붙인 지원자의 답. 이력 사실(학력·자격)은 보내지 않는다
+  unanswered: AnswerTopic[]; // 문항의 주제 중 답이 없는 것. AI가 그 주제를 지어 쓰지 않게 알린다
 };
 
 const PRESET_TEXT: Record<RevisePreset, string> = {
@@ -66,6 +67,7 @@ function buildBase(input: WriteInput): [string, string][] {
     ["공고", input.postingText],
     ["경험 기록", orNone(input.sources.map((s, i) => describeSource(`E${i + 1}`, s, true)))],
     ["내 답", orNone(input.answers.map((a, i) => describeAnswer(`A${i + 1}`, a)))],
+    ["답이 없는 주제", input.unanswered.length > 0 ? input.unanswered.map((topic) => ANSWER_TOPIC_LABELS[topic]).join(", ") : "없음"],
   ];
 }
 
@@ -146,7 +148,8 @@ const sameJson = (a: unknown, b: unknown) => canon(a) === canon(b);
 
 // 고른 경험을 승인하고 곧바로 쓴다. experienceIds는 화면이 보낸 것이므로 지금의 WritingSource에 있는 것만 받는다.
 // 지원자의 답은 서버가 문항에 붙인 답(answerIds)에서 읽는다(지금 없는 답은 빼고 쓴다).
-// 규칙: 유형에 동기포부형·자기소개형이 있는데 답이 없으면 need_answers이고 AI를 부르지 않는다.
+// 규칙: 유형에 동기포부형·자기소개형이 있는데 그 유형 주제의 답이 없으면(유형마다 본다) need_answers이고 AI를 부르지 않는다.
+// 답이 일부 주제에만 있으면 쓰되, 답이 없는 주제는 AI에 알려 쓰지 않게 한다.
 // 고르기 결과가 없으면, 보낸 경험이 없고 유형에 경험형이 없을 때만 답만으로 쓴다(승인 없음). 아니면 changed.
 // 보낸 id 중 이미 승인한 경험이 지금 목록에 없거나(확인 풀림, 요약만·제외) 버전이 다르면 stale이고 AI를 부르지 않는다.
 // 이미 승인한 경험을 빼고 다른 묶음을 보내면 새 승인이다(지금 버전으로 다시 승인한다). 경험도 답도 없으면 none_selected
@@ -167,7 +170,8 @@ export async function approveAndWrite(
 
   const kinds: QuestionKind[] = question.kinds ?? ["experience"]; // 유형을 정하기 전의 옛 문항은 경험형으로 본다
   const answers = await listAnswersByIds(db, userId, question.answerIds);
-  if (needsAnswers(kinds) && answers.length === 0) return { ok: false, reason: "need_answers" };
+  const answerTopics = answers.map((a) => a.topic);
+  if (unansweredKinds(kinds, answerTopics).length > 0) return { ok: false, reason: "need_answers" };
 
   const requested = [...new Set(experienceIds)];
   const selection = question.selection;
@@ -209,6 +213,7 @@ export async function approveAndWrite(
       sources,
       kinds,
       answers,
+      unanswered: unansweredTopics(question.topics, answerTopics),
     },
     now,
   );
@@ -276,6 +281,7 @@ export async function reviseParagraph(
     sources,
     kinds: question.kinds ?? ["experience"],
     answers,
+    unanswered: unansweredTopics(question.topics, answers.map((a) => a.topic)),
   });
   sections.push(
     ["지금 답", stored.paragraphs.map((p) => p.text).join("\n")],

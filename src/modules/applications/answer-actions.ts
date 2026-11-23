@@ -55,7 +55,7 @@ export async function makeAsksAction(id: string, topics: unknown): Promise<Resul
   return { ok: true };
 }
 
-// 고른 답을 저장한다. picks는 [{ index, options, previous, note }]: 질문 번호, 고른 선택지 번호, 고른 지난 답 번호, 기타 한 줄
+// 고른 답을 저장한다. picks는 [{ id, options, previous, note }]: 질문 id, 고른 선택지 번호, 고른 지난 답 번호, 기타 한 줄
 export async function answerAsksAction(id: string, picks: unknown): Promise<Result> {
   const user = await requireUser();
   if (typeof id !== "string") return fail("not_found");

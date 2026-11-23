@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { freeformQuestions, needsAnswers, topicsFor } from "./kinds";
+import { freeformQuestions, needsAnswers, topicsFor, unansweredKinds, unansweredTopics } from "./kinds";
 
 test("유형에 맞는 주제만 남기고 빈 유형에는 기본 주제를 더한다", () => {
   expect(topicsFor(["motive"], ["growth"])).toEqual(["motive"]);
@@ -52,4 +52,17 @@ test("100자 넘는 직접 항목은 message", () => {
 test("글자 수 범위를 벗어나면 message, 아무것도 없으면 message", () => {
   expect(freeformQuestions(["motive"], [], 10).ok).toBe(false);
   expect(freeformQuestions([], [], 800).ok).toBe(false);
+});
+
+test("유형마다 그 유형 주제의 답이 없으면 답이 없는 유형으로 돌려준다", () => {
+  expect(unansweredKinds(["experience", "motive", "self"], ["motive"])).toEqual(["self"]);
+  expect(unansweredKinds(["motive", "self"], ["aspiration", "values"])).toEqual([]);
+  expect(unansweredKinds(["experience"], [])).toEqual([]);
+  expect(unansweredKinds(null, [])).toEqual([]);
+});
+
+test("붙인 답이 없는 주제를 문항의 주제 순서로 돌려준다", () => {
+  expect(unansweredTopics(["motive", "aspiration"], ["motive"])).toEqual(["aspiration"]);
+  expect(unansweredTopics(["motive"], ["motive", "growth"])).toEqual([]);
+  expect(unansweredTopics(null, [])).toEqual([]);
 });

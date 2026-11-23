@@ -144,7 +144,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       db,
       ai,
       userId,
-      { prompt: PROMPT, charLimit: CHAR_LIMIT, countSpaces: true, postingText, sources: [KOTLIN], kinds: ["experience"], answers: [] },
+      { prompt: PROMPT, charLimit: CHAR_LIMIT, countSpaces: true, postingText, sources: [KOTLIN], kinds: ["experience"], answers: [], unanswered: [] },
       now,
     );
     if (!result.ok) return failed(writeChecks, result.reason);
@@ -175,7 +175,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       db,
       ai,
       userId,
-      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER] },
+      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER], unanswered: [] },
       now,
     );
     if (!result.ok) return answerChecks.map((check) => answerRow(check, "AI 호출 성공", `실패: ${result.reason}`, false));

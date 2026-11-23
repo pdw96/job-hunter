@@ -231,8 +231,8 @@ test("글자 수 기준과 제한 없음이 글에 적힌다", async () => {
   await addExperience();
   const sources = await listWritingSources(db, "u1", trackId);
   const ai = createFakeAi([writeReply(), writeReply()]);
-  await writeText(db, ai, "u1", { prompt: "문항", charLimit: 300, countSpaces: false, postingText: "공고", sources, kinds: ["experience"], answers: [] }, now);
-  await writeText(db, ai, "u1", { prompt: "문항", charLimit: null, countSpaces: true, postingText: "공고", sources, kinds: ["experience"], answers: [] }, now);
+  await writeText(db, ai, "u1", { prompt: "문항", charLimit: 300, countSpaces: false, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [] }, now);
+  await writeText(db, ai, "u1", { prompt: "문항", charLimit: null, countSpaces: true, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [] }, now);
   expect(ai.requests[0].messages[0].text).toContain("[글자 수]\n300자 이내(공백 제외)");
   expect(ai.requests[1].messages[0].text).toContain("[글자 수]\n제한 없음");
 });
@@ -751,7 +751,9 @@ async function answered(kinds: QuestionKind[], answerCount = 1, withSelection = 
   if (!set.ok) throw new Error(set.reason);
   const answerIds: string[] = [];
   for (let i = 0; i < answerCount; i++) {
-    const id = await addAnswer(i === 0 ? {} : { topic: "aspiration", answer: `포부 ${i}` });
+    // 첫 답은 그 유형의 주제(동기포부형이면 지원동기, 자기소개형만이면 기타)
+    const first = kinds.includes("motive") ? {} : { topic: "other" as const, answer: "사람들이 매일 쓰는 것을 만들 때 보람을 느낀다" };
+    const id = await addAnswer(i === 0 ? first : { topic: "aspiration", answer: `포부 ${i}` });
     const attached = await attachAnswer(db, "u1", questionId, id);
     if (!attached.ok) throw new Error(attached.reason);
     answerIds.push(id);
@@ -918,4 +920,34 @@ test("AI에 보낸 글에 [문항 유형]과 [내 답], 답 글이 있고 답 id
   const oldSent = oldAi.requests[0].messages[0].text;
   expect(oldSent).toContain("[문항 유형]\n경험형");
   expect(oldSent).toContain("[내 답]\n없음");
+});
+
+test("지원동기·포부 문항에서 지원동기 답만 있으면 [답이 없는 주제]에 입사 후 포부가 들어간다", async () => {
+  const { questionId } = await answered(["motive"]);
+  await db.update(questionsTable).set({ topics: ["motive", "aspiration"] }).where(eq(questionsTable.id, questionId));
+  const ai = createFakeAi([answerReply(), { text: "고친 문단입니다.", sources: ["A1"] }]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(result.ok).toBe(true);
+  expect(ai.requests[0].messages[0].text).toContain("[답이 없는 주제]\n입사 후 포부");
+  if (!result.ok) return;
+  await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, result.value, now);
+  expect(ai.requests[1].messages[0].text).toContain("[답이 없는 주제]\n입사 후 포부");
+
+  // 주제마다 답이 있으면 없음
+  const full = await answered(["motive"], 2);
+  await db.update(questionsTable).set({ topics: ["motive", "aspiration"] }).where(eq(questionsTable.id, full.questionId));
+  const fullAi = createFakeAi([answerReply()]);
+  await approveAndWrite(db, fullAi, "u1", full.questionId, [], now);
+  expect(fullAi.requests[0].messages[0].text).toContain("[답이 없는 주제]\n없음");
+});
+
+test("동기포부형+자기소개형인데 자기소개 쪽 답이 없으면 need_answers", async () => {
+  const { questionId } = await answered(["motive", "self"]);
+  const ai = createFakeAi([answerReply()]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [], now)).toEqual({ ok: false, reason: "need_answers" });
+  expect(ai.requests).toHaveLength(0);
+  // 자기소개 쪽 답을 붙이면 쓴다
+  const other = await addAnswer({ topic: "other", answer: "끝까지 확인하는 편이다" });
+  expect((await attachAnswer(db, "u1", questionId, other)).ok).toBe(true);
+  expect((await approveAndWrite(db, ai, "u1", questionId, [], now)).ok).toBe(true);
 });

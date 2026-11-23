@@ -1,5 +1,6 @@
 import type { Answer } from "@/modules/applications/answers-repo";
-import { ANSWER_TOPIC_LABELS, type AnswerTopic } from "@/modules/applications/options";
+import { unansweredKinds, unansweredTopics } from "@/modules/applications/kinds";
+import { ANSWER_TOPIC_LABELS, type AnswerTopic, type QuestionKind } from "@/modules/applications/options";
 import type { AskItem } from "@/modules/applications/types";
 
 // 묻기 화면이 쓰는 순수 함수. 화면 모양(서버가 그려 카드에 넘기는 값)과 답 저장에 보낼 값을 만든다
@@ -45,9 +46,25 @@ export function picksToSend(items: AskItem[], picks: AskPicks): { id: string; op
 export const wantsExperience = (kinds: string[] | null): boolean => kinds === null || kinds.includes("experience");
 
 // 문항 하나의 쓰기 길은 하나다. 경험형 문항은 고른 경험이 있어야 쓰고(고르기 쪽 단추),
-// 경험형이 없는 문항은 붙인 답이 하나 이상이면 쓴다. 보낼 경험은 고르기 결과가 있을 때만 고른 것(없을 수도 있다), 없으면 []
-export function writePlan(input: { kinds: string[] | null; answerCount: number; checked: string[]; hasSelection: boolean }): { ids: string[]; enabled: boolean } {
+// 경험형이 없는 문항은 붙인 답이 있으면 쓴다. 동기포부형·자기소개형이 있으면 유형마다 그 유형의 답이 있어야 한다(서버의 need_answers와 같은 규칙).
+// 승인한 경험의 기록이 바뀌었으면(approvedStale) 빈 경험으로 몰래 쓰지 않고 끈다(다시 고르기 안내는 고르기 구역이 보인다).
+// 보낼 경험은 고르기 결과가 있을 때만 고른 것(없을 수도 있다), 없으면 []
+export function writePlan(input: {
+  kinds: QuestionKind[] | null;
+  answerTopics: AnswerTopic[]; // 붙인 답의 주제
+  checked: string[];
+  hasSelection: boolean;
+  approvedStale: boolean;
+}): { ids: string[]; enabled: boolean } {
+  if (input.approvedStale) return { ids: [], enabled: false };
   const ids = input.hasSelection ? input.checked : [];
-  if (wantsExperience(input.kinds)) return { ids, enabled: ids.length > 0 };
-  return { ids, enabled: input.answerCount > 0 };
+  const answered = unansweredKinds(input.kinds, input.answerTopics).length === 0;
+  if (wantsExperience(input.kinds)) return { ids, enabled: ids.length > 0 && answered };
+  return { ids, enabled: input.answerTopics.length > 0 && answered };
+}
+
+// 문항의 주제 중 붙인 답이 없는 것을 알리는 한 줄. 모두 답했으면 null
+export function missingTopicsText(topics: AnswerTopic[], answerTopics: AnswerTopic[]): string | null {
+  const missing = unansweredTopics(topics, answerTopics);
+  return missing.length > 0 ? `${missing.map((topic) => ANSWER_TOPIC_LABELS[topic]).join(", ")}에 아직 답이 없습니다` : null;
 }

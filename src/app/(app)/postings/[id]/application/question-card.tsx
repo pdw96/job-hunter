@@ -11,6 +11,7 @@ import {
   writeManuallyAction,
 } from "@/modules/applications/actions";
 import { countChars } from "@/modules/applications/check";
+import { unansweredKinds } from "@/modules/applications/kinds";
 import { type AnswerTopic, APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KINDS, type QuestionKind } from "@/modules/applications/options";
 import type { Asks } from "@/modules/applications/types";
 import { AddRecordLink } from "../../../records/_shared/add-record-link";
@@ -118,19 +119,23 @@ function Candidate({
   );
 }
 
-// 고른 결과. selectedAt이 바뀌면(다시 고르면) 체크를 처음으로 돌리려고 key로 새로 만든다
+// 고른 결과. 체크 상태는 카드가 들고 있고, 다시 고르면(selectedAt이 바뀌면) 카드가 처음으로 돌린다
 function Picker({
   question,
   selection,
   hasDraft,
   checked,
   setChecked,
+  canWrite,
+  needAnswers,
 }: {
   question: QuestionView;
   selection: SelectionView;
   hasDraft: boolean;
   checked: string[]; // 카드가 들고 있다(경험형이 없는 문항은 답 구역의 쓰기 단추가 이 값을 쓴다)
   setChecked: (ids: string[]) => void;
+  canWrite: boolean; // writePlan의 판단(고른 경험, 바뀐 기록, 유형마다의 답)
+  needAnswers: boolean; // 동기포부형·자기소개형 쪽 답이 아직 없다
 }) {
   // 경험형이 아닌 문항(동기포부형·자기소개형만)은 "맞는 기록이 없다"고 알리지 않고, 쓰기 단추는 답 구역에 있다
   const wants = wantsExperience(question.kinds);
@@ -149,7 +154,8 @@ function Picker({
   const writeButton = !wants ? null : (
     <div className="flex flex-wrap items-center gap-3">
       {full && <span className="w-full text-xs text-foreground/60">{APPLICATION_LIMITS.approved}개까지 고를 수 있습니다</span>}
-      <button type="button" disabled={pending || selection.approvedStale || usableChecked.length === 0} onClick={write} className={primary}>
+      {needAnswers && <span className="w-full text-xs text-foreground/60">먼저 &apos;내 답&apos;의 질문에 답해 주세요</span>}
+      <button type="button" disabled={pending || !canWrite} onClick={write} className={primary}>
         {pending ? "쓰는 중…" : hasDraft ? "다시 쓰기" : "이 경험으로 쓰기"}
       </button>
       {pending && (
@@ -167,9 +173,16 @@ function Picker({
     </ul>
   );
 
+  const staleHint = selection.approvedStale && (
+    <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+      고른 경험의 기록이 바뀌었습니다. 다시 고르기를 눌러 주세요
+    </p>
+  );
+
   if (selection.noMatch) {
     return (
       <div className="space-y-3">
+        {staleHint}
         {wants && (
           <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
             <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
@@ -191,11 +204,7 @@ function Picker({
 
   return (
     <div className="space-y-3">
-      {selection.approvedStale && (
-        <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
-          고른 경험의 기록이 바뀌었습니다. 다시 고르기를 눌러 주세요
-        </p>
-      )}
+      {staleHint}
       <ul className="divide-y divide-foreground/10 border-y border-foreground/10">
         {selection.picks.map((item) => (
           <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} full={full} onChange={(on) => toggle(item.experienceId, on)} />
@@ -379,7 +388,9 @@ export function QuestionCard({
   const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
   // 근거가 옛 기록인 문단이 있으면 다시 고르기를 눈에 띄게 한다(문단마다 단추를 두지 않고 문항에 하나만)
   const wants = wantsExperience(question.kinds); // 경험형이 없으면 경험 고르기는 답 구역 아래의 선택 사항이다
-  const plan = writePlan({ kinds: question.kinds, answerCount: question.answers.length, checked: usableChecked, hasSelection: !!selection && !selection.approvedStale });
+  const answerTopics = question.answers.map((answer) => answer.topic);
+  const plan = writePlan({ kinds: question.kinds, answerTopics, checked: usableChecked, hasSelection: !!selection, approvedStale: !!selection?.approvedStale });
+  const needAnswers = unansweredKinds(question.kinds, answerTopics).length > 0;
   const structureChanged = !empty && draft.check.paragraphs.some((paragraph) => paragraph.structureChanged);
 
   return (
@@ -442,7 +453,7 @@ export function QuestionCard({
           )}
           <ErrorLine message={select.message} />
           {empty && <ManualWrite question={question} />}
-          {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} />}
+          {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} canWrite={plan.enabled} needAnswers={needAnswers} />}
         </div>
       )}
 
@@ -465,7 +476,7 @@ export function QuestionCard({
                 <span className="text-xs text-foreground/60">선택 사항</span>
               </div>
               <ErrorLine message={select.message} />
-              {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} />}
+              {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} canWrite={plan.enabled} needAnswers={needAnswers} />}
             </div>
           }
         />

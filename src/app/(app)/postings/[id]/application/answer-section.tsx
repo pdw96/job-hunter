@@ -5,7 +5,7 @@ import { answerAsksAction, detachAnswerAction, makeAsksAction, writeAnswerAction
 import { approveAndWriteAction } from "@/modules/applications/actions";
 import { ANSWER_TOPIC_LABELS, type AnswerTopic, APPLICATION_LIMITS } from "@/modules/applications/options";
 import type { AskItem, Asks } from "@/modules/applications/types";
-import { type AnswerView, type AskPick, type AskPicks, emptyPick, picksToSend, toggled, wantsExperience } from "./answer-view";
+import { type AnswerView, type AskPick, type AskPicks, emptyPick, missingTopicsText, picksToSend, toggled, wantsExperience } from "./answer-view";
 import { ErrorLine, useRun } from "./use-run";
 
 // 동기포부형·자기소개형 문항의 답 구역: 붙인 답 → 질문 받기 → 선택지 고르기 → 답 저장. 입력은 체크가 먼저고, 글은 기타·직접 적기에만 쓴다
@@ -46,14 +46,17 @@ function AskCard({ item, pick, onChange }: { item: AskItem; pick: AskPick; onCha
           </div>
         )}
       </div>
-      <input
-        value={pick.note}
-        onChange={(e) => onChange({ ...pick, note: e.target.value })}
-        maxLength={APPLICATION_LIMITS.note}
-        placeholder="기타 (짧게 적기)"
-        aria-label={`기타: ${item.question}`}
-        className={input}
-      />
+      {/* 코드가 더한 "지난번 답을 다시 쓸까요?" 질문(선택지 없음)에는 기타를 두지 않는다 */}
+      {item.options.length > 0 && (
+        <input
+          value={pick.note}
+          onChange={(e) => onChange({ ...pick, note: e.target.value })}
+          maxLength={APPLICATION_LIMITS.note}
+          placeholder="기타 (짧게 적기)"
+          aria-label={`기타: ${item.question}`}
+          className={input}
+        />
+      )}
     </li>
   );
 }
@@ -184,6 +187,7 @@ export function AnswerSection({
   const write = useRun();
   if (topics.length === 0) return null;
   const withoutExperience = !wantsExperience(kinds);
+  const missing = answers.length > 0 ? missingTopicsText(topics, answers.map((answer) => answer.topic)) : null;
 
   function writeNow() {
     if (hasDraft && !confirm("지금 쓴 답을 지우고 다시 씁니다. 직접 고친 문단도 사라집니다. 다시 쓸까요?")) return;
@@ -200,7 +204,12 @@ export function AnswerSection({
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-foreground/70">아직 붙인 답이 없습니다. 질문에 답하면 그 답으로 씁니다</p>
+        <p className="text-sm text-foreground/70">{canAct ? "아직 붙인 답이 없습니다. 질문에 답하면 그 답으로 씁니다" : "붙인 답이 없습니다"}</p>
+      )}
+      {canAct && missing && (
+        <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+          {missing}
+        </p>
       )}
 
       {canAct && (

@@ -23,6 +23,16 @@ export function needsAnswers(kinds: QuestionKind[] | null): boolean {
   return !!kinds && (kinds.includes("motive") || kinds.includes("self"));
 }
 
+// 동기포부형·자기소개형은 유형마다 그 유형 주제의 답이 하나 이상 있어야 쓴다. 답이 없는 유형을 돌려준다
+export function unansweredKinds(kinds: QuestionKind[] | null, answerTopics: AnswerTopic[]): QuestionKind[] {
+  const answered = new Set(answerTopics.map((topic) => TOPIC_KIND[topic]));
+  return (kinds ?? []).filter((kind) => kind !== "experience" && !answered.has(kind));
+}
+
+// 문항의 주제 중 붙인 답이 없는 것(문항의 주제 순서)
+export const unansweredTopics = (topics: AnswerTopic[] | null, answerTopics: AnswerTopic[]): AnswerTopic[] =>
+  (topics ?? []).filter((topic) => !answerTopics.includes(topic));
+
 // 고른 자유양식 항목과 직접 더한 항목을 문항으로 바꾼다. 항목마다 글자 수는 같다
 export function freeformQuestions(
   itemIds: string[],

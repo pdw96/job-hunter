@@ -31,7 +31,7 @@ const MESSAGES = {
   too_long: "문단은 2000자까지 쓸 수 있습니다",
   empty: "답을 적어 주세요",
   empty_kinds: "유형을 하나 이상 골라 주세요",
-  need_answers: "먼저 위 질문에 답해 주세요",
+  need_answers: "먼저 '내 답'의 질문에 답해 주세요",
   not_needed: "이 문항에서는 묻지 않는 주제입니다",
 } as const;
 
