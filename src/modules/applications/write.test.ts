@@ -165,7 +165,7 @@ const writeReply = (over: Record<string, unknown> = {}) => ({
   shortage: "",
   ...over,
 });
-const selectReply = { picks: [{ exp: "E1", overlap: "겹친다", role: "API를 설계했다" }], passed: [] };
+const selectReply = { picks: [{ exp: "E1", overlap: "겹친다", role: "API를 설계했다" }], passed: [], kinds: ["experience"], topics: [] };
 
 // 문항을 만들고 고르기까지 해 둔다
 async function ready(extra: Partial<ExperienceInput> = {}) {

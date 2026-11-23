@@ -297,6 +297,17 @@ function postingMatch(text: string) {
 }
 
 // 문항에 쓸 경험 고르기 흉내. E1을 고르고, E2가 있으면 밀린 것으로 둔다
+const KIND_BY_LABEL = { 경험형: "experience", 동기포부형: "motive", 자기소개형: "self" } as const;
+function localKinds(text: string) {
+  const given = section(text, "문항 유형")
+    .split(",")
+    .flatMap((label) => KIND_BY_LABEL[label.trim() as keyof typeof KIND_BY_LABEL] ?? []);
+  if (given.length > 0) return { kinds: given, topics: given.includes("motive") ? ["motive"] : [] };
+  const prompt = section(text, "문항");
+  const motive = /동기|포부/.test(prompt);
+  return { kinds: motive ? ["experience", "motive"] : ["experience"], topics: motive ? ["motive"] : [] };
+}
+
 function applicationSelect(text: string) {
   const experiences = section(text, "경험 기록");
   const first = experiences.split(/\n\n(?=E\d+\n)/)[0] ?? "";
@@ -307,6 +318,8 @@ function applicationSelect(text: string) {
       ? [{ exp: "E1", overlap: "문항의 경험 요구와 겹칩니다", role: actions.split("\n")[0] === "없음" ? "" : actions.split("\n")[0] }]
       : [],
     passed: hasSecond ? [{ exp: "E2", whyNot: "문항과 겹치는 정도가 더 낮습니다" }] : [],
+    // 정해진 유형이 있으면 그대로, 없으면 문항 글로 흉내 낸다
+    ...localKinds(text),
   };
 }
 

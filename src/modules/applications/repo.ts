@@ -180,10 +180,26 @@ export async function deleteQuestion(
 }
 
 // 고른 결과를 저장한다. 읽은 때의 문항 글 그대로일 때만 쓴다. 승인은 지워지고 답은 그대로다
-export async function saveSelection(db: Db, userId: string, id: string, selection: Selection): Promise<Stale> {
+// 유형과 주제는 유형이 아직 없을 때만 채운다(이미 정해졌거나 사용자가 바꾼 것을 덮지 않는다)
+export async function saveSelection(
+  db: Db,
+  userId: string,
+  id: string,
+  selection: Selection,
+  classified?: { kinds: QuestionKind[]; topics: AnswerTopic[] },
+): Promise<Stale> {
   const updated = await db
     .update(questions)
-    .set({ selection: { ...selection, approved: null, approvedAt: null }, updatedAt: new Date() })
+    .set({
+      selection: { ...selection, approved: null, approvedAt: null },
+      updatedAt: new Date(),
+      ...(classified
+        ? {
+            kinds: sql`case when ${questions.kinds} is null then ${json(classified.kinds)} else ${questions.kinds} end`,
+            topics: sql`case when ${questions.kinds} is null then ${json(classified.topics)} else ${questions.topics} end`,
+          }
+        : {}),
+    })
     .where(and(mine(userId, id), eq(questions.version, selection.questionVersion)))
     .returning({ id: questions.id });
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);

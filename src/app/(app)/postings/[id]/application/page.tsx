@@ -79,6 +79,7 @@ function toView(
     prompt: question.prompt,
     charLimit: question.charLimit,
     countSpaces: question.countSpaces,
+    kinds: question.kinds,
     selection,
     draft,
   };
