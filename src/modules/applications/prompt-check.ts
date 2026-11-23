@@ -3,6 +3,7 @@ import type { AiClient } from "@/modules/ai/client";
 import type { CheckRow } from "@/modules/experiences/prompt-check";
 import type { WritingSource } from "@/modules/experiences/writing";
 import { FULL_POSTING } from "@/modules/postings/prompt-check";
+import { ANSWER_TOPIC_LABELS, QUESTION_KIND_LABELS } from "./options";
 import { cut } from "./text";
 import { answerText, checkDraft, countChars } from "./check";
 import { selectText } from "./select";
@@ -56,7 +57,10 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
   const failed = (checks: string[], reason: string) => checks.map((check) => row(check, "AI 호출 성공", `실패: ${reason}`, false));
   const postingText = FULL_POSTING.source;
 
-  const selectChecks = ["①을 고른다", "②를 고르지 않는다", "추천 근거가 비지 않는다(기록에 없는 숫자나 빈 답으로 지워지지 않음)"];
+  const selectChecks = ["①을 고른다", "②를 고르지 않는다", "추천 근거가 비지 않는다(기록에 없는 숫자나 빈 답으로 지워지지 않음)",
+    "지원 동기와 직무 역량 문항을 경험형과 동기포부형으로 본다",
+    "주제에 지원동기가 있다",
+  ];
   const writeChecks = [
     "쓰면 안 되는 표현이 없다",
     "기록에 없는 숫자가 없다",
@@ -72,7 +76,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       db,
       ai,
       userId,
-      { prompt: PROMPT, charLimit: CHAR_LIMIT, postingText, requirements: [], sources: SAMPLE_SOURCES, usedElsewhere: [] },
+      { prompt: PROMPT, charLimit: CHAR_LIMIT, postingText, requirements: [], sources: SAMPLE_SOURCES, usedElsewhere: [], kinds: null },
       now,
       (value) => {
         raw = value;
@@ -81,7 +85,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     // 진단용 줄: 보이기만 하는 것이라 늘 통과한다(AI 호출을 더하지 않는다)
     const diagnostic = () => row("AI가 보낸 답(진단용)", "-", raw === undefined ? "AI 호출 실패" : cut(JSON.stringify(raw), 600), true);
     if (!result.ok) return [...failed(selectChecks, result.reason), diagnostic()];
-    const { picks } = result.value;
+    const { picks, classified } = result.value;
     const picked = (id: string) => picks.some((pick) => pick.experienceId === id);
     // 기록에 없는 숫자가 든 문장(과 빈 답)은 selectText가 비워 두므로, 비워진 칸이 있으면 근거를 제대로 쓰지 못한 것이다
     const blanked = picks.flatMap((pick) => {
@@ -100,6 +104,8 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       row(selectChecks[0], "고름", picked(KOTLIN.id) ? "①을 고름" : notPicked, picked(KOTLIN.id)),
       row(selectChecks[1], "고르지 않음", picked(CAFE.id) ? "②를 고름" : "고르지 않음", !picked(CAFE.id)),
       row(selectChecks[2], "비워진 칸 없음", blanked.length === 0 ? "없음" : `비워짐: ${blanked.join(", ")}`, blanked.length === 0),
+      row(selectChecks[3], "경험형, 동기포부형", classified.kinds.map((k) => QUESTION_KIND_LABELS[k]).join(", "), classified.kinds.includes("experience") && classified.kinds.includes("motive")),
+      row(selectChecks[4], "지원동기", classified.topics.map((t) => ANSWER_TOPIC_LABELS[t]).join(", ") || "없음", classified.topics.includes("motive")),
       diagnostic(),
     ];
   };

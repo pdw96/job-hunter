@@ -5,7 +5,8 @@ import { numbersIn } from "@/modules/experiences/grounding";
 import { KIND_LABELS } from "@/modules/experiences/options";
 import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
-import { APPLICATION_LIMITS } from "./options";
+import { topicsFor } from "./kinds";
+import { ANSWER_TOPICS, type AnswerTopic, APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KINDS, type QuestionKind } from "./options";
 import { SELECT_SYSTEM } from "./prompts";
 import { getQuestion, listQuestions, saveSelection } from "./repo";
 import { editBlock, withEditLock } from "./submission-repo";
@@ -19,6 +20,8 @@ import type { PassedReason, PickReason, Selection } from "./types";
 const selectSchema = z.object({
   picks: z.array(z.object({ exp: z.string(), overlap: z.string(), role: z.string() })),
   passed: z.array(z.object({ exp: z.string(), whyNot: z.string() })),
+  kinds: z.array(z.enum(QUESTION_KINDS)),
+  topics: z.array(z.enum(ANSWER_TOPICS)),
 });
 
 export type SelectInput = {
@@ -28,9 +31,11 @@ export type SelectInput = {
   requirements: string[];
   sources: WritingSource[];
   usedElsewhere: string[]; // 다른 문항에서 승인한 경험 id
+  kinds: QuestionKind[] | null; // 문항 유형. null이면 AI가 정한다
 };
 
-type SelectValue = Omit<Selection, "questionVersion">;
+export type Classified = { kinds: QuestionKind[]; topics: AnswerTopic[] };
+type SelectValue = Omit<Selection, "questionVersion"> & { classified: Classified };
 
 const orNone = (value: string | null) => (value && value.trim() !== "" ? value : "없음");
 
@@ -73,6 +78,7 @@ function buildMessage(input: SelectInput): string {
   const elsewhere = [...new Set(input.usedElsewhere)].flatMap((id) => aliasOf.get(id) ?? []);
   const sections: [string, string][] = [
     ["문항", input.prompt],
+    ["문항 유형", input.kinds ? input.kinds.map((k) => QUESTION_KIND_LABELS[k]).join(", ") : "정해지지 않음"],
     ["글자 수", input.charLimit === null ? "없음" : String(input.charLimit)],
     ["공고", input.postingText],
     ["공고 요구 사항", input.requirements.length > 0 ? input.requirements.join("\n") : "없음"],
@@ -100,8 +106,10 @@ export async function selectText(
 ): Promise<{ ok: true; value: SelectValue } | { ok: false; reason: "over_limit" | AiFailure }> {
   const selectedAt = now.toISOString();
   const base = { approved: null, approvedAt: null, selectedAt };
-  // 후보가 없으면 AI를 부르지 않는다
-  if (input.sources.length === 0) return { ok: true, value: { picks: [], passed: [], noMatch: true, ...base } };
+  // 후보가 없어도 유형을 모르면 AI를 부른다. 유형을 알면 부르지 않는다
+  if (input.sources.length === 0 && input.kinds) {
+    return { ok: true, value: { picks: [], passed: [], noMatch: true, ...base, classified: { kinds: input.kinds, topics: [] } } };
+  }
 
   const result = await runAi(
     db,
@@ -145,7 +153,12 @@ export async function selectText(
     passed.push({ experienceId: s.id, contentVersion: s.contentVersion, whyNot: clean(item.whyNot, s) });
   }
 
-  return { ok: true, value: { picks, passed, noMatch: picks.length === 0, ...base } };
+  // 유형은 중복을 빼고, 비면 경험형. 주제는 유형에 맞춘다
+  const kinds = QUESTION_KINDS.filter((kind) => result.value.kinds.includes(kind));
+  const classified: Classified = { kinds: kinds.length > 0 ? kinds : ["experience"], topics: [] };
+  classified.topics = topicsFor(classified.kinds, result.value.topics);
+
+  return { ok: true, value: { picks, passed, noMatch: picks.length === 0, ...base, classified } };
 }
 
 export async function selectForQuestion(
@@ -185,13 +198,15 @@ export async function selectForQuestion(
       requirements: requirementsOf(posting),
       sources,
       usedElsewhere,
+      kinds: question.kinds,
     },
     now,
   );
   if (!selected.ok) return selected;
 
   // 읽었을 때의 문항 글 그대로일 때만 저장한다(그사이 고쳤으면 changed). 제출 확인과 저장은 공고 잠금 안에서 한다
-  const value: Selection = { questionVersion: question.version, ...selected.value };
-  const saved = await withEditLock(db, userId, posting.id, (tx) => saveSelection(tx, userId, questionId, value));
+  const { classified, ...rest } = selected.value;
+  const value: Selection = { questionVersion: question.version, ...rest };
+  const saved = await withEditLock(db, userId, posting.id, (tx) => saveSelection(tx, userId, questionId, value, classified));
   return saved.ok ? { ok: true, value } : saved;
 }

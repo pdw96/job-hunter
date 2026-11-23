@@ -10,6 +10,8 @@ let db: Db;
 const select = {
   picks: [{ exp: "E1", overlap: "Kotlin API 개발 경험이 공고의 Java·Kotlin 요건과 겹친다", role: "주문 조회 API의 쿼리를 고쳤다" }],
   passed: [{ exp: "E2", whyNot: "백엔드 직무와 거리가 멀다" }],
+  kinds: ["experience", "motive"],
+  topics: ["motive"],
 };
 const write = {
   paragraphs: [
@@ -33,7 +35,7 @@ beforeEach(async () => {
 test("맞는 답이면 모든 줄이 통과한다", async () => {
   const ai = answering();
   const rows = await runApplicationCheck(db, ai, "admin");
-  expect(rows).toHaveLength(10);
+  expect(rows).toHaveLength(12);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
   expect(ai.requests).toHaveLength(2);
 });
@@ -55,7 +57,7 @@ test("금지 표현 '주도'를 쓴 답이면 그 줄만 실패한다", async ()
 });
 
 test("②를 고른 답이면 그 줄만 실패한다", async () => {
-  const bad = { picks: [...select.picks, { exp: "E2", overlap: "카페 경험", role: "음료를 만들었다" }], passed: [] };
+  const bad = { ...select, picks: [...select.picks, { exp: "E2", overlap: "카페 경험", role: "음료를 만들었다" }], passed: [] };
   const rows = await runApplicationCheck(db, answering(bad), "admin");
   expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["②를 고르지 않는다"]);
 });
@@ -85,16 +87,16 @@ test("근거 없는 문단이 있으면 그 줄이 실패한다", async () => {
   expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["모든 문단에 근거가 있다"]);
 });
 
-test("고르기 호출이 실패하면 고르기 3줄만 실패로 나온다", async () => {
+test("고르기 호출이 실패하면 고르기 5줄만 실패로 나온다", async () => {
   const rows = await runApplicationCheck(db, answering({ fail: "invalid" }), "admin");
-  expect(rows).toHaveLength(10);
-  expect(rows.filter((row) => !row.pass)).toHaveLength(3);
+  expect(rows).toHaveLength(12);
+  expect(rows.filter((row) => !row.pass)).toHaveLength(5);
   expect(rows.filter((row) => !row.pass).every((row) => row.actual === "실패: invalid")).toBe(true);
 });
 
 test("쓰기 호출이 실패하면 쓰기 6줄만 실패로 나오고 고르기 줄은 그대로다", async () => {
   const rows = await runApplicationCheck(db, answering(select, { fail: "refused" }), "admin");
-  expect(rows).toHaveLength(10);
+  expect(rows).toHaveLength(12);
   const bad = rows.filter((row) => !row.pass);
   expect(bad).toHaveLength(6);
   expect(bad.every((row) => row.actual === "실패: refused")).toBe(true);
@@ -111,6 +113,7 @@ test("추천 근거에 지어낸 숫자가 있어 비워지면 그 줄만 실패
 
 test("①을 못 골랐으면 AI가 고른 것과 밀어낸 것을 보여 준다", async () => {
   const bad = {
+    ...select,
     picks: [{ exp: "E2", overlap: "카페 경험", role: "음료를 만들었다" }],
     passed: [{ exp: "E1", whyNot: "직무와 덜 맞는다" }],
   };
@@ -121,7 +124,7 @@ test("①을 못 골랐으면 AI가 고른 것과 밀어낸 것을 보여 준다
 });
 
 test("아무것도 고르지 않았으면 고른 것·밀린 것이 없음으로 나온다", async () => {
-  const rows = await runApplicationCheck(db, answering({ picks: [], passed: [] }), "admin");
+  const rows = await runApplicationCheck(db, answering({ ...select, picks: [], passed: [] }), "admin");
   expect(rows.find((r) => r.check === "①을 고른다")?.actual).toBe("고르지 않음 · 고른 것: 없음 · 밀린 것: 없음");
 });
 
@@ -133,7 +136,7 @@ test("AI가 보낸 원래 답을 진단용 줄로 보이고, 늘 통과한다", 
 });
 
 test("AI가 모르는 별명만 골랐으면 그 별명을 보여 준다", async () => {
-  const rows = await runApplicationCheck(db, answering({ picks: [{ exp: "X9", overlap: "a", role: "b" }], passed: [] }), "admin");
+  const rows = await runApplicationCheck(db, answering({ ...select, picks: [{ exp: "X9", overlap: "a", role: "b" }], passed: [] }), "admin");
   expect(rows.find((r) => r.check === "①을 고른다")?.actual).toContain("AI가 고른 별명: X9");
   expect(rows.find((r) => r.check === "AI가 보낸 답(진단용)")?.actual).toContain("X9");
 });
@@ -141,4 +144,13 @@ test("AI가 모르는 별명만 골랐으면 그 별명을 보여 준다", async
 test("고르기 호출이 실패하면 진단용 줄은 AI 호출 실패로 나온다", async () => {
   const rows = await runApplicationCheck(db, answering({ fail: "invalid" }), "admin");
   expect(rows.find((r) => r.check === "AI가 보낸 답(진단용)")?.actual).toBe("AI 호출 실패");
+});
+
+test("유형을 경험형·동기포부형으로 보지 않거나 주제에 지원동기가 없으면 그 줄이 실패한다", async () => {
+  const bad = { ...select, kinds: ["experience"], topics: [] };
+  const rows = await runApplicationCheck(db, answering(bad), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual([
+    "지원 동기와 직무 역량 문항을 경험형과 동기포부형으로 본다",
+    "주제에 지원동기가 있다",
+  ]);
 });

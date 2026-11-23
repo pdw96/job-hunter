@@ -3,6 +3,7 @@ import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex }
 import { user } from "../auth/schema";
 import { postings } from "../postings/schema";
 import { tracks } from "../tracks/schema";
+import type { AnswerTopic, QuestionKind } from "./options";
 import type { Draft, ResumeContent, ResumeSelection, Selection, SubmissionContent } from "./types";
 
 // applications 모듈: 공고별 자기소개서 문항, 고른 경험, 쓴 답, 이력서 공통본·맞춤본, 제출본
@@ -22,6 +23,9 @@ export const questions = pgTable(
     charLimit: integer("char_limit"), // 글자 수 제한. 없으면 비운다
     countSpaces: boolean("count_spaces").notNull().default(true),
     version: integer("version").notNull().default(0), // 문항 글이 바뀔 때마다 1씩 오른다
+    kinds: jsonb("kinds").$type<QuestionKind[]>(), // 문항 유형. 아직 안 정했으면 null
+    topics: jsonb("topics").$type<AnswerTopic[]>(), // 답의 주제
+    freeformItem: text("freeform_item"), // 자유양식으로 넣은 항목. 아니면 null
     selection: jsonb("selection").$type<Selection>(),
     draft: jsonb("draft").$type<Draft>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

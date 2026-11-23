@@ -79,6 +79,7 @@ function toView(
     prompt: question.prompt,
     charLimit: question.charLimit,
     countSpaces: question.countSpaces,
+    kinds: question.kinds,
     selection,
     draft,
   };
@@ -135,7 +136,11 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
         <p className="rounded-lg bg-foreground/5 p-3 text-sm">지원으로 고른 공고에서만 문항을 더하고 쓸 수 있습니다</p>
       )}
 
-      {canAct && <AddQuestions postingId={posting.id} />}
+      {canAct && <AddQuestions
+          postingId={posting.id}
+          freeformFirst={posting.foundQuestions !== null && posting.foundQuestions.length === 0}
+          presentItems={questions.flatMap((question) => (question.freeformItem ? [question.freeformItem] : []))}
+        />}
 
       {views.length === 0 ? (
         <p className="text-sm text-foreground/70">아직 넣은 문항이 없습니다</p>

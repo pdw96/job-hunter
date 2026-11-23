@@ -15,7 +15,7 @@ import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus } fr
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { listWritingSources } from "@/modules/experiences/writing";
-import { addQuestions, approveSelection, getQuestion, updateQuestion } from "./repo";
+import { addQuestions, approveSelection, getQuestion, setQuestionKinds, updateQuestion } from "./repo";
 import { submitPosting } from "./submit";
 import { describeSource, selectForQuestion, selectText, type SelectInput } from "./select";
 import { SELECT_SYSTEM } from "./prompts";
@@ -142,6 +142,8 @@ async function addQuestion(postingId: string, prompt = "지원 동기와 관련 
 const reply = (over: Record<string, unknown> = {}) => ({
   picks: [{ exp: "E1", overlap: "문항의 관련 경험과 결제 API 설계가 겹친다", role: "Java로 결제 승인 API를 다시 설계했다" }],
   passed: [],
+  kinds: ["experience"],
+  topics: [],
   ...over,
 });
 
@@ -199,7 +201,7 @@ test("글자 수 제한이 없으면 '없음', 공고 분석이 없으면 요구
   await addExperience();
   const sources = await listWritingSources(db, "u1", trackId);
   const ai = createFakeAi([reply({ picks: [] })]);
-  await selectText(db, ai, "u1", { prompt: "문항", charLimit: null, postingText: "공고", requirements: [], sources, usedElsewhere: [] }, now);
+  await selectText(db, ai, "u1", { prompt: "문항", charLimit: null, postingText: "공고", requirements: [], sources, usedElsewhere: [], kinds: null }, now);
   const text = ai.requests[0].messages[0].text;
   expect(text).toContain("[글자 수]\n없음");
   expect(text).toContain("[공고 요구 사항]\n없음");
@@ -224,6 +226,7 @@ test("학력·자격 경험은 자소서 고르기 후보로 AI에 보내지 않
 test("학력·자격만 확인돼 있으면 AI를 부르지 않고 noMatch", async () => {
   await addExperience({ name: "가나다대학교 컴퓨터공학 학사", kind: "school", startMonth: "2015-03", endMonth: "2021-02" });
   const questionId = await addQuestion(await addPosting());
+  await setQuestionKinds(db, "u1", questionId, ["experience"]); // 유형을 알면 후보가 없어도 AI를 부르지 않는다
   const ai = createFakeAi([]);
 
   const result = await selectForQuestion(db, ai, "u1", questionId, now);
@@ -235,6 +238,7 @@ test("학력·자격만 확인돼 있으면 AI를 부르지 않고 noMatch", asy
 test("확인된 사용 경험이 없으면 AI를 부르지 않고 noMatch로 저장한다", async () => {
   await addExperience({}, false); // 미확인
   const questionId = await addQuestion(await addPosting());
+  await setQuestionKinds(db, "u1", questionId, ["experience"]); // 유형을 알면 후보가 없어도 AI를 부르지 않는다
   const ai = createFakeAi([]);
 
   const result = await selectForQuestion(db, ai, "u1", questionId, now);
@@ -504,7 +508,7 @@ test("describeSource는 수치·하지 않은 것·금지 표현을 withMetrics�
 test("selectText는 저장하지 않고 입력 그대로 고른다", async () => {
   await addExperience();
   const sources = await listWritingSources(db, "u1", trackId);
-  const input: SelectInput = { prompt: "문항", charLimit: null, postingText: "공고", requirements: [], sources, usedElsewhere: [] };
+  const input: SelectInput = { prompt: "문항", charLimit: null, postingText: "공고", requirements: [], sources, usedElsewhere: [], kinds: null };
   const result = await selectText(db, createFakeAi([reply()]), "u1", input, now);
   expect(result.ok && result.value.picks.map((p) => p.experienceId)).toEqual([sources[0].id]);
 });
@@ -531,4 +535,82 @@ test("고르는 사이 제출하면 selectForQuestion은 submitted이고 고른 
   ]);
   expect(await selectForQuestion(db, ai, "u1", questionId, now)).toEqual({ ok: false, reason: "submitted" });
   expect((await getQuestion(db, "u1", questionId))?.selection).toBeNull();
+});
+
+// 유형과 주제
+async function kindsOf(questionId: string) {
+  const q = await getQuestion(db, "u1", questionId);
+  return { kinds: q?.kinds, topics: q?.topics };
+}
+
+test("유형을 모르면 AI가 정한 유형과 주제를 저장한다", async () => {
+  await addExperience();
+  const questionId = await addQuestion(await addPosting());
+  const ai = createFakeAi([reply({ kinds: ["experience", "motive"], topics: ["motive", "growth"] })]);
+  const result = await selectForQuestion(db, ai, "u1", questionId, now);
+  expect(result.ok).toBe(true);
+  // 경험형·동기포부형이라 자기소개형 주제(growth)는 맞춰서 뺀다
+  expect(await kindsOf(questionId)).toEqual({ kinds: ["experience", "motive"], topics: ["motive"] });
+  // selection에는 유형이 들어가지 않는다
+  expect(result.ok && Object.keys(result.value)).not.toContain("classified");
+});
+
+test("유형이 이미 있으면 AI 답으로 덮지 않는다", async () => {
+  await addExperience();
+  const questionId = await addQuestion(await addPosting());
+  expect(await setQuestionKinds(db, "u1", questionId, ["experience"])).toEqual({ ok: true });
+  const ai = createFakeAi([reply({ kinds: ["self"], topics: ["growth"] })]);
+  await selectForQuestion(db, ai, "u1", questionId, now);
+  expect(await kindsOf(questionId)).toEqual({ kinds: ["experience"], topics: [] });
+});
+
+test("AI가 빈 유형을 주면 경험형", async () => {
+  await addExperience();
+  const questionId = await addQuestion(await addPosting());
+  await selectForQuestion(db, createFakeAi([reply({ kinds: [], topics: ["motive"] })]), "u1", questionId, now);
+  expect(await kindsOf(questionId)).toEqual({ kinds: ["experience"], topics: [] });
+});
+
+test("유형과 주제의 중복은 뺀다", async () => {
+  await addExperience();
+  const sources = await listWritingSources(db, "u1", trackId);
+  const input: SelectInput = { prompt: "문항", charLimit: null, postingText: "공고", requirements: [], sources, usedElsewhere: [], kinds: null };
+  const result = await selectText(db, createFakeAi([reply({ kinds: ["motive", "motive", "self"], topics: ["motive", "motive", "growth"] })]), "u1", input, now);
+  expect(result.ok && result.value.classified).toEqual({ kinds: ["motive", "self"], topics: ["motive", "growth"] });
+});
+
+test("후보가 없어도 유형을 모르면 AI를 부른다", async () => {
+  const questionId = await addQuestion(await addPosting(), "지원 동기를 쓰세요");
+  const ai = createFakeAi([reply({ picks: [], kinds: ["motive"], topics: ["motive"] })]);
+  const result = await selectForQuestion(db, ai, "u1", questionId, now);
+  expect(ai.requests).toHaveLength(1);
+  expect(result.ok && result.value.noMatch).toBe(true);
+  expect(await kindsOf(questionId)).toEqual({ kinds: ["motive"], topics: ["motive"] });
+});
+
+test("후보가 없고 유형을 알면 AI를 부르지 않는다", async () => {
+  const questionId = await addQuestion(await addPosting());
+  await setQuestionKinds(db, "u1", questionId, ["motive"]);
+  const ai = createFakeAi([]);
+  const result = await selectForQuestion(db, ai, "u1", questionId, now);
+  expect(ai.requests).toHaveLength(0);
+  expect(result.ok && result.value.noMatch).toBe(true);
+  expect(await kindsOf(questionId)).toEqual({ kinds: ["motive"], topics: ["motive"] });
+});
+
+test("메시지에 [문항 유형]이 들어간다", async () => {
+  await addExperience();
+  const questionId = await addQuestion(await addPosting());
+  const first = createFakeAi([reply()]);
+  await selectForQuestion(db, first, "u1", questionId, now);
+  expect(first.requests[0].messages[0].text).toContain("[문항 유형]\n정해지지 않음");
+
+  await setQuestionKinds(db, "u1", questionId, ["experience", "motive"]);
+  const second = createFakeAi([reply()]);
+  await selectForQuestion(db, second, "u1", questionId, now);
+  expect(second.requests[0].messages[0].text).toContain("[문항 유형]\n경험형, 동기포부형");
+});
+
+test("SELECT_SYSTEM이 유형과 주제를 정하게 한다", () => {
+  for (const word of ["kinds", "topics", "experience", "motive", "self"]) expect(SELECT_SYSTEM).toContain(word);
 });

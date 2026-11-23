@@ -2,9 +2,16 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { approveAndWriteAction, deleteQuestionAction, selectAction, updateQuestionAction, writeManuallyAction } from "@/modules/applications/actions";
+import {
+  approveAndWriteAction,
+  deleteQuestionAction,
+  selectAction,
+  setQuestionKindsAction,
+  updateQuestionAction,
+  writeManuallyAction,
+} from "@/modules/applications/actions";
 import { countChars } from "@/modules/applications/check";
-import { APPLICATION_LIMITS } from "@/modules/applications/options";
+import { APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KINDS, type QuestionKind } from "@/modules/applications/options";
 import { AddRecordLink } from "../../../records/_shared/add-record-link";
 import { DraftView, type DraftData } from "./draft-view";
 import { ErrorLine, useRun } from "./use-run";
@@ -37,6 +44,7 @@ export type QuestionView = {
   prompt: string;
   charLimit: number | null;
   countSpaces: boolean;
+  kinds: QuestionKind[] | null; // 아직 정하지 않았으면 null
   selection: SelectionView | null;
   draft: DraftData | null;
 };
@@ -114,6 +122,8 @@ function Picker({
   selection: SelectionView;
   hasDraft: boolean;
 }) {
+  // 경험형이 아닌 문항(동기포부형·자기소개형만)은 "맞는 기록이 없다"고 알리지 않는다
+  const wantsExperience = question.kinds === null || question.kinds.includes("experience");
   const initial = selection.approvedIds.length > 0 ? selection.approvedIds : selection.picks.filter((p) => p.name !== null).map((p) => p.experienceId);
   const [checked, setChecked] = useState<string[]>(initial);
   const { message, pending, run } = useRun();
@@ -152,10 +162,12 @@ function Picker({
   if (selection.noMatch) {
     return (
       <div className="space-y-3">
-        <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
-          <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
-          <AddRecordLink href="/records/scenes/new" label="경험 사례 추가" />
-        </div>
+        {wantsExperience && (
+          <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
+            <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
+            <AddRecordLink href="/records/scenes/new" label="경험 사례 추가" />
+          </div>
+        )}
         {selection.passed.length > 0 && (
           <div className="space-y-3">
             <p className="text-sm text-foreground/70">그래도 쓰고 싶은 경험이 있으면 직접 고를 수 있습니다</p>
@@ -187,6 +199,43 @@ function Picker({
         </details>
       )}
       {writeButton}
+      <ErrorLine message={message} />
+    </div>
+  );
+}
+
+// 문항 유형. 하나 이상 켜 둔다(마지막 하나는 끌 수 없다)
+function KindChips({ question, canAct }: { question: QuestionView; canAct: boolean }) {
+  const { message, pending, run } = useRun();
+  const kinds = question.kinds;
+  if (kinds === null) return <p className="text-sm text-foreground/60">유형은 경험 고르기 때 정합니다</p>;
+
+  const toggle = (kind: QuestionKind) => {
+    const on = kinds.includes(kind);
+    if (on && kinds.length === 1) return;
+    const next = QUESTION_KINDS.filter((k) => (k === kind ? !on : kinds.includes(k)));
+    run(() => setQuestionKindsAction(question.id, next));
+  };
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-foreground/60">유형:</span>
+        {QUESTION_KINDS.map((kind) => {
+          const on = kinds.includes(kind);
+          return (
+            <button
+              key={kind}
+              type="button"
+              aria-pressed={on}
+              disabled={!canAct || pending}
+              onClick={() => toggle(kind)}
+              className={`rounded-full border px-3 py-1 text-sm disabled:opacity-60 ${on ? "border-foreground bg-foreground text-background" : "border-foreground/30"}`}
+            >
+              {QUESTION_KIND_LABELS[kind]}
+            </button>
+          );
+        })}
+      </div>
       <ErrorLine message={message} />
     </div>
   );
@@ -343,6 +392,8 @@ export function QuestionCard({
           <ErrorLine message={remove.message} />
         </div>
       )}
+
+      <KindChips question={question} canAct={canAct} />
 
       {canAct && (
         <div className="space-y-3">

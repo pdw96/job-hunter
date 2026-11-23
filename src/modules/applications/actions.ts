@@ -6,7 +6,9 @@ import { requireUser } from "@/lib/session";
 import type { AiFailure } from "@/modules/ai/client";
 import { ai } from "@/modules/ai/provider";
 import { validateQuestion } from "./input";
-import { addQuestions, deleteQuestion, getQuestion, updateQuestion } from "./repo";
+import { freeformQuestions } from "./kinds";
+import { QUESTION_KINDS, type QuestionKind } from "./options";
+import { addQuestions, deleteQuestion, getQuestion, setQuestionKinds, updateQuestion } from "./repo";
 import { selectForQuestion } from "./select";
 import type { Draft } from "./types";
 import { approveAndWrite, editParagraph, type RevisePreset, reviseParagraph, writeManually } from "./write";
@@ -28,6 +30,7 @@ const MESSAGES = {
   empty_request: "고칠 방향을 골라 주세요",
   too_long: "문단은 2000자까지 쓸 수 있습니다",
   empty: "답을 적어 주세요",
+  empty_kinds: "유형을 하나 이상 골라 주세요",
 } as const;
 
 // 이 기능용 AI 실패 문구
@@ -70,6 +73,32 @@ export async function addQuestionsAction(postingId: string, raw: unknown[]): Pro
   const result = await addQuestions(db, user.id, postingId, values);
   if (!result.ok) return fail(result.reason);
   refresh(postingId);
+  return { ok: true };
+}
+
+// 자유양식 항목을 문항으로 넣는다
+export async function addFreeformAction(postingId: string, raw: { items: unknown; custom: unknown; charLimit: unknown }): Promise<Result> {
+  const user = await requireUser();
+  if (typeof postingId !== "string" || typeof raw !== "object" || raw === null) return fail("not_found");
+  const strings = (value: unknown) => (Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : []);
+  const limit = typeof raw.charLimit === "string" ? Number(raw.charLimit.trim() === "" ? NaN : raw.charLimit) : raw.charLimit;
+  const checked = freeformQuestions(strings(raw.items), strings(raw.custom), typeof limit === "number" ? limit : NaN);
+  if (!checked.ok) return { ok: false, message: checked.message };
+  const result = await addQuestions(db, user.id, postingId, checked.value);
+  if (!result.ok) return fail(result.reason);
+  refresh(postingId);
+  return { ok: true };
+}
+
+export async function setQuestionKindsAction(id: string, kinds: unknown): Promise<Result> {
+  const user = await requireUser();
+  if (typeof id !== "string") return fail("not_found");
+  const list = Array.isArray(kinds) ? kinds.filter((k): k is QuestionKind => (QUESTION_KINDS as readonly unknown[]).includes(k)) : [];
+  const question = await getQuestion(db, user.id, id);
+  if (!question) return fail("not_found");
+  const result = await setQuestionKinds(db, user.id, id, list);
+  if (!result.ok) return fail(result.reason === "empty" ? "empty_kinds" : result.reason);
+  refresh(question.postingId);
   return { ok: true };
 }
 
