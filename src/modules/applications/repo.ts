@@ -4,9 +4,9 @@ import type { Db } from "@/db/types";
 import { getPosting } from "@/modules/postings/repo";
 import { topicsFor } from "./kinds";
 import { type AnswerTopic, APPLICATION_LIMITS, type QuestionKind, QUESTION_KINDS } from "./options";
-import { questions } from "./schema";
+import { answers, questions } from "./schema";
 import { editBlock, withEditLock } from "./submission-repo";
-import type { Draft, Selection, SourceRef } from "./types";
+import type { Asks, Draft, Selection, SourceRef } from "./types";
 
 // 자소서 문항, 고른 경험, 쓴 답의 저장과 조회. 모든 함수가 userId로 소유자를 확인한다.
 
@@ -20,6 +20,8 @@ export type Question = QuestionInput & QuestionMeta & {
   version: number;
   selection: Selection | null;
   draft: Draft | null;
+  asks: Asks | null;
+  answerIds: string[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -103,13 +105,14 @@ export async function getQuestion(db: Db, userId: string, id: string): Promise<Q
   return row ? toQuestion(row) : null;
 }
 
-// 문항의 공고가 지원이고 제출해 잠기지 않았을 때만 문항을 고치거나 지울 수 있다. 확인과 변경을 공고 잠금 안에서 한다
-async function guardedWrite(
+// 문항의 공고가 지원이고 제출해 잠기지 않았을 때만 문항을 고치거나 지울 수 있다. 확인과 변경을 공고 잠금 안에서 한다.
+// write는 한 트랜잭션이다(던지면 모두 되돌린다)
+export async function guardedWrite<R>(
   db: Db,
   userId: string,
   id: string,
-  write: (tx: Db) => Promise<{ ok: true } | { ok: false; reason: "not_found" }>,
-): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" }> {
+  write: (tx: Db) => Promise<R>,
+): Promise<R | { ok: false; reason: "not_found" | "not_apply" | "submitted" }> {
   const question = await getQuestion(db, userId, id);
   if (!question) return { ok: false, reason: "not_found" };
   const posting = await getPosting(db, userId, question.postingId);
@@ -119,7 +122,7 @@ async function guardedWrite(
   return withEditLock(db, userId, posting.id, write);
 }
 
-// 문항 글이 바뀌면 version을 올리고 고르기 결과를 지운다(쓴 답은 남긴다). 제한·기준만 바뀌면 둘 다 그대로
+// 문항 글이 바뀌면 version을 올리고 고르기 결과·유형·주제·질문을 지운다(쓴 답과 붙인 답은 남긴다). 제한·기준만 바뀌면 둘 다 그대로
 export async function updateQuestion(
   db: Db,
   userId: string,
@@ -141,6 +144,7 @@ async function doUpdate(db: Db, userId: string, id: string, input: QuestionInput
       selection: sql`case when ${changed} then null else ${questions.selection} end`,
       kinds: sql`case when ${changed} then null else ${questions.kinds} end`,
       topics: sql`case when ${changed} then null else ${questions.topics} end`,
+      asks: sql`case when ${changed} then null else ${questions.asks} end`,
       updatedAt: new Date(),
     })
     .where(mine(userId, id))
@@ -267,4 +271,79 @@ export async function createDraft(db: Db, userId: string, id: string, draft: Dra
     .where(and(mine(userId, id), or(isNull(questions.draft), sql`${questions.draft}->'paragraphs' = '[]'::jsonb`)))
     .returning({ id: questions.id });
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
+}
+
+// 묻기 질문을 저장한다. 읽은 때의 문항 글 그대로(version = asks.questionVersion)일 때만 쓴다
+export async function saveAsks(
+  db: Db,
+  userId: string,
+  id: string,
+  asks: Asks,
+): Promise<Stale | { ok: false; reason: "not_apply" | "submitted" }> {
+  return guardedWrite(db, userId, id, async (tx): Promise<Stale> => {
+    const updated = await tx
+      .update(questions)
+      .set({ asks, updatedAt: new Date() })
+      .where(and(mine(userId, id), eq(questions.version, asks.questionVersion)))
+      .returning({ id: questions.id });
+    return updated.length > 0 ? { ok: true } : whyNot(tx, userId, id);
+  });
+}
+
+// 잠금 안(tx)에서 답 하나를 문항 끝에 붙인다. 이미 붙어 있으면 그대로 둔다. 남의 답이나 없는 답은 not_found
+export async function attachAnswerIn(
+  tx: Db,
+  userId: string,
+  id: string,
+  answerId: string,
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "too_many" }> {
+  const [row] = await tx.select({ answerIds: questions.answerIds }).from(questions).where(mine(userId, id)).limit(1);
+  if (!row) return { ok: false, reason: "not_found" };
+  if (row.answerIds.includes(answerId)) return { ok: true };
+  const [owned] = await tx
+    .select({ id: answers.id })
+    .from(answers)
+    .where(and(eq(answers.id, answerId), eq(answers.userId, userId)))
+    .limit(1);
+  if (!owned) return { ok: false, reason: "not_found" };
+  if (row.answerIds.length >= APPLICATION_LIMITS.answersPerQuestion) return { ok: false, reason: "too_many" };
+  await tx
+    .update(questions)
+    .set({ answerIds: [...row.answerIds, answerId], updatedAt: new Date() })
+    .where(mine(userId, id));
+  return { ok: true };
+}
+
+export async function attachAnswer(
+  db: Db,
+  userId: string,
+  id: string,
+  answerId: string,
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "too_many" }> {
+  return guardedWrite(db, userId, id, (tx) => attachAnswerIn(tx, userId, id, answerId));
+}
+
+// 답을 문항에서 뗀다. 답 행은 남는다(다른 공고에서 지난 답으로 다시 쓸 수 있다). 붙어 있지 않으면 그대로 ok
+export async function detachAnswer(
+  db: Db,
+  userId: string,
+  id: string,
+  answerId: string,
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" }> {
+  return guardedWrite(db, userId, id, async (tx) => {
+    const [row] = await tx.select({ answerIds: questions.answerIds }).from(questions).where(mine(userId, id)).limit(1);
+    if (!row) return { ok: false as const, reason: "not_found" as const };
+    if (row.answerIds.includes(answerId)) {
+      await tx
+        .update(questions)
+        .set({ answerIds: row.answerIds.filter((x) => x !== answerId), updatedAt: new Date() })
+        .where(mine(userId, id));
+    }
+    return { ok: true as const };
+  });
+}
+
+// 잠금 안(tx)에서 묻기 질문을 바꾼다(답한 항목을 뺀 것, 다 답했으면 null)
+export async function replaceAsksIn(tx: Db, userId: string, id: string, asks: Asks | null): Promise<void> {
+  await tx.update(questions).set({ asks, updatedAt: new Date() }).where(mine(userId, id));
 }

@@ -15,6 +15,13 @@ export const APPLICATION_LIMITS = {
   note: 200,
   shortage: 500,
   customItem: 100, // 자유양식에 직접 더하는 항목 글자 수
+  asks: 3, // 한 번에 묻는 질문
+  askOptionsMin: 3, // 질문마다 선택지(AI에게 주는 범위)
+  askOptions: 5,
+  askQuestion: 200,
+  askOption: 200,
+  answer: 1000, // 답 하나의 글자 수
+  answersPerQuestion: 6, // 문항 하나에 붙이는 답
 } as const;
 
 // 문항의 유형(여러 개일 수 있다)

@@ -156,3 +156,20 @@ test("옮기기 정리 흉내는 구분과 이름이 같은 기록을 앞의 것
     ],
   });
 }, DB_TEST_TIMEOUT);
+
+test("묻기 흉내는 질문 2개에 선택지 3개씩이고, 기록이 있으면 첫 기록을 연결고리로 적는다", async () => {
+  const schema = z.object({ items: z.array(z.object({ topic: z.string(), link: z.string(), question: z.string(), options: z.array(z.string()) })) });
+  const ask = async (records: string) => {
+    const text = ["[문항]\n지원 동기", "[물을 주제]\nmotive (지원동기)\naspiration (입사 후 포부)", "[공고]\n백엔드", `[내 기록]\n${records}`].join("\n\n");
+    const result = await ai.complete({ purpose: "application_ask", system: "", messages: [{ role: "user", text }], schema, effort: "low", maxTokens: 4000 });
+    if (!result.ok) throw new Error(result.reason);
+    return result.value.items;
+  };
+  const withHook = await ask("- 교육 과정: Kotlin 백엔드 개발 과정 · 나다아카데미");
+  expect(withHook.map((x) => [x.topic, x.options.length])).toEqual([
+    ["motive", 3],
+    ["aspiration", 3],
+  ]);
+  expect(withHook[0].link).toContain("Kotlin 백엔드 개발 과정");
+  expect((await ask("없음"))[0].link).toBe("");
+});

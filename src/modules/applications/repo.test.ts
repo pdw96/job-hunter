@@ -7,15 +7,18 @@ import { validatePosting } from "@/modules/postings/input";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
+import { createAnswer } from "./answers-repo";
 import { APPLICATION_LIMITS } from "./options";
 import {
   addQuestions,
   approveSelection,
+  attachAnswer,
   createDraft,
   deleteQuestion,
   getQuestion,
   listQuestions,
   replaceDraft,
+  saveAsks,
   saveDraft,
   saveSelection,
   setQuestionKinds,
@@ -23,7 +26,7 @@ import {
   type QuestionInput,
 } from "./repo";
 import { reopenPosting, submitPosting } from "./submit";
-import type { Draft, Selection } from "./types";
+import type { Asks, Draft, Selection } from "./types";
 
 let db: Db;
 let trackId: string;
@@ -427,4 +430,48 @@ test("잠긴 공고는 submitted", async () => {
 test("다른 사용자의 문항은 not_found", async () => {
   const { id } = await oneQuestion();
   expect(await setQuestionKinds(db, "u2", id, ["motive"])).toEqual({ ok: false, reason: "not_found" });
+});
+
+// 묻기와 붙인 답
+
+const asks = (questionVersion: number): Asks => ({
+  questionVersion,
+  items: [{ topic: "motive", link: "", question: "왜?", options: ["가", "나", "다"], previous: [] }],
+  madeAt: "2026-11-23T00:00:00.000Z",
+});
+const newAnswer = (userId = "u1", answer = "답") =>
+  createAnswer(db, userId, { topic: "motive", question: "왜?", answer, postingId: null, company: "가나다", companyKey: "가나다" });
+
+test("saveAsks는 version이 다르면 changed", async () => {
+  const { id } = await oneQuestion();
+  expect(await saveAsks(db, "u1", id, asks(1))).toEqual({ ok: false, reason: "changed" });
+  expect(await saveAsks(db, "u1", id, asks(0))).toEqual({ ok: true });
+  expect((await getQuestion(db, "u1", id))?.asks).toEqual(asks(0));
+  expect(await saveAsks(db, "u2", id, asks(0))).toEqual({ ok: false, reason: "not_found" });
+});
+
+test("문항 글을 고치면 asks가 비워지고 answer_ids는 남는다", async () => {
+  const { id } = await oneQuestion();
+  await saveAsks(db, "u1", id, asks(0));
+  const answerId = await newAnswer();
+  expect(await attachAnswer(db, "u1", id, answerId)).toEqual({ ok: true });
+  await updateQuestion(db, "u1", id, q("지원 동기를 쓰세요", { charLimit: 700 }));
+  expect((await getQuestion(db, "u1", id))?.asks).toEqual(asks(0));
+  await updateQuestion(db, "u1", id, q("입사 후 포부를 쓰세요"));
+  expect(await getQuestion(db, "u1", id)).toMatchObject({ asks: null, answerIds: [answerId] });
+});
+
+test("attachAnswer는 중복 없이 뒤에 붙이고, 6개를 넘으면 too_many, 남의 답은 not_found", async () => {
+  const { id } = await oneQuestion();
+  expect((await getQuestion(db, "u1", id))?.answerIds).toEqual([]);
+  const ids: string[] = [];
+  for (let i = 0; i < APPLICATION_LIMITS.answersPerQuestion; i++) ids.push(await newAnswer("u1", `답 ${i}`));
+  for (const answerId of ids) expect(await attachAnswer(db, "u1", id, answerId)).toEqual({ ok: true });
+  expect(await attachAnswer(db, "u1", id, ids[0])).toEqual({ ok: true });
+  expect((await getQuestion(db, "u1", id))?.answerIds).toEqual(ids);
+  expect(await attachAnswer(db, "u1", id, await newAnswer())).toEqual({ ok: false, reason: "too_many" });
+
+  const other = await oneQuestion();
+  expect(await attachAnswer(db, "u1", other.id, await newAnswer("u2"))).toEqual({ ok: false, reason: "not_found" });
+  expect(await attachAnswer(db, "u2", other.id, ids[0])).toEqual({ ok: false, reason: "not_found" });
 });

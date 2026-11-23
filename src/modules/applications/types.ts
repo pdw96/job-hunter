@@ -1,5 +1,6 @@
 // applications 모듈이 저장하는 JSON의 모양. 타입만 둔다
 import type { Kind } from "@/modules/experiences/options";
+import type { AnswerTopic } from "./options";
 
 // 근거로 삼은 경험과, 그때의 내용 버전
 export type SourceRef = { experienceId: string; contentVersion: number };
@@ -22,6 +23,11 @@ export type Draft = {
   shortage: string;
   writtenAt: string;
 };
+
+// 묻기. 쓰기 전에 동기·포부 같은 재료를 고를 수 있는 질문으로 묻는다
+export type PreviousAnswer = { answerId: string; text: string; label: string }; // label: "삼성전자 · 2026-11"
+export type AskItem = { topic: AnswerTopic; link: string; question: string; options: string[]; previous: PreviousAnswer[] }; // link: 연결고리 한 줄(없으면 빈 글)
+export type Asks = { questionVersion: number; items: AskItem[]; madeAt: string };
 
 // 이력서. 항목마다 근거 경험이 하나다
 export type ResumeDetail = "full" | "summary";

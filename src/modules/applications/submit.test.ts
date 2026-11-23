@@ -190,7 +190,7 @@ test("freeze: 이름에 없는 경험은 지운 경험으로 적는다", async (
   const resume: SubmittedResume | null = null;
   const questions = [
     {
-      id: "q1", postingId, position: 0, version: 1, selection: null, kinds: null, topics: null, freeformItem: null, createdAt: now, updatedAt: now,
+      id: "q1", postingId, position: 0, version: 1, selection: null, kinds: null, topics: null, freeformItem: null, asks: null, answerIds: [], createdAt: now, updatedAt: now,
       prompt: "지원 동기", charLimit: 500, countSpaces: true,
       draft: { questionVersion: 1, basedOn: [], paragraphs: [{ text: "답", sources: ["e1", "gone"], edited: false }], shortage: "", writtenAt: now.toISOString() },
     },

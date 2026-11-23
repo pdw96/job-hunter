@@ -21,10 +21,30 @@ const write = {
   shortage: "",
 };
 
-const answering = (selectAnswer: unknown = select, writeAnswer: unknown = write) =>
+const ask = {
+  items: [
+    {
+      topic: "motive",
+      link: "공고의 주문·결제 서비스 API 개발 ↔ 교육 Kotlin 백엔드 개발 과정",
+      question: "Kotlin 교육이 이 직무를 고른 이유와 이어지나요?",
+      options: ["교육에서 만든 주문 API를 실무로 키우고 싶다", "Java·Kotlin을 계속 쓰고 싶다", "교육과는 이어지지 않는다"],
+    },
+    {
+      topic: "motive",
+      link: "",
+      question: "공고에서 가장 끌린 점은 무엇인가요?",
+      options: ["대용량 트래픽을 다뤄 보고 싶다", "많은 사람이 매일 쓰는 주문·결제 서비스라서", "아직 잘 모르겠다"],
+    },
+  ],
+};
+
+const answering = (selectAnswer: unknown = select, writeAnswer: unknown = write, askAnswer: unknown = ask) =>
   createFakeAi(
-    Array.from({ length: 2 }, () => (request: { purpose: string }) => (request.purpose === "application_select" ? selectAnswer : writeAnswer)),
+    Array.from({ length: 3 }, () => (request: { purpose: string }) =>
+      request.purpose === "application_select" ? selectAnswer : request.purpose === "application_ask" ? askAnswer : writeAnswer,
+    ),
   );
+const ASK_ROWS = 6;
 
 beforeEach(async () => {
   delete process.env.AI_MONTHLY_LIMIT_USD;
@@ -35,9 +55,9 @@ beforeEach(async () => {
 test("맞는 답이면 모든 줄이 통과한다", async () => {
   const ai = answering();
   const rows = await runApplicationCheck(db, ai, "admin");
-  expect(rows).toHaveLength(12);
+  expect(rows).toHaveLength(12 + ASK_ROWS);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
-  expect(ai.requests).toHaveLength(2);
+  expect(ai.requests).toHaveLength(3);
 });
 
 test("쓰기에는 ①의 내용만 보내고 ②와 내부 id는 보내지 않는다", async () => {
@@ -89,14 +109,14 @@ test("근거 없는 문단이 있으면 그 줄이 실패한다", async () => {
 
 test("고르기 호출이 실패하면 고르기 5줄만 실패로 나온다", async () => {
   const rows = await runApplicationCheck(db, answering({ fail: "invalid" }), "admin");
-  expect(rows).toHaveLength(12);
+  expect(rows).toHaveLength(12 + ASK_ROWS);
   expect(rows.filter((row) => !row.pass)).toHaveLength(5);
   expect(rows.filter((row) => !row.pass).every((row) => row.actual === "실패: invalid")).toBe(true);
 });
 
 test("쓰기 호출이 실패하면 쓰기 6줄만 실패로 나오고 고르기 줄은 그대로다", async () => {
   const rows = await runApplicationCheck(db, answering(select, { fail: "refused" }), "admin");
-  expect(rows).toHaveLength(12);
+  expect(rows).toHaveLength(12 + ASK_ROWS);
   const bad = rows.filter((row) => !row.pass);
   expect(bad).toHaveLength(6);
   expect(bad.every((row) => row.actual === "실패: refused")).toBe(true);
@@ -153,4 +173,49 @@ test("유형을 경험형·동기포부형으로 보지 않거나 주제에 지�
     "지원 동기와 직무 역량 문항을 경험형과 동기포부형으로 본다",
     "주제에 지원동기가 있다",
   ]);
+});
+
+// 묻기
+
+test("묻기에는 확인된 교육과 바리스타 사례를 [내 기록]으로 보낸다", async () => {
+  const ai = answering();
+  await runApplicationCheck(db, ai, "admin");
+  const text = ai.requests.find((r) => r.purpose === "application_ask")?.messages[0].text ?? "";
+  expect(text).toContain("[내 기록]");
+  expect(text).toContain("Kotlin 백엔드 개발 과정");
+  expect(text).toContain("카페 바리스타 아르바이트");
+  expect(text).toContain("지원 동기를 적어 주세요");
+});
+
+test("질문이 하나뿐이고 선택지가 둘이면 그 두 줄이 실패한다", async () => {
+  const bad = { items: [{ ...ask.items[0], options: ask.items[0].options.slice(0, 2) }] };
+  const rows = await runApplicationCheck(db, answering(select, write, bad), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["질문 2~3개", "질문마다 선택지 3~5개"]);
+});
+
+test("지원동기가 아닌 주제가 있으면 그 줄이 실패한다", async () => {
+  const bad = { items: [ask.items[0], { ...ask.items[1], topic: "aspiration" }] };
+  const rows = await runApplicationCheck(db, answering(select, write, bad), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["주제가 모두 지원동기"]);
+});
+
+test("연결고리에 Kotlin이 없고 바리스타를 쓰면 두 줄이 실패한다", async () => {
+  const bad = { items: [{ ...ask.items[0], link: "카페 바리스타 아르바이트 ↔ 고객 응대" }, ask.items[1]] };
+  const rows = await runApplicationCheck(db, answering(select, write, bad), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["연결고리에 Kotlin 교육이 나온다", "바리스타를 연결고리로 쓰지 않는다"]);
+});
+
+test("선택지에 공고·기록에 없는 숫자가 있으면 그 줄이 실패한다", async () => {
+  const bad = { items: [ask.items[0], { ...ask.items[1], options: [...ask.items[1].options.slice(0, 2), "매출 300억 회사라서"] }] };
+  const rows = await runApplicationCheck(db, answering(select, write, bad), "admin");
+  const failedRows = rows.filter((row) => !row.pass);
+  expect(failedRows.map((row) => row.check)).toEqual(["선택지에 공고·기록에 없는 숫자가 없다"]);
+  expect(failedRows[0].actual).toContain("300");
+});
+
+test("묻기 호출이 실패하면 묻기 6줄만 실패로 나온다", async () => {
+  const rows = await runApplicationCheck(db, answering(select, write, { fail: "invalid" }), "admin");
+  const bad = rows.filter((row) => !row.pass);
+  expect(bad).toHaveLength(ASK_ROWS);
+  expect(bad.every((row) => row.actual === "실패: invalid")).toBe(true);
 });

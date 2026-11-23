@@ -68,12 +68,12 @@ export async function answerClaimAction(): Promise<SimpleResult> {
   return refuse();
 }
 
-// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 20번, 비용 발생)
+// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 21번, 비용 발생)
 export async function runPromptCheckAction(): Promise<
   { ok: true; rows: CheckRow[] } | { ok: false; message: string }
 > {
   const admin = await requireAdmin();
-  // 새 기록 구조(사례 판정·정리·가져오기·옮기기), 공고에서 값을 뽑는 프롬프트, 자소서 고르기·쓰기, 이력서 쓰기·강조 고르기를 점검한다
+  // 새 기록 구조(사례 판정·정리·가져오기·옮기기), 공고에서 값을 뽑는 프롬프트, 자소서 고르기·쓰기·묻기, 이력서 쓰기·강조 고르기를 점검한다
   const [recordRows, postingRows, applicationRows, resumeRows] = await Promise.all([
     runRecordCheck(db, ai, admin.id),
     runPostingCheck(db, ai, admin.id),

@@ -340,6 +340,29 @@ function applicationRevise(text: string) {
   return { text: `${section(text, "고칠 문단")} (고침)`, sources: ["E1"] };
 }
 
+// 묻기 흉내. 질문 2개에 선택지 3개씩. [내 기록]이 있으면 첫 기록을 연결고리로 적는다
+function applicationAsk(text: string) {
+  const topics = [...section(text, "물을 주제").matchAll(/^([a-z]+) \(/gm)].map((match) => match[1]);
+  const first = topics[0] ?? "motive";
+  const hook = section(text, "내 기록").split("\n")[0]?.replace(/^- /, "").split(" — ")[0] ?? "";
+  return {
+    items: [
+      {
+        topic: first,
+        link: hook ? `공고의 담당 업무 ↔ ${hook}` : "",
+        question: hook ? "이 기록이 이 직무를 고른 이유와 이어지나요?" : "이 공고에서 가장 끌린 점은 무엇인가요?",
+        options: ["배운 것을 실무에서 더 키우고 싶다", "많은 사람이 쓰는 서비스를 만들고 싶다", "이어지지 않는다"],
+      },
+      {
+        topic: topics[1] ?? first,
+        link: "",
+        question: "입사하면 어떤 일을 먼저 해 보고 싶나요?",
+        options: ["맡은 서비스를 안정적으로 운영하고 싶다", "새 기능을 빨리 만들어 보고 싶다", "아직 잘 모르겠다"],
+      },
+    ],
+  };
+}
+
 // 이력서 줄 쓰기 흉내. 경험마다 "본인이 한 일" 첫 줄과(자세히면) "결과"를 줄로 쓴다
 function resumeWrite(text: string) {
   const blocks = section(text, "경험 기록").split(/\n\n(?=E\d+\n)/).filter(Boolean);
@@ -390,6 +413,8 @@ export const ai: AiClient = {
                       ? applicationWrite(text)
                       : request.purpose === "application_revise"
                         ? applicationRevise(text)
+                        : request.purpose === "application_ask"
+                          ? applicationAsk(text)
                         : request.purpose === "resume_write"
                           ? resumeWrite(text)
                           : request.purpose === "resume_emphasis"
