@@ -11,7 +11,7 @@ import { ErrorLine, useRun } from "./use-run";
 export type DraftData = {
   draft: Draft;
   check: DraftCheck;
-  names: Record<string, string>; // 경험 id → 이름. 지금 쓸 수 없는 경험은 들어 있지 않다
+  names: Record<string, string>; // 경험 id → 이름, 답 id → "내 답: 주제". 지금 쓸 수 없는 경험은 들어 있지 않다
   limit: number | null;
   countSpaces: boolean;
 };
@@ -53,7 +53,10 @@ function ParagraphView({
   const check = data.check.paragraphs[index];
   const lines = problems(check);
 
-  const names = paragraph.sources.map((id) => data.names[id] ?? "(지금 쓸 수 없는 경험)");
+  const names = [
+    ...paragraph.sources.map((id) => data.names[id] ?? "(지금 쓸 수 없는 경험)"),
+    ...(paragraph.answers ?? []).map((id) => data.names[id] ?? "(지금 없는 답)"),
+  ];
 
   return (
     <li className="space-y-2 py-3">

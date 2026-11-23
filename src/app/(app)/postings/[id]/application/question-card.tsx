@@ -11,8 +11,11 @@ import {
   writeManuallyAction,
 } from "@/modules/applications/actions";
 import { countChars } from "@/modules/applications/check";
-import { APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KINDS, type QuestionKind } from "@/modules/applications/options";
+import { type AnswerTopic, APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KINDS, type QuestionKind } from "@/modules/applications/options";
+import type { Asks } from "@/modules/applications/types";
 import { AddRecordLink } from "../../../records/_shared/add-record-link";
+import { AnswerSection } from "./answer-section";
+import type { AnswerView } from "./answer-view";
 import { DraftView, type DraftData } from "./draft-view";
 import { ErrorLine, useRun } from "./use-run";
 
@@ -45,6 +48,9 @@ export type QuestionView = {
   charLimit: number | null;
   countSpaces: boolean;
   kinds: QuestionKind[] | null; // 아직 정하지 않았으면 null
+  topics: AnswerTopic[]; // 물을 수 있는 주제(경험형만이면 빈 배열)
+  answers: AnswerView[]; // 붙인 답
+  asks: Asks | null; // 받아 둔 질문
   selection: SelectionView | null;
   draft: DraftData | null;
 };
@@ -355,6 +361,7 @@ export function QuestionCard({
   const { selection, draft } = question;
   const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
   // 근거가 옛 기록인 문단이 있으면 다시 고르기를 눈에 띄게 한다(문단마다 단추를 두지 않고 문항에 하나만)
+  const wantsExperience = question.kinds === null || question.kinds.includes("experience"); // 경험형이 없으면 경험 고르기를 숨기고 답 구역에서 쓴다
   const structureChanged = !empty && draft.check.paragraphs.some((paragraph) => paragraph.structureChanged);
 
   return (
@@ -395,7 +402,7 @@ export function QuestionCard({
 
       <KindChips question={question} canAct={canAct} />
 
-      {canAct && (
+      {canAct && wantsExperience && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -420,6 +427,20 @@ export function QuestionCard({
           {selection && <Picker key={selection.selectedAt} question={question} selection={selection} hasDraft={!empty} />}
         </div>
       )}
+
+      {question.topics.length > 0 && (
+        <AnswerSection
+          questionId={question.id}
+          topics={question.topics}
+          answers={question.answers}
+          asks={question.asks}
+          kinds={question.kinds}
+          hasDraft={!empty}
+          canAct={canAct}
+        />
+      )}
+
+      {canAct && !wantsExperience && empty && <ManualWrite question={question} />}
 
       {draft && !empty && <DraftView questionId={question.id} data={draft} canRevise={canAct} />}
     </section>
