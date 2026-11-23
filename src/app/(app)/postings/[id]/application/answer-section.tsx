@@ -144,7 +144,8 @@ function Manual({ questionId, topics }: { questionId: string; topics: AnswerTopi
   );
 }
 
-function Attached({ questionId, answer, canAct }: { questionId: string; answer: AnswerView; canAct: boolean }) {
+// unused: 답의 주제가 문항의 지금 주제에 없다(유형을 바꿈). 쓰기에 보내지 않으므로 그렇게 알리고 뺄 수 있게 한다
+function Attached({ questionId, answer, canAct, unused }: { questionId: string; answer: AnswerView; canAct: boolean; unused: boolean }) {
   const { message, pending, run } = useRun();
   return (
     <li className="space-y-1 py-2">
@@ -152,6 +153,7 @@ function Attached({ questionId, answer, canAct }: { questionId: string; answer: 
         <span className="text-foreground/60">내 답 · {answer.label}: </span>
         <span className="whitespace-pre-wrap">{answer.text}</span>
       </p>
+      {unused && <p className="text-xs text-amber-700 dark:text-amber-400">이 문항의 유형에 맞지 않아 쓰지 않습니다</p>}
       {canAct && (
         <button type="button" disabled={pending} onClick={() => run(() => detachAnswerAction(questionId, answer.id))} className={small}>
           빼기
@@ -185,9 +187,11 @@ export function AnswerSection({
 }) {
   const ask = useRun();
   const write = useRun();
-  if (topics.length === 0) return null;
+  // 주제가 없으면(경험형만) 붙어 남은 답을 보이고 뺄 수 있게만 한다
+  if (topics.length === 0 && answers.length === 0) return null;
+  const askable = topics.length > 0;
   const withoutExperience = !wantsExperience(kinds);
-  const missing = answers.length > 0 ? missingTopicsText(topics, answers.map((answer) => answer.topic)) : null;
+  const missing = askable && answers.length > 0 ? missingTopicsText(topics, answers.map((answer) => answer.topic)) : null;
 
   function writeNow() {
     if (hasDraft && !confirm("지금 쓴 답을 지우고 다시 씁니다. 직접 고친 문단도 사라집니다. 다시 쓸까요?")) return;
@@ -200,7 +204,7 @@ export function AnswerSection({
       {answers.length > 0 ? (
         <ul className="divide-y divide-foreground/10">
           {answers.map((answer) => (
-            <Attached key={answer.id} questionId={questionId} answer={answer} canAct={canAct} />
+            <Attached key={answer.id} questionId={questionId} answer={answer} canAct={canAct} unused={!topics.includes(answer.topic)} />
           ))}
         </ul>
       ) : (
@@ -212,7 +216,7 @@ export function AnswerSection({
         </p>
       )}
 
-      {canAct && (
+      {canAct && askable && (
         <>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <button type="button" disabled={ask.pending} onClick={() => ask.run(() => makeAsksAction(questionId, topics))} className={asks || answers.length > 0 ? small : primary}>
@@ -223,7 +227,8 @@ export function AnswerSection({
                 1분쯤 걸릴 수 있습니다
               </span>
             )}
-            <Manual key={answers.length} questionId={questionId} topics={topics} />
+            {/* 주제가 바뀌면(유형을 바꿈) 고른 주제를 처음으로 돌린다. 답을 저장해도 닫고 비운다 */}
+            <Manual key={`${topics.join(",")}:${answers.length}`} questionId={questionId} topics={topics} />
           </div>
           <ErrorLine message={ask.message} />
           {asks && <AskList key={asks.madeAt} questionId={questionId} asks={asks} />}

@@ -29,7 +29,8 @@ export type Draft = {
 // 묻기. 쓰기 전에 동기·포부 같은 재료를 고를 수 있는 질문으로 묻는다
 export type PreviousAnswer = { answerId: string; text: string; label: string }; // label: "삼성전자 · 2026-11"
 export type AskItem = { id: string; topic: AnswerTopic; link: string; question: string; options: string[]; previous: PreviousAnswer[] }; // id: 질문을 만들 때 붙인 고유 값(답할 때 이 값으로 가리킨다). link: 연결고리 한 줄(없으면 빈 글)
-export type Asks = { questionVersion: number; items: AskItem[]; madeAt: string };
+// companyKey: 질문을 만들 때 공고 회사 이름의 정리 값. 그 뒤 회사 이름을 바꾸면 이 질문으로 답을 저장하지 않는다(옛 질문에는 없다)
+export type Asks = { questionVersion: number; items: AskItem[]; madeAt: string; companyKey?: string };
 
 // 이력서. 항목마다 근거 경험이 하나다
 export type ResumeDetail = "full" | "summary";

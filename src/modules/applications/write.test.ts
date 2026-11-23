@@ -749,6 +749,10 @@ async function answered(kinds: QuestionKind[], answerCount = 1, withSelection = 
   }
   const set = await setQuestionKinds(db, "u1", questionId, kinds);
   if (!set.ok) throw new Error(set.reason);
+  // 둘째 답부터는 입사 후 포부이므로 주제에 넣어 둔다(주제에 없는 답은 쓰기에 보내지 않는다)
+  if (answerCount > 1 && kinds.includes("motive")) {
+    await db.update(questionsTable).set({ topics: ["motive", "aspiration"] }).where(eq(questionsTable.id, questionId));
+  }
   const answerIds: string[] = [];
   for (let i = 0; i < answerCount; i++) {
     // 첫 답은 그 유형의 주제(동기포부형이면 지원동기, 자기소개형만이면 기타)
@@ -950,4 +954,28 @@ test("동기포부형+자기소개형인데 자기소개 쪽 답이 없으면 ne
   const other = await addAnswer({ topic: "other", answer: "끝까지 확인하는 편이다" });
   expect((await attachAnswer(db, "u1", questionId, other)).ok).toBe(true);
   expect((await approveAndWrite(db, ai, "u1", questionId, [], now)).ok).toBe(true);
+});
+
+test("경험형으로 바꾼 문항은 붙어 있던 답을 쓰기에 보내지 않는다", async () => {
+  const { expId, questionId, answerIds } = await answered(["experience", "motive"], 1, true);
+  const first = await approveAndWrite(db, createFakeAi([answerReply([["E1", "A1"]])]), "u1", questionId, [expId], now);
+  if (!first.ok) throw new Error(first.reason);
+  expect(first.value.answers).toEqual(answerIds);
+
+  expect((await setQuestionKinds(db, "u1", questionId, ["experience"])).ok).toBe(true);
+  expect((await getQuestion(db, "u1", questionId))?.answerIds).toEqual(answerIds); // 붙은 답은 남는다
+  const ai = createFakeAi([answerReply([["E1", "A1"]]), { text: "고친 문단입니다.", sources: ["E1", "A1"] }]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.value.answers).toEqual([]);
+  expect(result.value.paragraphs[0]).toMatchObject({ sources: [expId], answers: [] });
+  expect(ai.requests[0].messages[0].text).toContain("[내 답]\n없음");
+  expect(ai.requests[0].messages[0].text).not.toContain("하루 30만 명");
+
+  // 부분 수정도 지금 주제에 맞지 않는 답은 보내지 않는다(답을 보냈던 옛 초안이라도)
+  await db.update(questionsTable).set({ draft: first.value }).where(eq(questionsTable.id, questionId));
+  const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
+  expect(revised.ok && revised.value.paragraphs[0]).toMatchObject({ sources: [expId], answers: [] });
+  expect(ai.requests[1].messages[0].text).toContain("[내 답]\n없음");
 });

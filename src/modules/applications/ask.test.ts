@@ -9,7 +9,7 @@ import { createFact } from "@/modules/experiences/facts-repo";
 import type { CourseInput } from "@/modules/experiences/record-input";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { validatePosting } from "@/modules/postings/input";
-import { applyToPosting, createPosting, getPosting, saveAnalysis } from "@/modules/postings/repo";
+import { applyToPosting, createPosting, getPosting, saveAnalysis, updatePosting } from "@/modules/postings/repo";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { createAnswer, listAnswersByIds } from "./answers-repo";
@@ -524,4 +524,24 @@ test("AI 답이 모두 버려져도 지난 답이 있으면 지난 답만 담은
   expect((await getQuestion(db, "u1", id))?.asks).toEqual(result.value);
   // 한도·연결 실패는 그대로 실패다
   expect(await makeAsks(db, createFakeAi([{ fail: "unavailable" }]), "u1", id, ["growth"], now)).toEqual({ ok: false, reason: "unavailable" });
+});
+
+test("질문을 받은 뒤 공고의 회사 이름을 바꾸면 changed이고 답을 만들지 않는다", async () => {
+  const { id, postingId } = await addQuestion(["motive"]);
+  const asks = await asked(id, ["motive"], [item()]);
+  expect(asks.companyKey).toBe("가나다테크");
+  const checked = validatePosting(raw("라마바 주식회사"));
+  if (!checked.ok) throw new Error("공고 입력 오류");
+  expect(await updatePosting(db, "u1", postingId, checked.value)).toEqual({ ok: true });
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
+  expect(await answerCount()).toBe(0);
+});
+
+test("회사 정리 값이 없는 옛 질문은 changed", async () => {
+  const { id } = await addQuestion(["motive"]);
+  const asks = await asked(id, ["motive"], [item()]);
+  const { companyKey: _drop, ...old } = asks;
+  void _drop;
+  await db.update(questions).set({ asks: old }).where(eq(questions.id, id));
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
 });

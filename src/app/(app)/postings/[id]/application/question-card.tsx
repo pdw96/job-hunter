@@ -388,7 +388,8 @@ export function QuestionCard({
   const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
   // 근거가 옛 기록인 문단이 있으면 다시 고르기를 눈에 띄게 한다(문단마다 단추를 두지 않고 문항에 하나만)
   const wants = wantsExperience(question.kinds); // 경험형이 없으면 경험 고르기는 답 구역 아래의 선택 사항이다
-  const answerTopics = question.answers.map((answer) => answer.topic);
+  // 쓰기에 보내는 답은 주제가 지금 주제에 있는 것뿐이다(서버와 같게). 유형을 바꿔 남은 답은 세지 않는다
+  const answerTopics = question.answers.map((answer) => answer.topic).filter((topic) => question.topics.includes(topic));
   const plan = writePlan({ kinds: question.kinds, answerTopics, checked: usableChecked, hasSelection: !!selection, approvedStale: !!selection?.approvedStale });
   const needAnswers = unansweredKinds(question.kinds, answerTopics).length > 0;
   const structureChanged = !empty && draft.check.paragraphs.some((paragraph) => paragraph.structureChanged);
@@ -457,7 +458,7 @@ export function QuestionCard({
         </div>
       )}
 
-      {question.topics.length > 0 && (
+      {(question.topics.length > 0 || question.answers.length > 0) && (
         <AnswerSection
           questionId={question.id}
           topics={question.topics}

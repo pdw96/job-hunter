@@ -171,6 +171,7 @@ export async function makeAsks(
     questionVersion: question.version,
     items: items.filter((x) => x.options.length >= 2 || x.previous.length > 0),
     madeAt: now.toISOString(),
+    companyKey: key,
   };
   // 읽었을 때의 문항 글 그대로일 때만 저장한다(그사이 고쳤으면 changed)
   const saved = await saveAsks(db, userId, questionId, value);
@@ -196,6 +197,8 @@ export async function answerAsks(
     const posting = await getPosting(tx, userId, question.postingId);
     if (!posting) return notFound;
     const key = companyKey(posting.company);
+    // 질문을 받은 뒤 공고의 회사 이름을 바꿨으면(공고를 고쳐도 문항 version은 그대로다) 옛 회사로 만든 질문이다. 정리 값이 없는 옛 질문도 다시 받게 한다
+    if (asks.companyKey !== key) return { ok: false as const, reason: "changed" as const };
     const topics = question.topics ?? [];
     // 질문은 id로 가리킨다. 지금 저장된 질문에 없는 id(이미 답했거나 질문을 다시 받음)가 있으면 옛 화면이다
     const byId = new Map(asks.items.map((item, i) => [item.id, i]));
