@@ -9,6 +9,7 @@ import { isLocked, latestSubmission } from "@/modules/applications/submission-re
 import type { PassedReason, PickReason, SourceRef } from "@/modules/applications/types";
 import { recordHrefs } from "@/modules/experiences/record-href";
 import { listWritingSources, oldRecordIds, type WritingSource } from "@/modules/experiences/sources";
+import { companyKey } from "@/modules/postings/company";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
 import { AddQuestions } from "./add-questions";
@@ -35,6 +36,7 @@ function toView(
   oldIds: Set<string>,
   hrefs: Map<string, string>,
   answers: Answer[],
+  postingKey: string, // 공고 회사 이름의 정리 값(다른 회사에 묶인 답을 가린다)
 ): QuestionView {
   const candidate = (item: (PickReason | PassedReason) & { whyNot?: string }): CandidateView => {
     const source = byId.get(item.experienceId);
@@ -59,7 +61,7 @@ function toView(
       picks: s.picks.map(candidate),
       passed: s.passed.map(candidate),
       noMatch: s.noMatch,
-      approvedIds: s.approved?.map((ref) => ref.experienceId) ?? [],
+      approvedIds: s.approved?.map((ref) => ref.experienceId) ?? null,
       approvedStale: s.approved !== null && isStale(s.approved, byId),
     };
   }
@@ -84,7 +86,7 @@ function toView(
     countSpaces: question.countSpaces,
     kinds: question.kinds,
     topics: question.topics ?? [],
-    answers: answerViews(question.answerIds, answers),
+    answers: answerViews(question.answerIds, answers, question.topics, postingKey),
     asks: question.asks,
     selection,
     draft,
@@ -120,7 +122,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   // 후보마다 그 기록을 여는 화면(표마다 한 번 읽는다)
   const candidateIds = questions.flatMap((question) => [...(question.selection?.picks ?? []), ...(question.selection?.passed ?? [])].map((item) => item.experienceId));
   const hrefs = await recordHrefs(db, user.id, candidateIds);
-  const views = questions.map((question, index) => toView(question, index, questions, sources, byId, oldIds, hrefs, answers));
+  const views = questions.map((question, index) => toView(question, index, questions, sources, byId, oldIds, hrefs, answers, companyKey(posting.company)));
   const isApply = posting.status === "apply";
   const canAct = isApply && !locked;
 

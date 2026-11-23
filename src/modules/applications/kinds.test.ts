@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { freeformQuestions, needsAnswers, topicsFor, unansweredKinds, unansweredTopics } from "./kinds";
+import { answerUnused, freeformQuestions, needsAnswers, topicsFor, unansweredKinds, unansweredTopics } from "./kinds";
 
 test("유형에 맞는 주제만 남기고 빈 유형에는 기본 주제를 더한다", () => {
   expect(topicsFor(["motive"], ["growth"])).toEqual(["motive"]);
@@ -65,4 +65,12 @@ test("붙인 답이 없는 주제를 문항의 주제 순서로 돌려준다", (
   expect(unansweredTopics(["motive", "aspiration"], ["motive"])).toEqual(["aspiration"]);
   expect(unansweredTopics(["motive"], ["motive", "growth"])).toEqual([]);
   expect(unansweredTopics(null, [])).toEqual([]);
+});
+
+test("쓰기에 보내지 않는 답: 주제가 없으면 kind, 다른 회사에 묶였으면 company", () => {
+  expect(answerUnused({ topic: "motive", companyKey: "가나다" }, ["motive"], "가나다")).toBeNull();
+  expect(answerUnused({ topic: "motive", companyKey: "가나다" }, ["motive"], "라마바")).toBe("company");
+  expect(answerUnused({ topic: "growth", companyKey: null }, ["growth"], "라마바")).toBeNull();
+  expect(answerUnused({ topic: "growth", companyKey: null }, [], "라마바")).toBe("kind");
+  expect(answerUnused({ topic: "motive", companyKey: "가나다" }, null, "가나다")).toBe("kind");
 });

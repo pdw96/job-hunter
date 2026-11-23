@@ -1,19 +1,29 @@
 import type { Answer } from "@/modules/applications/answers-repo";
-import { unansweredKinds, unansweredTopics } from "@/modules/applications/kinds";
+import { answerUnused, unansweredKinds, unansweredTopics } from "@/modules/applications/kinds";
 import { ANSWER_TOPIC_LABELS, type AnswerTopic, type QuestionKind } from "@/modules/applications/options";
 import type { AskItem } from "@/modules/applications/types";
 
 // 묻기 화면이 쓰는 순수 함수. 화면 모양(서버가 그려 카드에 넘기는 값)과 답 저장에 보낼 값을 만든다
 
-export type AnswerView = { id: string; topic: AnswerTopic; label: string; text: string };
+// unused: 쓰기에 보내지 않는 까닭(kind: 문항의 유형에 맞지 않음, company: 다른 회사 공고에서 한 답). 쓰면 null
+export type AnswerView = { id: string; topic: AnswerTopic; label: string; text: string; unused: "kind" | "company" | null };
 
-// 문항에 붙인 답(붙인 순서). 지금 없는 답은 빠진다
-export function answerViews(ids: string[], answers: Answer[]): AnswerView[] {
+// 문항에 붙인 답(붙인 순서). 지금 없는 답은 빠진다. postingKey는 지금 공고의 회사 이름 정리 값
+export function answerViews(ids: string[], answers: Answer[], topics: AnswerTopic[] | null, postingKey: string): AnswerView[] {
   const byId = new Map(answers.map((answer) => [answer.id, answer]));
   return ids.flatMap((id) => {
     const answer = byId.get(id);
-    return answer ? [{ id, topic: answer.topic, label: ANSWER_TOPIC_LABELS[answer.topic], text: answer.answer }] : [];
+    return answer
+      ? [{ id, topic: answer.topic, label: ANSWER_TOPIC_LABELS[answer.topic], text: answer.answer, unused: answerUnused(answer, topics, postingKey) }]
+      : [];
   });
+}
+
+// 고른 경험의 처음 체크. 승인한 적이 있으면(빈 승인 포함) 그 승인 그대로, 승인 전이면 지금 쓸 수 있는 고른 경험
+export function initialChecked(selection: { approvedIds: string[] | null; picks: { experienceId: string; name: string | null }[] } | null): string[] {
+  if (!selection) return [];
+  if (selection.approvedIds !== null) return selection.approvedIds;
+  return selection.picks.filter((pick) => pick.name !== null).map((pick) => pick.experienceId);
 }
 
 // 답 id → 근거에 보일 이름("내 답: 지원동기")

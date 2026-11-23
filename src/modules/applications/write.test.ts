@@ -10,7 +10,7 @@ import { confirmExperience, createExperience, setTrackScope, unconfirmExperience
 import { experiences } from "@/modules/experiences/schema";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { validatePosting } from "@/modules/postings/input";
-import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus } from "@/modules/postings/repo";
+import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus, updatePosting } from "@/modules/postings/repo";
 
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
@@ -978,4 +978,39 @@ test("경험형으로 바꾼 문항은 붙어 있던 답을 쓰기에 보내지 
   const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
   expect(revised.ok && revised.value.paragraphs[0]).toMatchObject({ sources: [expId], answers: [] });
   expect(ai.requests[1].messages[0].text).toContain("[내 답]\n없음");
+});
+
+async function renameCompany(questionId: string, company: string) {
+  const postingId = (await getQuestion(db, "u1", questionId))!.postingId;
+  const checked = validatePosting({ ...raw, company });
+  if (!checked.ok) throw new Error("공고 입력 오류");
+  const updated = await updatePosting(db, "u1", postingId, checked.value);
+  if (!updated.ok) throw new Error(updated.reason);
+}
+
+test("회사 이름이 바뀐 공고에서는 다른 회사의 지원동기 답을 쓰지 않는다(need_answers)", async () => {
+  const { questionId } = await answered(["motive"]);
+  await renameCompany(questionId, "라마바 주식회사");
+  const ai = createFakeAi([answerReply()]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [], now)).toEqual({ ok: false, reason: "need_answers" });
+  expect(ai.requests).toHaveLength(0);
+  // 표기만 다른 같은 회사면 쓴다
+  await renameCompany(questionId, "(주)가나다");
+  expect((await approveAndWrite(db, ai, "u1", questionId, [], now)).ok).toBe(true);
+});
+
+test("회사 이름이 바뀐 공고의 부분 수정은 다른 회사의 지원동기 답을 보내지 않는다", async () => {
+  const { questionId } = await answered(["motive", "self"], 1);
+  const self = await addAnswer({ topic: "other", answer: "끝까지 확인하는 편이다", companyKey: null });
+  expect((await attachAnswer(db, "u1", questionId, self)).ok).toBe(true);
+  const first = await approveAndWrite(db, createFakeAi([answerReply([["A1", "A2"]])]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  await renameCompany(questionId, "라마바 주식회사");
+  const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1", "A2"] }]);
+  const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).not.toContain("하루 30만 명");
+  expect(sent).toContain("끝까지 확인하는 편이다");
+  // 남은 답(A1 = 자기소개 답)만 근거로 남는다
+  expect(revised.ok && revised.value.paragraphs[0].answers).toEqual([self]);
 });

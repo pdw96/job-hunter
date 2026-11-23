@@ -144,8 +144,10 @@ function Manual({ questionId, topics }: { questionId: string; topics: AnswerTopi
   );
 }
 
-// unused: 답의 주제가 문항의 지금 주제에 없다(유형을 바꿈). 쓰기에 보내지 않으므로 그렇게 알리고 뺄 수 있게 한다
-function Attached({ questionId, answer, canAct, unused }: { questionId: string; answer: AnswerView; canAct: boolean; unused: boolean }) {
+// 쓰기에 보내지 않는 답(유형에 맞지 않거나 다른 회사 공고에서 한 답)은 그렇게 알리고 뺄 수 있게 한다
+const UNUSED_TEXT = { kind: "이 문항의 유형에 맞지 않아 쓰지 않습니다", company: "다른 회사 공고에서 한 답이라 쓰지 않습니다" } as const;
+
+function Attached({ questionId, answer, canAct }: { questionId: string; answer: AnswerView; canAct: boolean }) {
   const { message, pending, run } = useRun();
   return (
     <li className="space-y-1 py-2">
@@ -153,7 +155,7 @@ function Attached({ questionId, answer, canAct, unused }: { questionId: string; 
         <span className="text-foreground/60">내 답 · {answer.label}: </span>
         <span className="whitespace-pre-wrap">{answer.text}</span>
       </p>
-      {unused && <p className="text-xs text-amber-700 dark:text-amber-400">이 문항의 유형에 맞지 않아 쓰지 않습니다</p>}
+      {answer.unused && <p className="text-xs text-amber-700 dark:text-amber-400">{UNUSED_TEXT[answer.unused]}</p>}
       {canAct && (
         <button type="button" disabled={pending} onClick={() => run(() => detachAnswerAction(questionId, answer.id))} className={small}>
           빼기
@@ -191,7 +193,8 @@ export function AnswerSection({
   if (topics.length === 0 && answers.length === 0) return null;
   const askable = topics.length > 0;
   const withoutExperience = !wantsExperience(kinds);
-  const missing = askable && answers.length > 0 ? missingTopicsText(topics, answers.map((answer) => answer.topic)) : null;
+  const used = answers.filter((answer) => answer.unused === null);
+  const missing = askable && answers.length > 0 ? missingTopicsText(topics, used.map((answer) => answer.topic)) : null;
 
   function writeNow() {
     if (hasDraft && !confirm("지금 쓴 답을 지우고 다시 씁니다. 직접 고친 문단도 사라집니다. 다시 쓸까요?")) return;
@@ -204,7 +207,7 @@ export function AnswerSection({
       {answers.length > 0 ? (
         <ul className="divide-y divide-foreground/10">
           {answers.map((answer) => (
-            <Attached key={answer.id} questionId={questionId} answer={answer} canAct={canAct} unused={!topics.includes(answer.topic)} />
+            <Attached key={answer.id} questionId={questionId} answer={answer} canAct={canAct} />
           ))}
         </ul>
       ) : (

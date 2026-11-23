@@ -16,7 +16,7 @@ import { type AnswerTopic, APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KI
 import type { Asks } from "@/modules/applications/types";
 import { AddRecordLink } from "../../../records/_shared/add-record-link";
 import { AnswerSection } from "./answer-section";
-import { type AnswerView, wantsExperience, writePlan } from "./answer-view";
+import { type AnswerView, initialChecked, wantsExperience, writePlan } from "./answer-view";
 import { DraftView, type DraftData } from "./draft-view";
 import { ErrorLine, useRun } from "./use-run";
 
@@ -38,7 +38,7 @@ export type SelectionView = {
   picks: CandidateView[];
   passed: CandidateView[];
   noMatch: boolean;
-  approvedIds: string[]; // 승인한 경험 id. 승인 전이면 빈 배열
+  approvedIds: string[] | null; // 승인한 경험 id. 승인 전이면 null(빈 승인 []과 구분한다: 경험 없이 답만으로 쓴 것)
   approvedStale: boolean; // 승인한 경험의 기록이 바뀌었거나 쓸 수 없게 됨
 };
 
@@ -372,24 +372,20 @@ export function QuestionCard({
   const remove = useRun();
   const { selection, draft } = question;
   // 고른 경험. 다시 고르면(selectedAt이 바뀌면) 처음으로 돌린다
-  const initialChecked = selection
-    ? selection.approvedIds.length > 0
-      ? selection.approvedIds
-      : selection.picks.filter((p) => p.name !== null).map((p) => p.experienceId)
-    : [];
-  const [checkedState, setCheckedState] = useState({ at: selection?.selectedAt ?? null, ids: initialChecked });
+  const initial = initialChecked(selection);
+  const [checkedState, setCheckedState] = useState({ at: selection?.selectedAt ?? null, ids: initial });
   let checked = checkedState.ids;
   if (checkedState.at !== (selection?.selectedAt ?? null)) {
-    checked = initialChecked;
-    setCheckedState({ at: selection?.selectedAt ?? null, ids: initialChecked });
+    checked = initial;
+    setCheckedState({ at: selection?.selectedAt ?? null, ids: initial });
   }
   const setChecked = (ids: string[]) => setCheckedState({ at: selection?.selectedAt ?? null, ids });
   const usableChecked = selection ? [...selection.picks, ...selection.passed].filter((c) => c.name !== null && checked.includes(c.experienceId)).map((c) => c.experienceId) : [];
   const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
   // 근거가 옛 기록인 문단이 있으면 다시 고르기를 눈에 띄게 한다(문단마다 단추를 두지 않고 문항에 하나만)
   const wants = wantsExperience(question.kinds); // 경험형이 없으면 경험 고르기는 답 구역 아래의 선택 사항이다
-  // 쓰기에 보내는 답은 주제가 지금 주제에 있는 것뿐이다(서버와 같게). 유형을 바꿔 남은 답은 세지 않는다
-  const answerTopics = question.answers.map((answer) => answer.topic).filter((topic) => question.topics.includes(topic));
+  // 쓰기에 보내는 답만 센다(서버와 같게). 유형을 바꿔 남은 답, 다른 회사에 묶인 답은 세지 않는다
+  const answerTopics = question.answers.filter((answer) => answer.unused === null).map((answer) => answer.topic);
   const plan = writePlan({ kinds: question.kinds, answerTopics, checked: usableChecked, hasSelection: !!selection, approvedStale: !!selection?.approvedStale });
   const needAnswers = unansweredKinds(question.kinds, answerTopics).length > 0;
   const structureChanged = !empty && draft.check.paragraphs.some((paragraph) => paragraph.structureChanged);

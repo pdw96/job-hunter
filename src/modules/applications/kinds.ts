@@ -57,3 +57,15 @@ export function freeformQuestions(
   if (value.length === 0) return { ok: false, message: "넣을 항목을 골라 주세요" };
   return { ok: true, value };
 }
+
+// 붙인 답을 쓰기에 보내지 않는 까닭. kind: 주제가 문항의 지금 주제에 없다(유형을 바꿈),
+// company: 다른 회사에 묶인 답이다(공고의 회사 이름을 바꿈). 쓸 수 있으면 null. 서버의 쓰기와 화면이 같은 규칙을 쓴다
+export function answerUnused(
+  answer: { topic: AnswerTopic; companyKey: string | null },
+  topics: AnswerTopic[] | null,
+  postingKey: string,
+): "kind" | "company" | null {
+  if (!(topics ?? []).includes(answer.topic)) return "kind";
+  if (answer.companyKey !== null && answer.companyKey !== postingKey) return "company";
+  return null;
+}

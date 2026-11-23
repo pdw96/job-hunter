@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Answer } from "@/modules/applications/answers-repo";
 import type { AskItem } from "@/modules/applications/types";
-import { answerNames, answerViews, missingTopicsText, picksToSend, toggled, wantsExperience, writePlan } from "./answer-view";
+import { answerNames, answerViews, initialChecked, missingTopicsText, picksToSend, toggled, wantsExperience, writePlan } from "./answer-view";
 
 const answer = (id: string, topic: Answer["topic"], text: string): Answer => ({
   id,
@@ -17,10 +17,35 @@ const item = (id: string): AskItem => ({ id, topic: "motive", link: "", question
 
 test("붙인 답을 붙인 순서로 주제 이름과 함께 보인다. 없는 답은 뺀다", () => {
   const list = [answer("a1", "motive", "하나"), answer("a2", "growth", "둘")];
-  expect(answerViews(["a2", "gone", "a1"], list)).toEqual([
-    { id: "a2", topic: "growth", label: "성장과정", text: "둘" },
-    { id: "a1", topic: "motive", label: "지원동기", text: "하나" },
+  expect(answerViews(["a2", "gone", "a1"], list, ["motive", "growth"], "가나다")).toEqual([
+    { id: "a2", topic: "growth", label: "성장과정", text: "둘", unused: null },
+    { id: "a1", topic: "motive", label: "지원동기", text: "하나", unused: null },
   ]);
+});
+
+test("쓰지 않는 답: 주제가 문항에 없으면 kind, 다른 회사에 묶인 답이면 company", () => {
+  const list = [
+    { ...answer("a1", "motive", "가나다 동기"), companyKey: "가나다" },
+    { ...answer("a2", "motive", "라마바 동기"), companyKey: "라마바" },
+    answer("a3", "growth", "성장"),
+  ];
+  expect(answerViews(["a1", "a2", "a3"], list, ["motive"], "가나다").map((v) => [v.id, v.unused])).toEqual([
+    ["a1", null],
+    ["a2", "company"],
+    ["a3", "kind"],
+  ]);
+});
+
+test("빈 승인은 다시 열어도 아무것도 체크하지 않는다", () => {
+  const picks = [{ experienceId: "e1", name: "결제" }, { experienceId: "e2", name: null }];
+  expect(initialChecked({ approvedIds: [], picks })).toEqual([]);
+  expect(initialChecked({ approvedIds: ["e9"], picks })).toEqual(["e9"]);
+});
+
+test("승인 전이면 고른 경험을 체크한다(지금 쓸 수 없는 경험은 빼고)", () => {
+  const picks = [{ experienceId: "e1", name: "결제" }, { experienceId: "e2", name: null }];
+  expect(initialChecked({ approvedIds: null, picks })).toEqual(["e1"]);
+  expect(initialChecked(null)).toEqual([]);
 });
 
 test("근거 이름은 내 답: 주제다", () => {

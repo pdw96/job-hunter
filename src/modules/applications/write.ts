@@ -2,9 +2,10 @@ import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
+import { companyKey } from "@/modules/postings/company";
 import { getPosting } from "@/modules/postings/repo";
 import { type Answer, listAnswersByIds } from "./answers-repo";
-import { unansweredKinds, unansweredTopics } from "./kinds";
+import { answerUnused, unansweredKinds, unansweredTopics } from "./kinds";
 import { ANSWER_TOPIC_LABELS, type AnswerTopic, APPLICATION_LIMITS, type QuestionKind, QUESTION_KIND_LABELS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
@@ -130,8 +131,9 @@ export async function writeText(
   return { ok: true, value: { paragraphs, shortage: cut(result.value.shortage.trim(), APPLICATION_LIMITS.shortage) } };
 }
 
-// 문항의 지금 주제에 맞는 답만(유형을 바꿔 주제에서 빠진 답은 쓰기에 보내지 않는다)
-const forTopics = (answers: Answer[], topics: AnswerTopic[] | null) => answers.filter((answer) => (topics ?? []).includes(answer.topic));
+// 쓰기에 보낼 수 있는 답만: 주제가 문항의 지금 주제에 있고, 회사에 묶인 답이면 지금 공고의 회사다
+const usableAnswers = (answers: Answer[], topics: AnswerTopic[] | null, company: string) =>
+  answers.filter((answer) => answerUnused(answer, topics, companyKey(company)) === null);
 
 const sameRef = (a: SourceRef, b: SourceRef) => a.experienceId === b.experienceId && a.contentVersion === b.contentVersion;
 const sameRefs = (a: SourceRef[], b: SourceRef[]) => a.length === b.length && a.every((ref, i) => sameRef(ref, b[i]));
@@ -150,8 +152,8 @@ function canon(value: unknown): string {
 const sameJson = (a: unknown, b: unknown) => canon(a) === canon(b);
 
 // 고른 경험을 승인하고 곧바로 쓴다. experienceIds는 화면이 보낸 것이므로 지금의 WritingSource에 있는 것만 받는다.
-// 지원자의 답은 서버가 문항에 붙인 답(answerIds)에서 읽는다. 지금 없는 답과, 주제가 문항의 지금 주제에 없는 답
-// (유형을 경험형으로 바꾼 뒤에도 붙어 남은 답 등)은 빼고 쓴다.
+// 지원자의 답은 서버가 문항에 붙인 답(answerIds)에서 읽는다. 지금 없는 답, 주제가 문항의 지금 주제에 없는 답
+// (유형을 경험형으로 바꾼 뒤에도 붙어 남은 답 등), 다른 회사에 묶인 답(공고의 회사 이름을 바꿈)은 빼고 쓴다.
 // 규칙: 유형에 동기포부형·자기소개형이 있는데 그 유형 주제의 답이 없으면(유형마다 본다) need_answers이고 AI를 부르지 않는다.
 // 답이 일부 주제에만 있으면 쓰되, 답이 없는 주제는 AI에 알려 쓰지 않게 한다.
 // 고르기 결과가 없으면, 보낸 경험이 없고 유형에 경험형이 없을 때만 답만으로 쓴다(승인 없음). 아니면 changed.
@@ -173,7 +175,7 @@ export async function approveAndWrite(
   if (block) return { ok: false, reason: block };
 
   const kinds: QuestionKind[] = question.kinds ?? ["experience"]; // 유형을 정하기 전의 옛 문항은 경험형으로 본다
-  const answers = forTopics(await listAnswersByIds(db, userId, question.answerIds), question.topics);
+  const answers = usableAnswers(await listAnswersByIds(db, userId, question.answerIds), question.topics, posting.company);
   const answerTopics = answers.map((a) => a.topic);
   if (unansweredKinds(kinds, answerTopics).length > 0) return { ok: false, reason: "need_answers" };
 
@@ -275,7 +277,7 @@ export async function reviseParagraph(
   const sentIds = stored.answers ?? [];
   const sent = await listAnswersByIds(db, userId, sentIds);
   if (sent.length !== sentIds.length) return { ok: false, reason: "stale" };
-  const answers = forTopics(sent, question.topics); // 유형을 바꿔 주제에서 빠진 답은 다시 보내지 않는다
+  const answers = usableAnswers(sent, question.topics, posting.company); // 유형·회사가 바뀌어 쓸 수 없게 된 답은 다시 보내지 않는다
 
   const requestText = [request.preset ? PRESET_TEXT[request.preset] : "", note].filter(Boolean).join("\n");
   const sections = buildBase({
