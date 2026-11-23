@@ -15,11 +15,14 @@ export type SubmitPanelProps = {
   locked: boolean;
   isApply: boolean;
   preview: { resumeFrom: "tailored" | "common" | null; questionCount: number; warnings: string[] } | null;
+  // 고른 서류. 고르지 않은 서류는 확인 창에서 말하지 않는다
+  withResume?: boolean;
+  withLetter?: boolean;
   submissions: { number: number; dateLabel: string; shortLabel: string }[];
 };
 
 // 공고 화면의 제출함 / 새 버전 만들기. 누르면 그 자리에 확인 상자를 띄운다
-export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, submissions }: SubmitPanelProps) {
+export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, submissions, withResume = true, withLetter = true }: SubmitPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -83,7 +86,10 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
           {confirming && (
             <div className="space-y-3 rounded-lg border border-foreground/20 p-4" role="group" aria-label="제출 확인">
               <p className="text-sm">
-                지금의 공고 원문, 이력서({resumeText}), 자소서 문항 {preview.questionCount}개를 얼립니다. 얼린 제출본은 고칠 수 없습니다
+                {["지금의 공고 원문", withResume && `이력서(${resumeText})`, withLetter && `자소서 문항 ${preview.questionCount}개`]
+                  .filter(Boolean)
+                  .join(", ")}
+                를 얼립니다. 얼린 제출본은 고칠 수 없습니다
               </p>
               {preview.warnings.length > 0 && (
                 <ul className="list-disc space-y-1 pl-5 text-sm text-amber-700 dark:text-amber-400">

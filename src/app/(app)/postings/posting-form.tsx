@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { fetchPostingAction, readPostingAction, readPostingImagesAction, savePostingAction } from "@/modules/postings/actions";
+import type { FoundDocument, FoundQuestion } from "@/modules/postings/documents";
 import type { PostingErrors, PostingInput } from "@/modules/postings/input";
 import {
   CAREER_TYPE_LABELS,
@@ -70,6 +71,8 @@ export function PostingForm({
   // 새 공고는 원문을 넣는 단계에서 시작한다
   const [step, setStep] = useState<"paste" | "fields">(id ? "fields" : "paste");
   const [unverified, setUnverified] = useState<string[]>([]);
+  // 값을 뽑을 때 찾은 제출 서류와 문항. 새 공고를 저장할 때 함께 보낸다(서버가 다시 검사한다)
+  const [found, setFound] = useState<{ documents: FoundDocument[]; questions: FoundQuestion[] } | null>(null);
   const [errors, setErrors] = useState<PostingErrors>({});
   const [message, setMessage] = useState<string | null>(null);
   const [similar, setSimilar] = useState<{ id: string; company: string; title: string }[] | null>(null);
@@ -90,10 +93,11 @@ export function PostingForm({
     if (!result.ok) {
       // 값을 뽑지 못해도 읽어 온 글은 남겨 둔다. 다시 시도하거나 직접 채울 수 있다
       set("rawText", rawText);
+      setFound(null);
       setMessage(result.message);
       return true;
     }
-    const { unverified: doubts, hasDetails, ...value } = result.value;
+    const { unverified: doubts, hasDetails, documents, questions, ...value } = result.value;
     if (needDetails && !hasDetails) {
       found?.lines.push(
         ...[
@@ -114,6 +118,7 @@ export function PostingForm({
       locationText: value.locationText ?? "",
     }));
     setUnverified(doubts);
+    setFound({ documents, questions });
     setStep("fields");
     return true;
   }
@@ -194,7 +199,7 @@ export function PostingForm({
     setMessage(null);
     setErrors({});
     startTransition(async () => {
-      const result = await savePostingAction(trackId, draft, { id, force });
+      const result = await savePostingAction(trackId, draft, { id, force, found: id ? undefined : (found ?? undefined) });
       if (result.ok) {
         router.push(`/postings/${result.id}`);
         return;
@@ -360,6 +365,14 @@ export function PostingForm({
         {!id && (
           <p className="text-sm text-foreground/70">
             공고에 적혀 있지 않은 값은 비워 두었습니다. 틀린 곳을 고치고 저장해 주세요
+          </p>
+        )}
+        {!id && found && (
+          <p className="text-sm text-foreground/70">
+            {found.documents.length > 0
+              ? `제출 서류: ${found.documents.map((d) => d.label).join(", ")}`
+              : "공고에 제출 서류가 적혀 있지 않습니다"}
+            {found.questions.length > 0 && ` · 자소서 문항 ${found.questions.length}개를 찾았습니다`}
           </p>
         )}
         {unverified.length > 0 && (

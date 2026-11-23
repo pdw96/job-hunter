@@ -11,6 +11,8 @@ import { applyWithCurrentScore } from "./apply";
 import { type ExtractedPosting, extractPosting } from "./extract";
 // 로컬 미리보기에서는 next.config.ts가 이 파일을 src/dev/local-fetch-page.ts로 바꿔 끼운다
 import { fetchPosting } from "@/modules/postings/fetch-page";
+import { seedQuestionsFromPosting } from "@/modules/applications/documents";
+import { cleanFound } from "./documents";
 import { type PostingErrors, validatePosting } from "./input";
 import { POSTING_LIMITS } from "./options";
 import { transcribePosting, validateTiles } from "./read-image";
@@ -98,7 +100,7 @@ export type SavePostingResult =
 export async function savePostingAction(
   trackId: string,
   input: unknown,
-  options: { id?: string; force?: boolean } = {},
+  options: { id?: string; force?: boolean; found?: unknown } = {},
 ): Promise<SavePostingResult> {
   const user = await requireUser();
   const checked = validatePosting(input);
@@ -117,7 +119,9 @@ export async function savePostingAction(
     const similar = await findSimilar(db, user.id, trackId, checked.value.company, checked.value.title);
     if (similar.length > 0) return { ok: false, similar };
   }
-  const created = await createPosting(db, user.id, trackId, checked.value);
+  // 값 뽑기 때 찾은 서류와 문항. 브라우저가 보낸 값이라 저장할 원문으로 다시 검사한다(공고를 고쳐도 찾은 값은 다시 읽기로만 바뀐다)
+  const found = options.found === undefined || options.found === null ? undefined : cleanFound(options.found, checked.value.rawText);
+  const created = await createPosting(db, user.id, trackId, checked.value, found);
   if (!created.ok) {
     return {
       ok: false,
@@ -164,6 +168,8 @@ export async function applyToPostingAction(id: string): Promise<SimpleResult> {
     if (result.reason === "changed") return { ok: false, message: "공고가 바뀌었습니다. 점수를 다시 확인한 뒤 지원해 주세요" };
     return { ok: false, message: NOT_FOUND };
   }
+  // 문항 채우기가 안 돼도 지원은 성공이다(공고 화면에서 다시 읽기로 채울 수 있다)
+  await seedQuestionsFromPosting(db, user.id, id).catch(() => undefined);
   refresh(id);
   return { ok: true };
 }
