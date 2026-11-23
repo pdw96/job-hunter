@@ -15,12 +15,14 @@ export type Selection = {
   approved: SourceRef[] | null;
   approvedAt: string | null;
 };
-export type Paragraph = { text: string; sources: string[]; edited: boolean }; // sources는 경험 id
+// sources는 경험 id, answers는 근거로 삼은 지원자의 답(applications_answers) id. 옛 답에는 answers가 없다(빈 배열로 본다)
+export type Paragraph = { text: string; sources: string[]; answers?: string[]; edited: boolean };
 export type Draft = {
   questionVersion: number;
   basedOn: SourceRef[];
   paragraphs: Paragraph[];
   shortage: string;
+  answers?: string[]; // 쓸 때 AI에 보낸 답 id. 옛 답에는 없다
   writtenAt: string;
 };
 

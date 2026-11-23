@@ -191,7 +191,7 @@ test("문항 글을 고치면 version이 오르고 selection이 지워지며 dra
   const first = selection(0);
   await saveSelection(db, "u1", id, first);
   await approveSelection(db, "u1", id, [ref("e1")], first);
-  expect(await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], draft: null })).toEqual({ ok: true });
+  expect(await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], answerIds: [], draft: null })).toEqual({ ok: true });
 
   expect(await updateQuestion(db, "u1", id, q("새 문항 글"))).toEqual({ ok: true });
   const after = await getQuestion(db, "u1", id);
@@ -238,7 +238,7 @@ test("다시 고르면 승인이 지워지고 답은 그대로다", async () => 
   const first = selection(0);
   await saveSelection(db, "u1", id, first);
   await approveSelection(db, "u1", id, [ref("e1")], first);
-  await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], draft: null });
+  await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], answerIds: [], draft: null });
   expect(await saveSelection(db, "u1", id, selection(0))).toEqual({ ok: true });
   const after = await getQuestion(db, "u1", id);
   expect(after?.selection).toMatchObject({ approved: null, approvedAt: null });
@@ -252,15 +252,15 @@ test("saveDraft는 승인이 바뀌었으면 changed", async () => {
   await approveSelection(db, "u1", id, [ref("e1")], first);
   // 읽은 뒤 다시 골라 승인이 지워졌다
   await saveSelection(db, "u1", id, selection(0));
-  expect(await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], draft: null })).toEqual({ ok: false, reason: "changed" });
+  expect(await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], answerIds: [], draft: null })).toEqual({ ok: false, reason: "changed" });
   expect((await getQuestion(db, "u1", id))?.draft).toBeNull();
   // 문항 글이 바뀐 경우도 막힌다
   const second = selection(0);
   await saveSelection(db, "u1", id, second);
   await approveSelection(db, "u1", id, [ref("e1")], second);
   await updateQuestion(db, "u1", id, q("고친 글"));
-  expect(await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], draft: null })).toEqual({ ok: false, reason: "changed" });
-  expect(await saveDraft(db, "u1", "없는-문항", draft(0), { version: 0, approved: [], draft: null })).toEqual({ ok: false, reason: "not_found" });
+  expect(await saveDraft(db, "u1", id, draft(0), { version: 0, approved: [ref("e1")], answerIds: [], draft: null })).toEqual({ ok: false, reason: "changed" });
+  expect(await saveDraft(db, "u1", "없는-문항", draft(0), { version: 0, approved: [], answerIds: [], draft: null })).toEqual({ ok: false, reason: "not_found" });
 });
 
 test("saveDraft는 읽은 때의 답이 바뀌었으면 changed이고, 처음 쓰는 경우(null)는 저장한다", async () => {
@@ -268,7 +268,7 @@ test("saveDraft는 읽은 때의 답이 바뀌었으면 changed이고, 처음 �
   const first = selection(0);
   await saveSelection(db, "u1", id, first);
   await approveSelection(db, "u1", id, [ref("e1")], first);
-  const base = { version: 0, approved: [ref("e1")] };
+  const base = { version: 0, approved: [ref("e1")], answerIds: [] };
   const d1 = draft(0);
   expect(await saveDraft(db, "u1", id, d1, { ...base, draft: null })).toEqual({ ok: true });
   // 답이 있는데 없다고 읽은 쪽은 막힌다
@@ -288,7 +288,7 @@ test("replaceDraft는 draft가 expected와 다르면 changed", async () => {
   await saveSelection(db, "u1", id, first);
   await approveSelection(db, "u1", id, [ref("e1")], first);
   const d1 = draft(0);
-  await saveDraft(db, "u1", id, d1, { version: 0, approved: [ref("e1")], draft: null });
+  await saveDraft(db, "u1", id, d1, { version: 0, approved: [ref("e1")], answerIds: [], draft: null });
   const d2 = draft(0, { paragraphs: [{ text: "고친 문단", sources: ["e1"], edited: true }] });
   expect(await replaceDraft(db, "u1", id, d1, d2)).toEqual({ ok: true });
   expect((await getQuestion(db, "u1", id))?.draft?.paragraphs[0].text).toBe("고친 문단");
@@ -321,7 +321,7 @@ test("다른 사용자의 문항은 읽히지도 고쳐지지도 않는다", asy
   expect(await updateQuestion(db, "u2", id, q("바꿈"))).toEqual({ ok: false, reason: "not_found" });
   expect(await saveSelection(db, "u2", id, selection(0))).toEqual({ ok: false, reason: "not_found" });
   expect(await approveSelection(db, "u2", id, [ref("e1")], first)).toEqual({ ok: false, reason: "not_found" });
-  expect(await saveDraft(db, "u2", id, draft(0), { version: 0, approved: [], draft: null })).toEqual({ ok: false, reason: "not_found" });
+  expect(await saveDraft(db, "u2", id, draft(0), { version: 0, approved: [], answerIds: [], draft: null })).toEqual({ ok: false, reason: "not_found" });
   expect(await replaceDraft(db, "u2", id, draft(0), draft(0))).toEqual({ ok: false, reason: "not_found" });
   expect(await deleteQuestion(db, "u2", id)).toEqual({ ok: false, reason: "not_found" });
   expect(await getQuestion(db, "u1", id)).toMatchObject({ prompt: "지원 동기를 쓰세요", version: 0 });
@@ -486,4 +486,17 @@ test("setQuestionKinds는 주제가 바뀔 때만 asks를 비운다", async () =
   expect((await getQuestion(db, "u1", id))?.asks).toEqual(asks(0));
   await setQuestionKinds(db, "u1", id, ["motive"]);
   expect(await getQuestion(db, "u1", id)).toMatchObject({ topics: ["motive"], asks: null });
+});
+
+test("saveDraft는 붙인 답이 읽은 때와 다르면 changed이고, approved가 null이면 고르기가 없을 때만 저장한다", async () => {
+  const { id } = await oneQuestion();
+  const a1 = await newAnswer();
+  await attachAnswer(db, "u1", id, a1);
+  const answersOnly = draft(0, { basedOn: [], answers: [a1] });
+  expect(await saveDraft(db, "u1", id, answersOnly, { version: 0, approved: null, answerIds: [], draft: null })).toEqual({ ok: false, reason: "changed" });
+  expect(await saveDraft(db, "u1", id, answersOnly, { version: 0, approved: null, answerIds: [a1], draft: null })).toEqual({ ok: true });
+
+  const { id: selected } = await oneQuestion();
+  await saveSelection(db, "u1", selected, selection(0));
+  expect(await saveDraft(db, "u1", selected, answersOnly, { version: 0, approved: null, answerIds: [], draft: null })).toEqual({ ok: false, reason: "changed" });
 });

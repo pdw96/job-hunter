@@ -1,5 +1,6 @@
 import { numbersIn } from "@/modules/experiences/grounding";
 import type { WritingSource } from "@/modules/experiences/sources";
+import type { Answer } from "./answers-repo";
 import type { Question } from "./repo";
 import type { Draft } from "./types";
 
@@ -17,7 +18,9 @@ export function answerText(draft: Draft): string {
 
 // structureChanged: 근거가 옛 표(바꾸기 전 경험 기록)의 id라 새 구조로 다시 만들어야 한다
 export type ParagraphCheck = { banned: string[]; ungrounded: string[]; noSource: boolean; staleSource: boolean; structureChanged: boolean };
-export type CheckOptions = { oldIds?: Set<string> }; // 옛 표의 기록 id(oldRecordIds). 없으면 옛 기록 표시를 하지 않는다
+// oldIds: 옛 표의 기록 id(oldRecordIds). 없으면 옛 기록 표시를 하지 않는다
+// answers: 지금 있는 지원자의 답(답에 쓰인 id로 읽은 것). 없으면 답 근거는 모두 없어진 것으로 본다
+export type CheckOptions = { oldIds?: Set<string>; answers?: Answer[] };
 export type DraftCheck = {
   length: { count: number; limit: number | null; over: boolean };
   paragraphs: ParagraphCheck[];
@@ -51,6 +54,9 @@ export function checkDraft(
   const byId = new Map(sources.map((source) => [source.id, source]));
   const approved = new Set(draft.basedOn.map((ref) => ref.experienceId));
   const basedVersion = new Map(draft.basedOn.map((ref) => [ref.experienceId, ref.contentVersion]));
+  // 쓸 때 보낸(draft.answers) 답 중 지금 있는 것만 근거로 친다. 옛 답에는 answers가 없다
+  const sent = new Set(draft.answers ?? []);
+  const answerById = new Map((options.answers ?? []).map((answer) => [answer.id, answer]));
 
   const bannedPhrases = draft.basedOn.flatMap((ref) => byId.get(ref.experienceId)?.bannedPhrases ?? []);
   const promptNumbers = numbersIn(question.prompt);
@@ -67,12 +73,15 @@ export function checkDraft(
       return { banned, ungrounded: [], noSource: false, staleSource: false, structureChanged: true };
     }
 
-    const staleSource = paragraph.sources.some((id) => {
-      const current = byId.get(id);
-      if (!current) return true;
-      const based = basedVersion.get(id);
-      return based !== undefined && based !== current.contentVersion;
-    });
+    const answerIds = paragraph.answers ?? [];
+    const staleSource =
+      paragraph.sources.some((id) => {
+        const current = byId.get(id);
+        if (!current) return true;
+        const based = basedVersion.get(id);
+        return based !== undefined && based !== current.contentVersion;
+      }) || answerIds.some((id) => !answerById.has(id));
+    const groundingAnswers = answerIds.flatMap((id) => (sent.has(id) ? (answerById.get(id) ?? []) : []));
 
     if (paragraph.edited) return { banned, ungrounded: [], noSource: false, staleSource, structureChanged: false };
 
@@ -83,9 +92,11 @@ export function checkDraft(
         const current = byId.get(id);
         return current && approved.has(id) ? knownNumbers(current) : [];
       }),
+      // 근거로 친 답 글의 숫자도 허용한다(공고 글의 숫자는 허용하지 않는다)
+      ...groundingAnswers.flatMap((answer) => numbersIn(answer.answer)),
     ]);
     const ungrounded = [...new Set(numbersIn(paragraph.text).filter((n) => !known.has(n)))];
-    const noSource = !paragraph.sources.some((id) => approved.has(id));
+    const noSource = !paragraph.sources.some((id) => approved.has(id)) && groundingAnswers.length === 0;
     return { banned, ungrounded, noSource, staleSource, structureChanged: false };
   });
 

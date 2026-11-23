@@ -323,7 +323,7 @@ function applicationSelect(text: string) {
   };
 }
 
-// 답 쓰기 흉내. E1의 "본인이 한 일"과 "결과"로 두 문단을 쓴다
+// 답 쓰기 흉내. E1의 "본인이 한 일"과 "결과"로 두 문단을 쓰고, [내 답]이 있으면 A1의 답 글을 첫 문단으로 쓴다
 function applicationWrite(text: string) {
   const experiences = section(text, "경험 기록");
   const first = experiences.split(/\n\n(?=E\d+\n)/)[0] ?? "";
@@ -332,12 +332,16 @@ function applicationWrite(text: string) {
     return value === "없음" ? "" : value;
   };
   const paragraphs = [field("본인이 한 일"), field("결과")].filter(Boolean).map((line) => ({ text: line, sources: ["E1"] }));
+  // [내 답]이 있으면 첫 답의 글을 A1이 근거인 문단으로 앞에 둔다
+  const answer = section(text, "내 답").split(/\n\n(?=A\d+\n)/)[0]?.match(/^- 답: (.*)$/m)?.[1] ?? "";
+  if (answer) paragraphs.unshift({ text: answer, sources: ["A1"] });
   return { paragraphs, shortage: "" };
 }
 
-// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다
+// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다. 근거는 경험이 있으면 E1, 답이 있으면 A1
 function applicationRevise(text: string) {
-  return { text: `${section(text, "고칠 문단")} (고침)`, sources: ["E1"] };
+  const sources = [section(text, "경험 기록") ? "E1" : "", section(text, "내 답") ? "A1" : ""].filter(Boolean);
+  return { text: `${section(text, "고칠 문단")} (고침)`, sources };
 }
 
 // 묻기 흉내. 질문 2개에 선택지 3개씩. [내 기록]이 있으면 첫 기록을 연결고리로 적는다

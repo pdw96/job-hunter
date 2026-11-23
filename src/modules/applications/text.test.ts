@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { aliasKey, resolveAlias } from "./text";
+import { aliasKey, answerAlias, resolveAlias } from "./text";
 
 test.each([
   ["E1", "E1"],
@@ -42,4 +42,18 @@ test("resolveAlias: 이름이 같은 경험이 둘이면 고르지 않고, 모�
   expect(resolveAlias("프로젝트", dup)).toBeUndefined();
   expect(resolveAlias("없는 경험", sources)).toBeUndefined();
   expect(resolveAlias("  ", sources)).toBeUndefined();
+});
+
+test.each([
+  ["A1", 1],
+  [" a2 ", 2],
+  ["[A3]", 3],
+  ["A1 (지원동기)", 1],
+  ["A12:", 12],
+])("answerAlias(%j) = %j", (raw, expected) => {
+  expect(answerAlias(raw)).toBe(expected);
+});
+
+test.each(["", "A", "E1", "AE1", "A1a", "답 A1", "Plan A1"])("answerAlias(%j)는 null", (raw) => {
+  expect(answerAlias(raw)).toBeNull();
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WritingSource } from "@/modules/experiences/writing";
+import type { Answer } from "./answers-repo";
 import { answerText, checkDraft, countChars } from "./check";
 import type { Draft, Paragraph } from "./types";
 
@@ -178,5 +179,58 @@ describe("문항 변경", () => {
   it("문항 version이 다르면 questionChanged", () => {
     expect(checkDraft(draft([paragraph()]), { ...question, version: 2 }, [source()]).questionChanged).toBe(true);
     expect(checkDraft(draft([paragraph()]), question, [source()]).questionChanged).toBe(false);
+  });
+});
+
+describe("답 근거", () => {
+  const answer = (over: Partial<Answer> = {}): Answer => ({
+    id: "a1",
+    topic: "motive",
+    question: "왜 이 회사인가요?",
+    answer: "하루 30만 명이 쓰는 주문 서비스를 안정적으로 만들고 싶다",
+    postingId: null,
+    company: "가나다",
+    companyKey: "가나다",
+    createdAt: new Date("2026-11-18T00:00:00Z"),
+    ...over,
+  });
+  const byAnswer = (over: Partial<Paragraph> = {}) => paragraph({ text: "주문 서비스를 안정적으로 만들고 싶습니다", sources: [], answers: ["a1"], ...over });
+
+  it("답이 근거인 문단은 근거 없음이 아니다", () => {
+    const d = draft([byAnswer()], { basedOn: [], answers: ["a1"] });
+    expect(checkDraft(d, question, [], { answers: [answer()] }).paragraphs[0]).toMatchObject({ noSource: false, staleSource: false, ungrounded: [] });
+  });
+
+  it("답 글의 숫자는 표시하지 않는다", () => {
+    const d = draft([byAnswer({ text: "하루 30만 명이 쓰는 서비스를 50% 더 빠르게" })], { basedOn: [], answers: ["a1"] });
+    expect(checkDraft(d, question, [], { answers: [answer()] }).paragraphs[0].ungrounded).toEqual(["50"]);
+  });
+
+  it("draft.answers에 없는 답 id는 근거로 치지 않는다", () => {
+    const d = draft([byAnswer({ text: "하루 30만 명이 쓰는 서비스", answers: ["a2"] })], { basedOn: [], answers: ["a1"] });
+    const out = checkDraft(d, question, [], { answers: [answer(), answer({ id: "a2" })] });
+    expect(out.paragraphs[0]).toMatchObject({ noSource: true, ungrounded: ["30"] });
+  });
+
+  it("지금 없는 답을 가리키면 staleSource이고 근거로 치지 않는다", () => {
+    const d = draft([byAnswer()], { basedOn: [], answers: ["a1"] });
+    expect(checkDraft(d, question, [], { answers: [] }).paragraphs[0]).toMatchObject({ staleSource: true, noSource: true });
+    expect(checkDraft(d, question, []).paragraphs[0]).toMatchObject({ staleSource: true, noSource: true });
+    const edited = draft([byAnswer({ edited: true })], { basedOn: [], answers: ["a1"] });
+    expect(checkDraft(edited, question, [], { answers: [] }).paragraphs[0].staleSource).toBe(true);
+  });
+
+  it("경험과 답을 함께 근거로 삼으면 둘의 숫자를 모두 허용한다", () => {
+    const d = draft([paragraph({ text: "1.2초를 줄였고 30만 명이 쓰는 서비스", answers: ["a1"] })], { answers: ["a1"] });
+    expect(checkDraft(d, question, [source()], { answers: [answer()] }).paragraphs[0]).toMatchObject({ ungrounded: [], noSource: false });
+  });
+
+  it("옛 답(answers 칸 없음)은 지금과 같게 검사한다", () => {
+    const d = draft([paragraph({ text: "응답 시간을 40% 개선했다" }), paragraph({ sources: [] })]);
+    expect(checkDraft(d, question, [source()], { answers: [answer()] })).toEqual(checkDraft(d, question, [source()]));
+    expect(checkDraft(d, question, [source()]).paragraphs.map((p) => [p.ungrounded, p.noSource, p.staleSource])).toEqual([
+      [["40"], false, false],
+      [[], true, false],
+    ]);
   });
 });

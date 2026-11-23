@@ -231,14 +231,15 @@ export async function approveSelection(
   return updated.length > 0 ? { ok: true } : whyNot(db, userId, id);
 }
 
-// 쓴 답을 저장한다. 읽은 때의 문항 글, 승인, 지금 답(없으면 null) 그대로일 때만 쓴다.
+// 쓴 답을 저장한다. 읽은 때의 문항 글, 승인, 붙인 답, 지금 답(없으면 null) 그대로일 때만 쓴다.
+// approved가 null이면 고르기 없이 답만으로 쓴 것이므로 그사이 고르기도 하지 않았어야 한다.
 // 쓰는 동안 직접 고친 문단을 덮어쓰지 않으려고 지금 답도 비교한다
 export async function saveDraft(
   db: Db,
   userId: string,
   id: string,
   draft: Draft,
-  readAs: { version: number; approved: SourceRef[]; draft: Draft | null },
+  readAs: { version: number; approved: SourceRef[] | null; answerIds: string[]; draft: Draft | null },
 ): Promise<Stale> {
   const updated = await db
     .update(questions)
@@ -247,7 +248,8 @@ export async function saveDraft(
       and(
         mine(userId, id),
         eq(questions.version, readAs.version),
-        sql`${questions.selection}->'approved' = ${json(readAs.approved)}`,
+        readAs.approved === null ? isNull(questions.selection) : sql`${questions.selection}->'approved' = ${json(readAs.approved)}`,
+        sql`${questions.answerIds} = ${json(readAs.answerIds)}`,
         readAs.draft === null ? isNull(questions.draft) : sql`${questions.draft} = ${json(readAs.draft)}`,
       ),
     )
