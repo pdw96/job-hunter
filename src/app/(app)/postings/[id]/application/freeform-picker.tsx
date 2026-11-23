@@ -66,7 +66,8 @@ export function FreeformPicker({ postingId, present }: { postingId: string; pres
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              // 한글 입력 중의 Enter는 글자를 확정하는 것이라 항목을 넣지 않는다
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 commitDraft();
               }
