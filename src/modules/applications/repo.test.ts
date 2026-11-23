@@ -436,7 +436,7 @@ test("다른 사용자의 문항은 not_found", async () => {
 
 const asks = (questionVersion: number): Asks => ({
   questionVersion,
-  items: [{ topic: "motive", link: "", question: "왜?", options: ["가", "나", "다"], previous: [] }],
+  items: [{ id: "ask-1", topic: "motive", link: "", question: "왜?", options: ["가", "나", "다"], previous: [] }],
   madeAt: "2026-11-23T00:00:00.000Z",
 });
 const newAnswer = (userId = "u1", answer = "답") =>
@@ -474,4 +474,16 @@ test("attachAnswer는 중복 없이 뒤에 붙이고, 6개를 넘으면 too_many
   const other = await oneQuestion();
   expect(await attachAnswer(db, "u1", other.id, await newAnswer("u2"))).toEqual({ ok: false, reason: "not_found" });
   expect(await attachAnswer(db, "u2", other.id, ids[0])).toEqual({ ok: false, reason: "not_found" });
+});
+
+test("setQuestionKinds는 주제가 바뀔 때만 asks를 비운다", async () => {
+  const postingId = await addPosting();
+  const added = await addQuestions(db, "u1", postingId, [{ ...q("가치관"), kinds: ["self"], topics: ["values"] }]);
+  if (!added.ok) throw new Error(added.reason);
+  const id = added.ids[0];
+  await saveAsks(db, "u1", id, asks(0));
+  await setQuestionKinds(db, "u1", id, ["experience", "self"]);
+  expect((await getQuestion(db, "u1", id))?.asks).toEqual(asks(0));
+  await setQuestionKinds(db, "u1", id, ["motive"]);
+  expect(await getQuestion(db, "u1", id)).toMatchObject({ topics: ["motive"], asks: null });
 });

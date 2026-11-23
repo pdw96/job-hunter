@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
@@ -23,15 +24,18 @@ const askSchema = z.object({
 });
 type AskRaw = z.infer<typeof askSchema>;
 
-// 질문 번호, 고른 선택지 번호, 고른 지난 답 번호, 기타 한 줄. 모르는 칸(화면이 보낸 글 등)은 버린다
-const picksSchema = z.array(
-  z.object({
-    index: z.number().int().nonnegative(),
-    options: z.array(z.number().int()).default([]),
-    previous: z.array(z.number().int()).default([]),
-    note: z.string().default(""),
-  }),
-);
+// 질문 id, 고른 선택지 번호, 고른 지난 답 번호, 기타 한 줄. 모르는 칸(화면이 보낸 글 등)은 버린다
+const index = z.number().int().nonnegative();
+const picksSchema = z
+  .array(
+    z.object({
+      id: z.string().min(1),
+      options: z.array(index).max(APPLICATION_LIMITS.askOptions).default([]),
+      previous: z.array(index).max(APPLICATION_LIMITS.askPrevious).default([]),
+      note: z.string().default(""),
+    }),
+  )
+  .max(APPLICATION_LIMITS.asks + ANSWER_TOPICS.length); // AI 질문 3개 + 주제마다 지난 답만 담은 질문
 
 export type AskInput = { prompt: string; company: string; title: string; postingText: string; topics: AnswerTopic[]; hooks: MotiveHook[] };
 
@@ -102,7 +106,7 @@ export async function askText(
       APPLICATION_LIMITS.askOptions,
     );
     if (choices.length < 2 && !options.keep?.includes(topic)) continue;
-    items.push({ topic, link: cut(tidy(raw.link), MAX_LINK), question, options: choices, previous: [] });
+    items.push({ id: randomUUID(), topic, link: cut(tidy(raw.link), MAX_LINK), question, options: choices, previous: [] });
   }
   return items.length > 0 ? { ok: true, value: items } : { ok: false, reason: "invalid" };
 }
@@ -141,7 +145,7 @@ export async function makeAsks(
   const key = companyKey(posting.company);
   const [hooks, reusable] = await Promise.all([
     listMotiveHooks(db, userId, posting.trackId),
-    listReusable(db, userId, wanted, key, question.answerIds),
+    listReusable(db, userId, wanted, key, question.answerIds, APPLICATION_LIMITS.askPrevious),
   ]);
   const made = await askText(
     db,
@@ -151,16 +155,17 @@ export async function makeAsks(
     now,
     { keep: [...reusable.keys()] },
   );
-  if (!made.ok) return made;
+  // AI 답이 모두 버려졌어도(invalid) 지난 답이 있으면 지난 답만 담은 질문으로 묻는다. 한도·연결 실패는 그대로 돌려준다
+  if (!made.ok && !(made.reason === "invalid" && reusable.size > 0)) return made;
 
   // 같은 주제의 첫 질문 선택지 끝에 지난 답을 붙인다. 그 주제의 질문이 없으면 지난 답만 담은 질문을 더한다
-  const items = made.value;
+  const items = made.ok ? made.value : [];
   for (const topic of wanted) {
     const previous = (reusable.get(topic) ?? []).map(previousOf);
     if (previous.length === 0) continue;
     const first = items.find((x) => x.topic === topic);
     if (first) first.previous = previous;
-    else items.push({ topic, link: "", question: PREVIOUS_ONLY, options: [], previous });
+    else items.push({ id: randomUUID(), topic, link: "", question: PREVIOUS_ONLY, options: [], previous });
   }
   const value: Asks = {
     questionVersion: question.version,
@@ -192,17 +197,21 @@ export async function answerAsks(
     if (!posting) return notFound;
     const key = companyKey(posting.company);
     const topics = question.topics ?? [];
+    // 질문은 id로 가리킨다. 지금 저장된 질문에 없는 id(이미 답했거나 질문을 다시 받음)가 있으면 옛 화면이다
+    const byId = new Map(asks.items.map((item, i) => [item.id, i]));
+    if (wanted.some((pick) => !byId.has(pick.id))) return { ok: false as const, reason: "changed" as const };
+    const located = wanted.map((pick) => ({ ...pick, index: byId.get(pick.id)! }));
 
     // 고른 지난 답은 지금도 내 답이고 이 문항에 붙일 수 있는지 다시 본다
-    const pickedPrevious = wanted.flatMap((pick) => asks.items[pick.index]?.previous.filter((_, i) => pick.previous.includes(i)) ?? []);
+    const pickedPrevious = located.flatMap((pick) => asks.items[pick.index]?.previous.filter((_, i) => pick.previous.includes(i)) ?? []);
     const owned = new Map((await listAnswersByIds(tx, userId, unique(pickedPrevious.map((p) => p.answerId)))).map((a) => [a.id, a]));
 
     const plans: { index: number; topic: AnswerTopic; question: string; text: string; previous: string[] }[] = [];
-    for (const pick of wanted) {
+    for (const pick of located) {
       const item = asks.items[pick.index];
       if (!item || !topics.includes(item.topic) || plans.some((p) => p.index === pick.index)) continue;
       const chosen = item.options.filter((_, i) => pick.options.includes(i));
-      const note = cut(pick.note.trim(), APPLICATION_LIMITS.note);
+      const note = cut(tidy(pick.note), APPLICATION_LIMITS.note); // 기타는 한 줄
       const text = cut([...chosen, note].filter((part) => part !== "").join("\n"), APPLICATION_LIMITS.answer);
       const previous = unique(
         item.previous

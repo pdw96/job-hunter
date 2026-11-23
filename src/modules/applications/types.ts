@@ -26,7 +26,7 @@ export type Draft = {
 
 // 묻기. 쓰기 전에 동기·포부 같은 재료를 고를 수 있는 질문으로 묻는다
 export type PreviousAnswer = { answerId: string; text: string; label: string }; // label: "삼성전자 · 2026-11"
-export type AskItem = { topic: AnswerTopic; link: string; question: string; options: string[]; previous: PreviousAnswer[] }; // link: 연결고리 한 줄(없으면 빈 글)
+export type AskItem = { id: string; topic: AnswerTopic; link: string; question: string; options: string[]; previous: PreviousAnswer[] }; // id: 질문을 만들 때 붙인 고유 값(답할 때 이 값으로 가리킨다). link: 연결고리 한 줄(없으면 빈 글)
 export type Asks = { questionVersion: number; items: AskItem[]; madeAt: string };
 
 // 이력서. 항목마다 근거 경험이 하나다

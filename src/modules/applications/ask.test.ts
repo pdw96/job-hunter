@@ -262,6 +262,7 @@ test("AI가 그 주제의 질문을 만들지 않았으면 지난 답만 담은 
   const asks = await asked(id, ["motive", "growth"], [item()]);
   expect(asks.items).toHaveLength(2);
   expect(asks.items[1]).toEqual({
+    id: expect.any(String),
     topic: "growth",
     link: "",
     question: "지난번 답을 다시 쓸까요?",
@@ -290,8 +291,8 @@ test("이미 붙인 답은 지난 답으로 다시 보이지 않는다", async (
 
 test("answerAsks는 저장된 선택지 글로 답을 만든다(화면이 보낸 글은 쓰지 않음)", async () => {
   const { id, postingId } = await addQuestion(["motive"]);
-  await asked(id, ["motive"], [item()]);
-  const picks = [{ index: 0, options: [1], previous: [], note: "", text: "화면이 바꾼 글", options_text: ["가짜"] }];
+  const asks = await asked(id, ["motive"], [item()]);
+  const picks = [{ id: asks.items[0].id, options: [1], previous: [], note: "", text: "화면이 바꾼 글", options_text: ["가짜"] }];
   expect(await answerAsks(db, "u1", id, picks, now)).toEqual({ ok: true, added: 1 });
   const question = await getQuestion(db, "u1", id);
   const [answer] = await listAnswersByIds(db, "u1", question?.answerIds ?? []);
@@ -306,45 +307,45 @@ test("answerAsks는 저장된 선택지 글로 답을 만든다(화면이 보낸
 
 test("고른 선택지 둘과 기타를 줄바꿈으로 잇는다", async () => {
   const { id } = await addQuestion(["motive"]);
-  await asked(id, ["motive"], [item()]);
-  await answerAsks(db, "u1", id, [{ index: 0, options: [2, 0, 0, 9], previous: [], note: "  결제 장애를 겪어 봐서  " }], now);
+  const asks = await asked(id, ["motive"], [item()]);
+  await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [2, 0, 0, 9], previous: [], note: "  결제 장애를 겪어 봐서  " }], now);
   const [answer] = await listAnswersByIds(db, "u1", (await getQuestion(db, "u1", id))?.answerIds ?? []);
   expect(answer.answer).toBe("주문·결제처럼 매일 쓰는 서비스를 만들고 싶다\n아직 잘 모르겠다\n결제 장애를 겪어 봐서");
 });
 
 test("기타만 적어도 답이 된다. 아무것도 고르지 않으면 empty", async () => {
   const { id } = await addQuestion(["motive"]);
-  await asked(id, ["motive"], [item()]);
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [], previous: [], note: "   " }], now)).toEqual({ ok: false, reason: "empty" });
+  const asks = await asked(id, ["motive"], [item()]);
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [], previous: [], note: "   " }], now)).toEqual({ ok: false, reason: "empty" });
   expect(await answerAsks(db, "u1", id, "엉뚱한 값", now)).toEqual({ ok: false, reason: "empty" });
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [], previous: [], note: "내 말" }], now)).toEqual({ ok: true, added: 1 });
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [], previous: [], note: "내 말" }], now)).toEqual({ ok: true, added: 1 });
 });
 
 test("asks.questionVersion이 다르면 changed", async () => {
   const { id } = await addQuestion(["motive"]);
-  await asked(id, ["motive"], [item()]);
+  const asks = await asked(id, ["motive"], [item()]);
   await db.update(questions).set({ version: 3 }).where(eq(questions.id, id));
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
   expect(await answerCount()).toBe(0);
 });
 
 test("질문이 없으면(문항 글을 고쳐 지워졌으면) changed", async () => {
   const { id } = await addQuestion(["motive"]);
-  await asked(id, ["motive"], [item()]);
+  const asks = await asked(id, ["motive"], [item()]);
   await updateQuestion(db, "u1", id, { prompt: "바뀐 문항", charLimit: 500, countSpaces: true });
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
 });
 
 test("지원동기 답에는 companyKey가 담기고 성장과정 답에는 없다", async () => {
   const { id } = await addQuestion(["motive", "growth"]);
-  await asked(id, ["motive", "growth"], [item(), item({ topic: "growth", question: "성장 질문" })]);
+  const asks = await asked(id, ["motive", "growth"], [item(), item({ topic: "growth", question: "성장 질문" })]);
   const result = await answerAsks(
     db,
     "u1",
     id,
     [
-      { index: 0, options: [0], previous: [], note: "" },
-      { index: 1, options: [1], previous: [], note: "" },
+      { id: asks.items[0].id, options: [0], previous: [], note: "" },
+      { id: asks.items[1].id, options: [1], previous: [], note: "" },
     ],
     now,
   );
@@ -358,11 +359,11 @@ test("지원동기 답에는 companyKey가 담기고 성장과정 답에는 없�
 
 test("답한 항목은 asks에서 빠진다", async () => {
   const { id } = await addQuestion(["motive"]);
-  await asked(id, ["motive"], [item(), item({ question: "둘째 질문" })]);
-  await answerAsks(db, "u1", id, [{ index: 0, options: [0], previous: [], note: "" }], now);
+  const asks = await asked(id, ["motive"], [item(), item({ question: "둘째 질문" })]);
+  await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now);
   const after = await getQuestion(db, "u1", id);
   expect(after?.asks?.items.map((x) => x.question)).toEqual(["둘째 질문"]);
-  await answerAsks(db, "u1", id, [{ index: 0, options: [1], previous: [], note: "" }], now);
+  await answerAsks(db, "u1", id, [{ id: asks.items[1].id, options: [1], previous: [], note: "" }], now);
   const done = await getQuestion(db, "u1", id);
   expect(done?.asks).toBeNull();
   expect(done?.answerIds).toHaveLength(2);
@@ -371,9 +372,9 @@ test("답한 항목은 asks에서 빠진다", async () => {
 test("지난 답을 고르면 새 행 없이 그 id를 붙인다", async () => {
   const growthId = await createAnswer(db, "u1", { topic: "growth", question: "어떻게?", answer: "성장 답", postingId: null, company: "라마바", companyKey: null }, now);
   const { id } = await addQuestion(["growth"]);
-  await asked(id, ["growth"], [item({ topic: "growth" })]);
+  const asks = await asked(id, ["growth"], [item({ topic: "growth" })]);
   expect(await answerCount()).toBe(1);
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [], previous: [0, 5], note: "" }], now)).toEqual({ ok: true, added: 1 });
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [], previous: [0, 5], note: "" }], now)).toEqual({ ok: true, added: 1 });
   expect(await answerCount()).toBe(1);
   expect((await getQuestion(db, "u1", id))?.answerIds).toEqual([growthId]);
 });
@@ -381,8 +382,8 @@ test("지난 답을 고르면 새 행 없이 그 id를 붙인다", async () => {
 test("지난 답과 새 선택지를 함께 고르면 둘 다 붙는다", async () => {
   const growthId = await createAnswer(db, "u1", { topic: "growth", question: "어떻게?", answer: "성장 답", postingId: null, company: "라마바", companyKey: null }, now);
   const { id } = await addQuestion(["growth"]);
-  await asked(id, ["growth"], [item({ topic: "growth" })]);
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [0], previous: [0], note: "" }], now)).toEqual({ ok: true, added: 2 });
+  const asks = await asked(id, ["growth"], [item({ topic: "growth" })]);
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [0], note: "" }], now)).toEqual({ ok: true, added: 2 });
   const ids = (await getQuestion(db, "u1", id))?.answerIds ?? [];
   expect(ids).toHaveLength(2);
   expect(ids).toContain(growthId);
@@ -397,7 +398,7 @@ test("지금 붙일 수 없는 지난 답(남의 답)은 건너뛴다", async ()
   const asks = question!.asks!;
   const forged = { ...asks, items: [{ ...asks.items[0], previous: [{ answerId: theirs, text: "남의 답", label: "라마바 · 2026-11" }] }] };
   await db.update(questions).set({ asks: forged }).where(eq(questions.id, id));
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [], previous: [0], note: "" }], now)).toEqual({ ok: false, reason: "empty" });
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [], previous: [0], note: "" }], now)).toEqual({ ok: false, reason: "empty" });
   expect((await getQuestion(db, "u1", id))?.answerIds).toEqual([]);
 });
 
@@ -405,8 +406,8 @@ test("붙인 답이 6개를 넘으면 too_many이고 아무것도 만들지 않�
   const { id } = await addQuestion(["growth"]);
   for (let i = 0; i < 6; i++) expect(await writeAnswer(db, "u1", id, "growth", `답 ${i}`)).toEqual({ ok: true });
   expect(await writeAnswer(db, "u1", id, "growth", "일곱째")).toEqual({ ok: false, reason: "too_many" });
-  await asked(id, ["growth"], [item({ topic: "growth" })]);
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "too_many" });
+  const asks = await asked(id, ["growth"], [item({ topic: "growth" })]);
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "too_many" });
   expect(await answerCount()).toBe(6);
 });
 
@@ -439,14 +440,14 @@ test("detachAnswer는 답을 떼고 답 행은 남긴다", async () => {
 
 test("잠긴 공고는 submitted", async () => {
   const { id, postingId } = await addQuestion(["motive"]);
-  await asked(id, ["motive"], [item()]);
+  const asks = await asked(id, ["motive"], [item()]);
   await writeAnswer(db, "u1", id, "motive", "답");
   const [answerId] = (await getQuestion(db, "u1", id))?.answerIds ?? [];
   expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
   const ai = fakeAi([item()]);
   expect(await makeAsks(db, ai, "u1", id, ["motive"], now)).toEqual({ ok: false, reason: "submitted" });
   expect(ai.requests).toHaveLength(0);
-  expect(await answerAsks(db, "u1", id, [{ index: 0, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "submitted" });
+  expect(await answerAsks(db, "u1", id, [{ id: asks.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "submitted" });
   expect(await writeAnswer(db, "u1", id, "motive", "더")).toEqual({ ok: false, reason: "submitted" });
   expect(await detachAnswer(db, "u1", id, answerId)).toEqual({ ok: false, reason: "submitted" });
   expect(await answerCount()).toBe(1);
@@ -467,4 +468,60 @@ test("AI에 묻는 주제는 화면이 보낸 것 중 문항에 있는 것만이
   expect(topicSection).toContain("motive");
   expect(topicSection).not.toContain("growth");
   expect(topicSection).not.toContain("values");
+});
+
+// 질문 id
+
+test("질문마다 다른 id가 있다", async () => {
+  const growthId = await createAnswer(db, "u1", { topic: "growth", question: "어떻게?", answer: "성장 답", postingId: null, company: "라마바", companyKey: null }, now);
+  const { id } = await addQuestion(["motive", "growth"]);
+  const asks = await asked(id, ["motive", "growth"], [item(), item({ question: "둘째 질문" })]);
+  expect(asks.items.map((x) => x.previous.map((p) => p.answerId))).toEqual([[], [], [growthId]]);
+  const ids = asks.items.map((x) => x.id);
+  expect(new Set(ids).size).toBe(3);
+  expect(ids.every((x) => typeof x === "string" && x.length > 0)).toBe(true);
+});
+
+test("같은 답을 두 번 저장하면 두 번째는 changed", async () => {
+  const { id } = await addQuestion(["motive"]);
+  const asks = await asked(id, ["motive"], [item(), item({ question: "둘째 질문", options: ["다른 가", "다른 나", "다른 다"] })]);
+  const picks = [{ id: asks.items[0].id, options: [0], previous: [], note: "" }];
+  expect(await answerAsks(db, "u1", id, picks, now)).toEqual({ ok: true, added: 1 });
+  // 첫 질문이 빠져 둘째 질문이 앞으로 와도, 옛 picks가 둘째 질문의 선택지로 저장되지 않는다
+  expect(await answerAsks(db, "u1", id, picks, now)).toEqual({ ok: false, reason: "changed" });
+  expect(await answerCount()).toBe(1);
+  expect((await getQuestion(db, "u1", id))?.asks?.items.map((x) => x.question)).toEqual(["둘째 질문"]);
+});
+
+test("질문을 다시 받은 뒤 옛 질문의 picks는 changed", async () => {
+  const { id } = await addQuestion(["motive"]);
+  const old = await asked(id, ["motive"], [item()]);
+  await asked(id, ["motive"], [item({ question: "새 질문" })]);
+  expect(await answerAsks(db, "u1", id, [{ id: old.items[0].id, options: [0], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "changed" });
+  expect(await answerCount()).toBe(0);
+});
+
+test("기타는 한 줄로 줄이고, 음수 번호나 너무 많은 번호는 받지 않는다", async () => {
+  const { id } = await addQuestion(["motive"]);
+  const asks = await asked(id, ["motive"], [item(), item({ question: "둘째 질문" })]);
+  const first = asks.items[0].id;
+  expect(await answerAsks(db, "u1", id, [{ id: first, options: [-1], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "empty" });
+  expect(await answerAsks(db, "u1", id, [{ id: first, options: [0, 1, 2, 3, 4, 5], previous: [], note: "" }], now)).toEqual({ ok: false, reason: "empty" });
+  expect(await answerAsks(db, "u1", id, [{ id: first, options: [], previous: [0, 1, 2], note: "" }], now)).toEqual({ ok: false, reason: "empty" });
+  expect(await answerAsks(db, "u1", id, [{ id: first, options: [], previous: [], note: "첫 줄\n\n  둘째   줄" }], now)).toEqual({ ok: true, added: 1 });
+  const [answer] = await listAnswersByIds(db, "u1", (await getQuestion(db, "u1", id))?.answerIds ?? []);
+  expect(answer.answer).toBe("첫 줄 둘째 줄");
+});
+
+test("AI 답이 모두 버려져도 지난 답이 있으면 지난 답만 담은 질문을 저장한다", async () => {
+  const growthId = await createAnswer(db, "u1", { topic: "growth", question: "어떻게?", answer: "성장 답", postingId: null, company: "라마바", companyKey: null }, now);
+  const { id } = await addQuestion(["motive", "growth"]);
+  const result = await makeAsks(db, fakeAi([item({ topic: "모름" })]), "u1", id, ["motive", "growth"], now);
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.items).toEqual([
+    { id: expect.any(String), topic: "growth", link: "", question: "지난번 답을 다시 쓸까요?", options: [], previous: [{ answerId: growthId, text: "성장 답", label: "라마바 · 2026-11" }] },
+  ]);
+  expect((await getQuestion(db, "u1", id))?.asks).toEqual(result.value);
+  // 한도·연결 실패는 그대로 실패다
+  expect(await makeAsks(db, createFakeAi([{ fail: "unavailable" }]), "u1", id, ["growth"], now)).toEqual({ ok: false, reason: "unavailable" });
 });

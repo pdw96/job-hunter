@@ -152,7 +152,7 @@ async function doUpdate(db: Db, userId: string, id: string, input: QuestionInput
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
 }
 
-// 문항의 유형을 바꾸고 주제를 거기에 맞춘다. 빈 유형은 받지 않는다
+// 문항의 유형을 바꾸고 주제를 거기에 맞춘다. 주제가 바뀌면 묻기 질문도 지운다(빠진 주제의 질문이 남지 않게). 빈 유형은 받지 않는다
 export async function setQuestionKinds(
   db: Db,
   userId: string,
@@ -164,9 +164,11 @@ export async function setQuestionKinds(
   return guardedWrite(db, userId, id, async (tx) => {
     const [row] = await tx.select({ topics: questions.topics }).from(questions).where(mine(userId, id)).limit(1);
     if (!row) return { ok: false as const, reason: "not_found" as const };
+    const topics = topicsFor(clean, row.topics ?? []);
+    const same = JSON.stringify(topics) === JSON.stringify(row.topics ?? []);
     await tx
       .update(questions)
-      .set({ kinds: clean, topics: topicsFor(clean, row.topics ?? []), updatedAt: new Date() })
+      .set({ kinds: clean, topics, ...(same ? {} : { asks: null }), updatedAt: new Date() })
       .where(mine(userId, id));
     return { ok: true as const };
   });

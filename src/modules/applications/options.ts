@@ -20,6 +20,7 @@ export const APPLICATION_LIMITS = {
   askOptions: 5,
   askQuestion: 200,
   askOption: 200,
+  askPrevious: 2, // 질문마다 붙이는 지난 답(주제마다 최근 것)
   answer: 1000, // 답 하나의 글자 수
   answersPerQuestion: 6, // 문항 하나에 붙이는 답
 } as const;
