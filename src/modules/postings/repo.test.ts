@@ -15,6 +15,8 @@ import {
   getPosting,
   listPostings,
   saveAnalysis,
+  saveFound,
+  setChosenDocuments,
   setExcludeOverride,
   setStatus,
   sortByDeadline,
@@ -325,4 +327,54 @@ test("남의 공고에 saveAnalysis·applyToPosting은 not_found", async () => {
   const read = { rawText: raw.rawText, companyNote: null, regions: ["seoul"], careerType: "experienced" as const, minYears: 3, analysis };
   expect(await applyToPosting(db, "u2", id, applied, read)).toEqual({ ok: false, reason: "not_found" });
   expect(await getPosting(db, "u1", id)).toMatchObject({ analysis: null, appliedScore: null, status: "interest" });
+});
+
+const found = {
+  documents: [{ kind: "resume" as const, label: "이력서" }],
+  questions: [{ prompt: "지원 동기", charLimit: 500, countSpaces: true }],
+};
+
+test("새 공고에 찾은 값을 함께 저장한다", async () => {
+  const created = await createPosting(db, "u1", trackId, input(), found);
+  if (!created.ok) throw new Error("create");
+  const got = await getPosting(db, "u1", created.id);
+  expect(got).toMatchObject({ foundDocuments: found.documents, foundQuestions: found.questions, chosenDocuments: null });
+});
+
+test("찾은 값 없이 만들면 셋 다 null", async () => {
+  const created = await createPosting(db, "u1", trackId, input());
+  if (!created.ok) throw new Error("create");
+  expect(await getPosting(db, "u1", created.id)).toMatchObject({ foundDocuments: null, foundQuestions: null, chosenDocuments: null });
+});
+
+test("공고를 고쳐도 찾은 값과 고른 서류는 그대로", async () => {
+  const created = await createPosting(db, "u1", trackId, input(), found);
+  if (!created.ok) throw new Error("create");
+  await setChosenDocuments(db, "u1", created.id, ["portfolio"]);
+  await updatePosting(db, "u1", created.id, input({ title: "바뀐 직무" }));
+  expect(await getPosting(db, "u1", created.id)).toMatchObject({ title: "바뀐 직무", foundDocuments: found.documents, foundQuestions: found.questions, chosenDocuments: ["portfolio"] });
+});
+
+test("saveFound는 원문이 같을 때 저장하고, 바뀌었으면 changed", async () => {
+  const created = await createPosting(db, "u1", trackId, input());
+  if (!created.ok) throw new Error("create");
+  expect(await saveFound(db, "u1", created.id, found, { rawText: "다른 원문" })).toEqual({ ok: false, reason: "changed" });
+  expect(await saveFound(db, "u1", created.id, found, { rawText: raw.rawText })).toEqual({ ok: true });
+  expect(await getPosting(db, "u1", created.id)).toMatchObject({ foundDocuments: found.documents, foundQuestions: found.questions });
+});
+
+test("setChosenDocuments는 목록 밖 값을 버리고 순서를 맞춘다", async () => {
+  const created = await createPosting(db, "u1", trackId, input());
+  if (!created.ok) throw new Error("create");
+  const result = await setChosenDocuments(db, "u1", created.id, ["portfolio", "x", "resume", "portfolio"] as never);
+  expect(result).toEqual({ ok: true });
+  expect((await getPosting(db, "u1", created.id))?.chosenDocuments).toEqual(["resume", "portfolio"]);
+});
+
+test("다른 사용자의 공고에는 saveFound·setChosenDocuments가 not_found", async () => {
+  const created = await createPosting(db, "u1", trackId, input());
+  if (!created.ok) throw new Error("create");
+  expect(await saveFound(db, "u2", created.id, found, { rawText: raw.rawText })).toEqual({ ok: false, reason: "not_found" });
+  expect(await setChosenDocuments(db, "u2", created.id, ["resume"])).toEqual({ ok: false, reason: "not_found" });
+  expect(await getPosting(db, "u1", created.id)).toMatchObject({ foundDocuments: null, chosenDocuments: null });
 });

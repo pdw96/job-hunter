@@ -3,8 +3,9 @@ import { and, count, eq, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { ownsTrack } from "@/modules/tracks/repo";
 import type { AppliedScore, PostingAnalysis, PostingScore } from "./analysis";
+import { DOCUMENT_KINDS, type DocumentKind, POSTING_LIMITS, type PostingStatus } from "./options";
+import type { Found, FoundDocument, FoundQuestion } from "./documents";
 import type { PostingInput } from "./input";
-import { POSTING_LIMITS, type PostingStatus } from "./options";
 import { postings } from "./schema";
 
 // 공고의 저장과 조회. 모든 함수가 userId로 소유자를 확인한다.
@@ -14,6 +15,9 @@ export type Posting = PostingInput & {
   trackId: string;
   status: PostingStatus;
   excludeOverride: boolean;
+  foundDocuments: FoundDocument[] | null;
+  foundQuestions: FoundQuestion[] | null;
+  chosenDocuments: DocumentKind[] | null;
   analysis: PostingAnalysis | null;
   appliedScore: AppliedScore | null;
   createdAt: Date;
@@ -35,6 +39,7 @@ export async function createPosting(
   userId: string,
   trackId: string,
   input: PostingInput,
+  found?: Found,
 ): Promise<{ ok: true; id: string } | { ok: false; reason: "invalid_track" | "too_many" }> {
   // 남의 트랙이나 없는 트랙에는 넣을 수 없다
   if (!(await ownsTrack(db, userId, trackId))) return { ok: false, reason: "invalid_track" };
@@ -42,7 +47,7 @@ export async function createPosting(
   if (value >= POSTING_LIMITS.perUser) return { ok: false, reason: "too_many" };
 
   const id = randomUUID();
-  await db.insert(postings).values({ id, userId, trackId, ...input });
+  await db.insert(postings).values({ id, userId, trackId, ...input, foundDocuments: found?.documents ?? null, foundQuestions: found?.questions ?? null });
   return { ok: true, id };
 }
 
@@ -62,6 +67,35 @@ export async function updatePosting(
       analysis: sql`case when ${postings.rawText} = ${input.rawText} and ${postings.companyNote} is not distinct from ${input.companyNote} then ${postings.analysis} else null end`,
       updatedAt: new Date(),
     })
+    .where(mine(userId, id))
+    .returning({ id: postings.id });
+  return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+}
+
+// 다시 읽기 결과를 저장한다. 읽은 원문이 지금 저장된 원문 그대로일 때만 쓴다(아니면 "changed")
+export async function saveFound(
+  db: Db,
+  userId: string,
+  id: string,
+  found: Found,
+  readAs: { rawText: string },
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "changed" }> {
+  const updated = await db
+    .update(postings)
+    .set({ foundDocuments: found.documents, foundQuestions: found.questions, updatedAt: new Date() })
+    .where(and(mine(userId, id), eq(postings.rawText, readAs.rawText)))
+    .returning({ id: postings.id });
+  if (updated.length > 0) return { ok: true };
+  const [exists] = await db.select({ id: postings.id }).from(postings).where(mine(userId, id)).limit(1);
+  return { ok: false, reason: exists ? "changed" : "not_found" };
+}
+
+// 제출할 서류를 정한다. 목록 밖 값은 버리고 중복 없이 DOCUMENT_KINDS 순서로 둔다
+export async function setChosenDocuments(db: Db, userId: string, id: string, kinds: DocumentKind[]): Promise<{ ok: true } | NotFound> {
+  const chosen = DOCUMENT_KINDS.filter((kind) => kinds.includes(kind));
+  const updated = await db
+    .update(postings)
+    .set({ chosenDocuments: chosen, updatedAt: new Date() })
     .where(mine(userId, id))
     .returning({ id: postings.id });
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
