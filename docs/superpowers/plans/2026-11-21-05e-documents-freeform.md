@@ -22,8 +22,9 @@
 - **유형과 주제**: 유형(`kinds`)은 여러 개일 수 있다. 답의 주제(`topics`)는 지원동기·입사 후 포부·성장과정·성격의 장단점·가치관·기타. 붙여 넣은 문항은 고르기 AI가 유형과 주제를 함께 정하고, 이미 정해진 문항은 덮어쓰지 않는다. 사용자가 유형을 바꾸면 주제는 `topicsFor()`로 맞춘다. 문항 글을 고치면 유형·주제·질문을 비운다(다음 고르기 때 다시 정함). 후보 경험이 없어도 유형을 모르면 고르기 AI를 부른다
 - **묻기는 내 기록과 대조해서 묻는다**(「결정」 2026-11-23, 사용자): 흐름은 공고 끌어오기 → 내 기록과 대조 → 쓸 내용 추리기 → 초안. 질문을 만들 때 AI는 공고와 내 확인된 기록(그 트랙에서 쓸 수 있는 사례, 확인된 학력의 학교·전공, 교육 과정, 자격)을 맞대서 연결고리(예: 공고의 "사내 업무 시스템 개발" ↔ 내 교육 "ERP 개발 과정")를 찾고, 연결고리마다 내 생각을 묻는다("그 교육이 이 직무를 고른 이유와 이어지나요?"). 연결고리가 없으면 공고만 보고 묻는다. 자소서에는 증빙되는 사실을 늘어놓지 않고 경험과 생각을 담는다는 원칙에 따라, **이력 사실은 질문 거리로만 쓰고 글의 재료로는 쓰지 않는다**(설계 5.5의 "이력 사실은 근거로 고르지 않는다"는 그대로). 교육 이름은 내 답의 질문 글에 남아 이야기의 출발점으로 한 줄 쓰일 수 있다
 - **묻기의 모양**: 질문은 2~3개, 선택지는 3~5개(설계 범위 안). 선택지는 AI가 만든 후보이고 여러 개 고를 수 있으며 `기타` 한 줄을 덧붙일 수 있다. 저장하는 답 글은 서버가 저장해 둔 질문에서 고른 선택지 글을 꺼내 만든다(브라우저가 보낸 글을 쓰지 않는다). AI에는 연락처·이메일·이름을 보내지 않는다. AI 한도에 닿아도 쓸 수 있게 주제마다 `직접 적기`를 둔다
-- **답 표**: `applications_answers`(새 표 하나). 답은 고치지 않는다: `고쳐 쓰기`와 `직접 적기`는 새 답을 만들고, 문항에는 답 id를 붙인다(`answer_ids`). 그래서 답의 버전을 따로 두지 않는다
-- **회사에 묶인 답**: 주제가 지원동기·입사 후 포부인 답은 그 공고의 회사 이름 정리 값(`companyKey`)을 담고, 같은 값의 공고에서만 "지난번 답"으로 보인다. 정리 규칙: 유니코드 NFKC, 소문자, `(주)`·`㈜`·`주식회사`·`(유)`·`유한회사` 빼기, 공백·괄호 빼기. 5-6 회사 조사가 같은 함수를 쓴다
+- **답 표**: `applications_answers`(새 표 하나, 「결정」 2026-11-23 사용자 승인). 답은 고치지 않는다: 새로 고르거나 `직접 적기`를 하면 새 답을 만들고, 문항에는 답 id를 붙인다(`answer_ids`). 그래서 답의 버전을 따로 두지 않는다
+- **지난 답은 선택지 하나로만**(「결정」 2026-11-23, 사용자): 지난 답이 있어도 질문을 건너뛰지 않는다. 그 사이 더 쓰기 좋은 경험이 생겼을 수 있으므로 늘 지금의 기록과 새로 대조해 질문을 만들고, 같은 주제의 지난 답(주제마다 최근 2개)을 그 질문의 선택지 끝에 "지난번 답 (회사 · YYYY-MM)"으로 붙인다. 지난 답을 고르면 그 답을 그대로 붙이고(새 행을 만들지 않음), 새 선택지·기타를 고르면 새 답을 만든다. 둘 다 고를 수 있다. AI가 그 주제의 질문을 만들지 않았으면 코드가 "지난번 답을 다시 쓸까요?" 질문을 더해 지난 답만 보인다
+- **회사에 묶인 답**: 주제가 지원동기·입사 후 포부인 답은 그 공고의 회사 이름 정리 값(`companyKey`)을 담고, 같은 값의 공고에서만 지난 답 선택지로 붙는다. 다른 주제(성장과정·성격의 장단점·가치관·기타)는 어느 공고에서나 붙는다. 정리 규칙: 유니코드 NFKC, 소문자, `(주)`·`㈜`·`주식회사`·`(유)`·`유한회사` 빼기, 공백·괄호 빼기. 5-6 회사 조사가 같은 함수를 쓴다
 - **답 없이 쓰지 않음**: 유형에 동기포부형이나 자기소개형이 있는데 붙인 답이 없으면 쓰기는 `need_answers`로 막고 AI를 부르지 않는다(반목표: 답하지 않은 동기를 지어 쓰기). 유형이 동기포부형·자기소개형뿐이면 고르기 없이, 근거 장면 없이 답만으로 쓸 수 있다
 - **근거 표시**: 문단의 `answers`(답 id)는 "내 답: (주제)"로 보이고, 근거 없음 검사에서 근거로 친다. 답 글의 숫자는 그 문단의 숫자 검사에서 허용한다. 공고 글의 숫자는 이번에도 허용하지 않는다(회사 정보의 숫자는 5-6에서 정함). 제출본에는 답 근거를 경험 근거 목록에 "내 답: (주제)" 이름으로 얼린다
 - **이력 사실은 쓰기에 보내지 않는다**(설계 5.5가 맡긴 것): 이번에는 학력·자격을 쓰기 단계에도 보내지 않는다. "전공을 살려" 같은 말이 필요하면 사용자가 답(묻기)으로 적는다
@@ -47,7 +48,7 @@
 1. AI가 공고에 없는 문항을 지어내거나 문항을 다듬어 옮긴다 → 원문에서 찾지 못한 문항은 버려지고 자소서에 채워지지 않는다 (Task 1 테스트 "원문에 없는 문항은 버린다")
 2. 지원을 두 탭에서 누르거나, 관심으로 되돌렸다가 다시 지원한다 → 문항이 두 번 채워지지 않고, 이미 문항이 있으면 덮지 않는다 (Task 2 테스트 "onlyIfEmpty는 잠금 안에서 본다")
 3. 지원동기 문항에서 답 없이 `쓰기`를 누른다(또는 고르기가 동기포부형으로 정했다) → AI를 부르지 않고 "먼저 위 질문에 답해 주세요" (Task 6 테스트 "need_answers")
-4. 회사 A에서 쓴 지원동기가 회사 B 공고에서 "지난번 답"으로 뜬다 → 이름 정리 값이 같은 회사에서만 보인다. "(주)가나다"와 "가나다 주식회사"는 같고 "가나다랩"은 다르다 (Task 1 `companyKey` 테스트, Task 5 테스트)
+4. 회사 A에서 쓴 지원동기가 회사 B 공고에서 지난 답 선택지로 붙는다 → 이름 정리 값이 같은 회사에서만 보인다. "(주)가나다"와 "가나다 주식회사"는 같고 "가나다랩"은 다르다 (Task 1 `companyKey` 테스트, Task 5 테스트)
 5. 질문을 받은 뒤 문항 글을 고치거나 다른 탭에서 답을 저장한다 / 화면이 선택지 글을 바꿔 보낸다 → 옛 질문으로 저장하지 않고 `changed`, 답 글은 서버가 저장한 질문의 선택지에서만 만든다 (Task 5 테스트)
 
 ---
@@ -229,11 +230,12 @@
 
 **Interfaces:**
 - Produces (`schema.ts`):
-  - `applications_answers` — `id` text pk, `user_id` → `auth_user` cascade, `topic` text, `question` text, `answer` text, `posting_id` → `postings_postings` **set null**, `company_key` text null(COMPANY_TOPICS일 때만), `created_at`. 색인 `(user_id, topic)`
+  - `applications_answers` — `id` text pk, `user_id` → `auth_user` cascade, `topic` text, `question` text, `answer` text, `posting_id` → `postings_postings` **set null**, `company` text(공고의 회사 이름, 지난 답 표시용), `company_key` text null(COMPANY_TOPICS일 때만), `created_at`. 색인 `(user_id, topic)`
   - `applications_questions`에 `asks jsonb Asks null`, `answer_ids jsonb string[] not null default []`
 - Produces (`types.ts`):
   ```ts
-  export type AskItem = { topic: AnswerTopic; link: string; question: string; options: string[] }; // link: 연결고리 한 줄(없으면 빈 글)
+  export type PreviousAnswer = { answerId: string; text: string; label: string }; // label: "삼성전자 · 2026-11"
+  export type AskItem = { topic: AnswerTopic; link: string; question: string; options: string[]; previous: PreviousAnswer[] }; // link: 연결고리 한 줄(없으면 빈 글)
   export type Asks = { questionVersion: number; items: AskItem[]; madeAt: string };
   ```
 - Produces (`options.ts`, APPLICATION_LIMITS에 더함): `asks: 3, askOptionsMin: 3, askOptions: 5, askQuestion: 200, askOption: 200, answer: 1000, answersPerQuestion: 6`
@@ -245,11 +247,11 @@
   ```
 - Produces (`answers-repo.ts`):
   ```ts
-  export type Answer = { id: string; topic: AnswerTopic; question: string; answer: string; postingId: string | null; companyKey: string | null; createdAt: Date };
+  export type Answer = { id: string; topic: AnswerTopic; question: string; answer: string; postingId: string | null; company: string; companyKey: string | null; createdAt: Date };
   export async function createAnswer(db, userId, input: Omit<Answer, "id" | "createdAt">): Promise<string>;
   export async function listAnswersByIds(db, userId, ids: string[]): Promise<Answer[]>; // ids 순서, 없는 id는 빠짐
-  // 주제마다 가장 최근 답 하나. companyKey가 있는 답은 같은 companyKey일 때만. exceptIds는 빼고
-  export async function latestReusable(db, userId, topics: AnswerTopic[], companyKey: string, exceptIds: string[]): Promise<Map<AnswerTopic, Answer>>;
+  // 주제마다 최근 답 perTopic개(같은 글은 한 번). companyKey가 있는 답은 같은 companyKey일 때만. exceptIds는 빼고
+  export async function listReusable(db, userId, topics: AnswerTopic[], companyKey: string, exceptIds: string[], perTopic = 2): Promise<Map<AnswerTopic, Answer[]>>;
   ```
 - Produces (`repo.ts`): `Question`에 `asks: Asks | null; answerIds: string[]`. 모두 잠금 안(`guardedWrite`)에서:
   ```ts
@@ -263,24 +265,22 @@
   export type AskInput = { prompt: string; company: string; title: string; postingText: string; topics: AnswerTopic[]; hooks: MotiveHook[] };
   // 저장하지 않는다. 프롬프트 점검도 쓴다. 정리: 요청한 주제가 아닌 항목·빈 질문은 버리고, link는 200자로 자르고, 선택지는 다듬어 중복을 빼고 5개로 자르며, 선택지가 2개 미만인 항목은 버리고, 항목은 3개까지. 남는 항목이 없으면 invalid
   export async function askText(db, ai, userId, input: AskInput, now?): Promise<{ ok: true; value: AskItem[] } | { ok: false; reason: "over_limit" | AiFailure }>;
-  // topics는 화면이 보낸 것 중 그 문항의 topics에 있는 것만 쓴다. 없으면 not_needed. hooks는 listMotiveHooks(공고의 트랙). 읽은 version으로 saveAsks
+  // topics는 화면이 보낸 것 중 그 문항의 topics에 있는 것만 쓴다. 없으면 not_needed. hooks는 listMotiveHooks(공고의 트랙). AI 답을 정리한 뒤 listReusable(…, companyKey(posting.company), question.answerIds)의 지난 답을 같은 주제 항목의 previous에 붙인다(지난 답이 있는 항목은 선택지가 2개 미만이어도 남긴다). 읽은 version으로 saveAsks
   export async function makeAsks(db, ai, userId, questionId, topics: unknown, now?): Promise<{ ok: true; value: Asks } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "changed" | "not_needed" | "over_limit" | AiFailure }>;
-  // picks: { index: number; options: number[]; note: string }[] (질문 번호, 고른 선택지 번호, 기타 한 줄 200자). 답 글 = 저장된 asks에서 꺼낸 선택지 글을 줄바꿈으로 잇고 기타를 덧붙임. 선택지도 기타도 없는 항목은 건너뜀.
-  // asks가 없거나 asks.questionVersion이 지금 version과 다르면 changed. 답마다 createAnswer(회사 주제면 companyKey(posting.company)) + attachAnswer, 답한 항목은 asks에서 뺀다. 모두 한 트랜잭션(잠금 안)
+  // picks: { index: number; options: number[]; previous: number[]; note: string }[] (질문 번호, 고른 선택지 번호, 고른 지난 답 번호, 기타 한 줄 200자). 새 답 글 = 저장된 asks에서 꺼낸 선택지 글을 줄바꿈으로 잇고 기타를 덧붙임. 지난 답은 저장된 asks의 answerId를 그대로 붙인다(지금도 내 답이고 붙일 수 있는지 다시 본다). 아무것도 고르지 않은 항목은 건너뜀.
+  // asks가 없거나 asks.questionVersion이 지금 version과 다르면 changed. 새 답마다 createAnswer(company = posting.company, 회사 주제면 companyKey(posting.company)) + attachAnswer, 답한 항목은 asks에서 뺀다. 모두 한 트랜잭션(잠금 안)
   export async function answerAsks(db, userId, questionId, picks: unknown, now?): Promise<{ ok: true; added: number } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "changed" | "empty" | "too_many" }>;
-  // 지난 답 그대로 쓰기: 내 답이고, 주제가 문항의 topics에 있고, 회사에 묶였으면 같은 회사일 때만 attachAnswer
-  export async function reuseAnswer(db, userId, questionId, answerId): Promise<...attachAnswer 결과 | { ok: false; reason: "not_reusable" }>;
-  // 직접 적기·고쳐 쓰기: 새 답을 만들어 붙인다. question = basedOn 답의 질문, 없으면 "직접 적음". 글은 1~1000자
-  export async function writeAnswer(db, userId, questionId, topic: unknown, text: string, basedOnId?: string): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "empty" | "too_long" | "not_reusable" | "too_many" }>;
+  // 직접 적기: 새 답을 만들어 붙인다. question = "직접 적음", topic은 문항의 topics에 있어야 한다. 글은 1~1000자
+  export async function writeAnswer(db, userId, questionId, topic: unknown, text: string): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "empty" | "too_long" | "not_needed" | "too_many" }>;
   ```
-- Produces (`answer-actions.ts`, `"use server"`): `makeAsksAction`, `answerAsksAction`, `reuseAnswerAction`, `writeAnswerAction`, `detachAnswerAction` — 모두 `requireUser()`의 id만 쓰고 끝나면 자소서 화면을 다시 그린다. `need_answers`·`not_needed`·`not_reusable` 문구를 `actions.ts`의 `MESSAGES`에 더한다
+- Produces (`answer-actions.ts`, `"use server"`): `makeAsksAction`, `answerAsksAction`, `writeAnswerAction`, `detachAnswerAction` — 모두 `requireUser()`의 id만 쓰고 끝나면 자소서 화면을 다시 그린다. `need_answers`·`not_needed` 문구를 `actions.ts`의 `MESSAGES`에 더한다
 - ASK_SYSTEM(뜻): 자기소개서 문항 하나를 쓰기 전에 지원자에게 물을 짧은 질문 2~3개를, 요청한 주제마다 만든다. 먼저 [공고]와 [내 기록]을 맞대서 이어지는 곳(공고의 업무·역량 ↔ 지원자의 사례·교육·전공·자격)을 찾고, 그 연결고리를 `link`에 한 줄로 적고 그것이 지원 이유·포부와 어떻게 이어지는지 지원자의 생각을 묻는다. 이어지는 곳이 없으면 `link`는 빈 글이고 공고만 보고 묻는다. 질문마다 지원자가 고를 만한 답 3~5개를 준다. 선택지는 지원자 자신의 이유·생각·태도를 말하는 짧은 문장이고, [내 기록]에 없는 경력·성과·수치를 넣지 않으며, 회사에 대한 사실(실적, 수치, 사업)을 새로 담지 않는다(공고 글에 있는 것만 가리킬 수 있음). 고른 것만 지원자의 답이 되므로 서로 다른 방향의 선택지를 주고, "이어지지 않는다" 같은 빠져나갈 선택지도 둘 수 있다. 학점·자격증 이름을 늘어놓는 답을 만들지 않는다. `topic`은 요청한 주제 중 하나
 - `docs/conventions.md`: applications 줄에 `applications_answers`와 "지원자의 답(묻기)"를 더한다
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
   - `motive-hooks.test.ts`: "확인된 사례·학력·교육·자격만 나온다", "머리가 미확인인 사례는 빠진다", "트랙에서 제외한 기록은 빠진다", "사례가 이력 사실보다 먼저, 20개까지", "다른 사용자의 기록은 나오지 않는다"
-  - `answers-repo.test.ts`: "latestReusable은 주제마다 가장 최근 답", "회사에 묶인 답은 같은 companyKey에서만", "회사에 묶이지 않은 답은 어느 공고에서나", "exceptIds는 빠진다", "공고를 지워도 답은 남고 postingId가 null", "다른 사용자의 답은 읽히지 않는다"
-  - `ask.test.ts`: "요청하지 않은 주제의 질문은 버린다", "선택지 6개는 5개로, 1개뿐인 질문은 버린다", "AI에 보내는 글에 [내 기록]이 있고 확인되지 않은 기록은 없다", "link는 200자로 자른다", "문항 topics에 없는 주제를 보내면 not_needed", "질문을 만드는 사이 문항 글을 고쳤으면 changed", "answerAsks는 저장된 선택지 글로 답을 만든다(화면이 보낸 글은 쓰지 않음)", "고른 선택지 둘과 기타를 줄바꿈으로 잇는다", "asks.questionVersion이 다르면 changed", "지원동기 답에는 companyKey가 담기고 성장과정 답에는 없다", "답한 항목은 asks에서 빠진다", "다른 회사의 지원동기는 reuseAnswer가 not_reusable", "남의 답 id는 not_reusable", "writeAnswer의 빈 글은 empty, 1001자는 too_long", "잠긴 공고는 submitted"
+  - `answers-repo.test.ts`: "listReusable은 주제마다 최근 2개, 같은 글은 한 번", "회사에 묶인 답은 같은 companyKey에서만", "회사에 묶이지 않은 답은 어느 공고에서나", "exceptIds는 빠진다", "공고를 지워도 답은 남고 postingId가 null", "다른 사용자의 답은 읽히지 않는다"
+  - `ask.test.ts`: "요청하지 않은 주제의 질문은 버린다", "선택지 6개는 5개로, 1개뿐인 질문은 버린다", "AI에 보내는 글에 [내 기록]이 있고 확인되지 않은 기록은 없다", "link는 200자로 자른다", "문항 topics에 없는 주제를 보내면 not_needed", "질문을 만드는 사이 문항 글을 고쳤으면 changed", "answerAsks는 저장된 선택지 글로 답을 만든다(화면이 보낸 글은 쓰지 않음)", "고른 선택지 둘과 기타를 줄바꿈으로 잇는다", "asks.questionVersion이 다르면 changed", "지원동기 답에는 companyKey가 담기고 성장과정 답에는 없다", "답한 항목은 asks에서 빠진다", "늘 AI를 불러 새로 묻고, 같은 회사의 지난 지원동기를 그 질문의 previous에 붙인다", "다른 회사의 지원동기는 previous에 붙지 않고 성장과정은 붙는다", "AI가 그 주제의 질문을 만들지 않았으면 지난 답만 담은 질문을 더한다", "지난 답을 고르면 새 행 없이 그 id를 붙인다", "지난 답과 새 선택지를 함께 고르면 둘 다 붙는다", "writeAnswer의 빈 글은 empty, 1001자는 too_long", "잠긴 공고는 submitted"
   - `prompt-check.test.ts`: 묻기 행(아래 Step 3)
 - [ ] **Step 2: 돌려서 실패를 본다** — `npx vitest run src/modules/applications/answers-repo.test.ts src/modules/applications/ask.test.ts src/modules/applications/prompt-check.test.ts`
 - [ ] **Step 3: 구현한다.** `npm run db:generate`로 `0021`을 만든다. 프롬프트 점검에 묻기 예시 하나(호출 1번): `FULL_POSTING`의 "지원 동기를 적어 주세요", 주제 `["motive"]`, 기록 = 교육 "Kotlin 백엔드 개발 과정"과 맞지 않는 "카페 바리스타 아르바이트" 사례. 행: "질문 2~3개", "질문마다 선택지 3~5개", "주제가 모두 지원동기", "연결고리에 Kotlin 교육이 나온다", "바리스타를 연결고리로 쓰지 않는다", "선택지에 공고·기록에 없는 숫자가 없다"
@@ -319,13 +319,13 @@
 - Create: `src/app/(app)/postings/[id]/application/answer-section.tsx`
 
 **Interfaces:**
-- Consumes: Task 5의 액션들과 `latestReusable`, Task 6의 `checkDraft(… { answers })`
-- 페이지가 문항마다 넘기는 값(`QuestionView`에 더함): `kinds`, `topics`, `answers: { id; topic; label; text }[]`(붙인 답), `reusable: { topic; answer: { id; text } }[]`(붙인 답이 없는 주제의 지난 답, `latestReusable(…, companyKey(posting.company), question.answerIds)`), `asks: Asks | null`. `DraftData.names`에 답 id → "내 답: (주제)"
-- `answer-section.tsx`(유형에 동기포부형·자기소개형이 있을 때 카드 안에): 붙인 답 목록("내 답 · 지원동기: …" + `빼기`) → 붙인 답이 없는 주제마다 지난 답이 있으면 "지난번 답을 쓸까요? “…”" `그대로 쓰기` / `고쳐 쓰기`(글 상자에 채움 → `writeAnswerAction(…, basedOnId)`) / `새로 답하기` → 남은 주제가 있으면 `질문 받기`(AI 1번) → 질문마다 연결고리 한 줄(있으면, 흐린 글씨) + 선택지 체크 + `기타 (짧게 적기)` 한 줄 → `답 저장`. 주제마다 `직접 적기`
+- Consumes: Task 5의 액션들, Task 6의 `checkDraft(… { answers })`
+- 페이지가 문항마다 넘기는 값(`QuestionView`에 더함): `kinds`, `topics`, `answers: { id; topic; label; text }[]`(붙인 답), `asks: Asks | null`. `DraftData.names`에 답 id → "내 답: (주제)"
+- `answer-section.tsx`(유형에 동기포부형·자기소개형이 있을 때 카드 안에): 붙인 답 목록("내 답 · 지원동기: …" + `빼기`) → `질문 받기`(AI 1번. 붙인 답이 있어도 다시 받을 수 있다) → 질문마다 연결고리 한 줄(있으면, 흐린 글씨) + 선택지 체크 + 지난 답 체크("지난번 답 (삼성전자 · 2026-11)", 다른 선택지와 구분되게) + `기타 (짧게 적기)` 한 줄 → `답 저장`. 주제마다 `직접 적기`
 - 쓰기 단추: 유형에 경험형이 없으면 고르기 없이도 보인다(답이 1개 이상일 때 켜짐). `draft-view`의 근거 이름은 `[...sources, ...answers]`
 
 - [ ] **Step 1: 화면을 만든다** — 기존 `useRun`, `ErrorLine`, 버튼 모양을 쓴다. 입력은 체크 위주로(사용자는 타자를 싫어한다)
 - [ ] **Step 2: 검사를 돌린다** — `npm test`(전체), `npx tsc --noEmit`, `npm run lint` 모두 통과
-- [ ] **Step 3: 로컬 미리보기로 확인한다** — 자유양식 지원동기 문항에서 질문 받기 → 선택지 고르기 → 답 저장 → 쓰기 → 문단 근거 "내 답: 지원동기"까지 사진(휴대폰 폭 포함)을 사용자에게 보낸다. 다른 공고(같은 회사 이름 표기만 다름)에서 "지난번 답을 쓸까요?"가 보이는지도 본다
+- [ ] **Step 3: 로컬 미리보기로 확인한다** — 자유양식 지원동기 문항에서 질문 받기 → 선택지 고르기 → 답 저장 → 쓰기 → 문단 근거 "내 답: 지원동기"까지 사진(휴대폰 폭 포함)을 사용자에게 보낸다. 다른 공고(같은 회사 이름 표기만 다름)에서 질문 받기를 누르면 지난 답이 선택지 끝에 붙는지도 본다
 - [ ] **Step 4: 문서를 고친다** — `docs/status.md`(5-5 끝, 다음 할 일 5-6, 남은 확인에 프롬프트 점검 호출 수 23번과 실제 공고로 서류·문항 읽기 확인), 이 문서 끝에 "구현하다 달라진 점", "판단 기록", "판단표 점검"
 - [ ] **Step 5: 커밋** — `feat: 자소서 문항에서 필요한 답을 고르는 질문으로 묻는 화면을 더한다`
