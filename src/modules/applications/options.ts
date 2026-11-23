@@ -14,7 +14,50 @@ export const APPLICATION_LIMITS = {
   reason: 300,
   note: 200,
   shortage: 500,
+  customItem: 100, // 자유양식에 직접 더하는 항목 글자 수
 } as const;
+
+// 문항의 유형(여러 개일 수 있다)
+export const QUESTION_KINDS = ["experience", "motive", "self"] as const;
+export type QuestionKind = (typeof QUESTION_KINDS)[number];
+export const QUESTION_KIND_LABELS: Record<QuestionKind, string> = { experience: "경험형", motive: "동기포부형", self: "자기소개형" };
+
+// 답의 주제
+export const ANSWER_TOPICS = ["motive", "aspiration", "growth", "personality", "values", "other"] as const;
+export type AnswerTopic = (typeof ANSWER_TOPICS)[number];
+export const ANSWER_TOPIC_LABELS: Record<AnswerTopic, string> = {
+  motive: "지원동기",
+  aspiration: "입사 후 포부",
+  growth: "성장과정",
+  personality: "성격의 장단점",
+  values: "가치관",
+  other: "기타",
+};
+// 주제가 속한 유형
+export const TOPIC_KIND: Record<AnswerTopic, Exclude<QuestionKind, "experience">> = {
+  motive: "motive",
+  aspiration: "motive",
+  growth: "self",
+  personality: "self",
+  values: "self",
+  other: "self",
+};
+export const COMPANY_TOPICS: readonly AnswerTopic[] = ["motive", "aspiration"];
+
+// 자유양식 항목(설계 5.4 순서)
+export const FREEFORM_ITEMS: readonly { id: string; label: string; kinds: QuestionKind[]; topics: AnswerTopic[] }[] = [
+  { id: "growth", label: "성장과정", kinds: ["self"], topics: ["growth"] },
+  { id: "personality", label: "성격의 장단점", kinds: ["self"], topics: ["personality"] },
+  { id: "motive", label: "지원동기", kinds: ["motive"], topics: ["motive"] },
+  { id: "competence", label: "직무 역량·경험", kinds: ["experience"], topics: [] },
+  { id: "aspiration", label: "입사 후 포부", kinds: ["motive"], topics: ["aspiration"] },
+  { id: "values", label: "가치관·생활신조", kinds: ["self"], topics: ["values"] },
+  { id: "teamwork", label: "협업 경험", kinds: ["experience"], topics: [] },
+  { id: "hardship", label: "어려움을 극복한 경험", kinds: ["experience"], topics: [] },
+];
+export const FREEFORM_DEFAULT = ["motive", "competence", "aspiration"];
+export const FREEFORM_CHAR_LIMIT = 800;
+
 
 // 이력서의 한도. 화면 검사와 저장 검사가 같은 값을 쓴다
 export const RESUME_LIMITS = {

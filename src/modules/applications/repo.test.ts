@@ -18,6 +18,7 @@ import {
   replaceDraft,
   saveDraft,
   saveSelection,
+  setQuestionKinds,
   updateQuestion,
   type QuestionInput,
 } from "./repo";
@@ -369,4 +370,61 @@ test("제출한 공고에는 문항을 더하거나 고치거나 지우지 못�
   expect((await addQuestions(db, "u1", postingId, [q("더")])).ok).toBe(true);
   expect(await updateQuestion(db, "u1", id, q("바꿈"))).toEqual({ ok: true });
   expect(await deleteQuestion(db, "u1", id)).toEqual({ ok: true });
+});
+
+test("자유양식으로 넣은 문항은 유형·주제·항목을 담는다", async () => {
+  const postingId = await addPosting();
+  const result = await addQuestions(db, "u1", postingId, [
+    { ...q("지원동기"), kinds: ["motive"], topics: ["motive"], freeformItem: "motive" },
+    q("붙여 넣은 문항"),
+  ]);
+  expect(result.ok).toBe(true);
+  const list = await listQuestions(db, "u1", postingId);
+  expect(list.map((x) => [x.kinds, x.topics, x.freeformItem])).toEqual([
+    [["motive"], ["motive"], "motive"],
+    [null, null, null],
+  ]);
+});
+
+test("문항 글을 고치면 유형·주제가 비워진다", async () => {
+  const postingId = await addPosting();
+  const added = await addQuestions(db, "u1", postingId, [{ ...q("지원동기"), kinds: ["motive"], topics: ["motive"], freeformItem: "motive" }]);
+  if (!added.ok) throw new Error(added.reason);
+  expect(await updateQuestion(db, "u1", added.ids[0], q("입사 후 포부"))).toEqual({ ok: true });
+  expect(await getQuestion(db, "u1", added.ids[0])).toMatchObject({ kinds: null, topics: null, freeformItem: "motive" });
+});
+
+test("제한만 고치면 유형이 남는다", async () => {
+  const postingId = await addPosting();
+  const added = await addQuestions(db, "u1", postingId, [{ ...q("지원동기"), kinds: ["motive"], topics: ["motive"], freeformItem: "motive" }]);
+  if (!added.ok) throw new Error(added.reason);
+  await updateQuestion(db, "u1", added.ids[0], q("지원동기", { charLimit: 700 }));
+  expect(await getQuestion(db, "u1", added.ids[0])).toMatchObject({ charLimit: 700, kinds: ["motive"], topics: ["motive"] });
+});
+
+test("setQuestionKinds는 주제를 맞춘다", async () => {
+  const postingId = await addPosting();
+  const added = await addQuestions(db, "u1", postingId, [{ ...q("가치관"), kinds: ["self"], topics: ["values"] }]);
+  if (!added.ok) throw new Error(added.reason);
+  const id = added.ids[0];
+  expect(await setQuestionKinds(db, "u1", id, ["experience", "self", "self"])).toEqual({ ok: true });
+  expect(await getQuestion(db, "u1", id)).toMatchObject({ kinds: ["experience", "self"], topics: ["values"] });
+  await setQuestionKinds(db, "u1", id, ["motive"]);
+  expect(await getQuestion(db, "u1", id)).toMatchObject({ kinds: ["motive"], topics: ["motive"] });
+});
+
+test("빈 유형은 empty", async () => {
+  const { id } = await oneQuestion();
+  expect(await setQuestionKinds(db, "u1", id, [])).toEqual({ ok: false, reason: "empty" });
+});
+
+test("잠긴 공고는 submitted", async () => {
+  const { postingId, id } = await oneQuestion();
+  expect(await submitPosting(db, "u1", postingId, 0)).toEqual({ ok: true, number: 1 });
+  expect(await setQuestionKinds(db, "u1", id, ["motive"])).toEqual({ ok: false, reason: "submitted" });
+});
+
+test("다른 사용자의 문항은 not_found", async () => {
+  const { id } = await oneQuestion();
+  expect(await setQuestionKinds(db, "u2", id, ["motive"])).toEqual({ ok: false, reason: "not_found" });
 });

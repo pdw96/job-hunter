@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@/db/types";
 import { getPosting } from "@/modules/postings/repo";
-import { APPLICATION_LIMITS } from "./options";
+import { topicsFor } from "./kinds";
+import { type AnswerTopic, APPLICATION_LIMITS, type QuestionKind, QUESTION_KINDS } from "./options";
 import { questions } from "./schema";
 import { editBlock, withEditLock } from "./submission-repo";
 import type { Draft, Selection, SourceRef } from "./types";
@@ -10,7 +11,9 @@ import type { Draft, Selection, SourceRef } from "./types";
 // 자소서 문항, 고른 경험, 쓴 답의 저장과 조회. 모든 함수가 userId로 소유자를 확인한다.
 
 export type QuestionInput = { prompt: string; charLimit: number | null; countSpaces: boolean };
-export type Question = QuestionInput & {
+export type QuestionMeta = { kinds: QuestionKind[] | null; topics: AnswerTopic[] | null; freeformItem: string | null };
+export type NewQuestion = QuestionInput & Partial<QuestionMeta>;
+export type Question = QuestionInput & QuestionMeta & {
   id: string;
   postingId: string;
   position: number;
@@ -44,7 +47,7 @@ export async function addQuestions(
   db: Db,
   userId: string,
   postingId: string,
-  inputs: QuestionInput[],
+  inputs: NewQuestion[],
   options: { onlyIfEmpty?: boolean } = {},
 ): Promise<{ ok: true; ids: string[] } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "too_many" }> {
   const posting = await getPosting(db, userId, postingId);
@@ -75,6 +78,9 @@ export async function addQuestions(
           prompt: input.prompt,
           charLimit: input.charLimit,
           countSpaces: input.countSpaces,
+          kinds: input.kinds ?? null,
+          topics: input.topics ?? null,
+          freeformItem: input.freeformItem ?? null,
         })),
       );
     }
@@ -133,11 +139,33 @@ async function doUpdate(db: Db, userId: string, id: string, input: QuestionInput
       countSpaces: input.countSpaces,
       version: sql`case when ${changed} then ${questions.version} + 1 else ${questions.version} end`,
       selection: sql`case when ${changed} then null else ${questions.selection} end`,
+      kinds: sql`case when ${changed} then null else ${questions.kinds} end`,
+      topics: sql`case when ${changed} then null else ${questions.topics} end`,
       updatedAt: new Date(),
     })
     .where(mine(userId, id))
     .returning({ id: questions.id });
   return updated.length > 0 ? { ok: true } : { ok: false, reason: "not_found" };
+}
+
+// 문항의 유형을 바꾸고 주제를 거기에 맞춘다. 빈 유형은 받지 않는다
+export async function setQuestionKinds(
+  db: Db,
+  userId: string,
+  id: string,
+  kinds: QuestionKind[],
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_apply" | "submitted" | "empty" }> {
+  const clean = QUESTION_KINDS.filter((kind) => kinds.includes(kind));
+  if (clean.length === 0) return { ok: false, reason: "empty" };
+  return guardedWrite(db, userId, id, async (tx) => {
+    const [row] = await tx.select({ topics: questions.topics }).from(questions).where(mine(userId, id)).limit(1);
+    if (!row) return { ok: false as const, reason: "not_found" as const };
+    await tx
+      .update(questions)
+      .set({ kinds: clean, topics: topicsFor(clean, row.topics ?? []), updatedAt: new Date() })
+      .where(mine(userId, id));
+    return { ok: true as const };
+  });
 }
 
 export async function deleteQuestion(

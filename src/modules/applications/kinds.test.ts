@@ -1,0 +1,55 @@
+import { expect, test } from "vitest";
+import { freeformQuestions, needsAnswers, topicsFor } from "./kinds";
+
+test("유형에 맞는 주제만 남기고 빈 유형에는 기본 주제를 더한다", () => {
+  expect(topicsFor(["motive"], ["growth"])).toEqual(["motive"]);
+  expect(topicsFor(["experience", "self"], ["values", "motive"])).toEqual(["values"]);
+  expect(topicsFor(["experience"], ["motive"])).toEqual([]);
+  expect(topicsFor(["self"], [])).toEqual(["other"]);
+});
+
+test("답이 필요한 유형", () => {
+  expect(needsAnswers(null)).toBe(false);
+  expect(needsAnswers(["experience"])).toBe(false);
+  expect(needsAnswers(["experience", "self"])).toBe(true);
+});
+
+test("자유양식 지원동기는 유형 motive·주제 motive·글자 수 800", () => {
+  const result = freeformQuestions(["motive"], [], 800);
+  expect(result).toEqual({
+    ok: true,
+    value: [{ prompt: "지원동기", charLimit: 800, countSpaces: true, kinds: ["motive"], topics: ["motive"], freeformItem: "motive" }],
+  });
+});
+
+test("경험형 항목은 주제가 비어 있다", () => {
+  const result = freeformQuestions(["competence"], [], 800);
+  expect(result.ok && result.value[0]).toMatchObject({ kinds: ["experience"], topics: [] });
+});
+
+test("직접 추가 항목은 유형·주제 null", () => {
+  const result = freeformQuestions([], ["  나의 강점  "], 500);
+  expect(result).toEqual({
+    ok: true,
+    value: [{ prompt: "나의 강점", charLimit: 500, countSpaces: true, kinds: null, topics: null, freeformItem: "custom" }],
+  });
+});
+
+test("모르는 항목 id는 message", () => {
+  const result = freeformQuestions(["nope"], [], 800);
+  expect(result.ok).toBe(false);
+});
+
+test("빈 직접 항목은 버린다", () => {
+  const result = freeformQuestions(["motive"], ["", "   "], 800);
+  expect(result.ok && result.value).toHaveLength(1);
+});
+
+test("100자 넘는 직접 항목은 message", () => {
+  expect(freeformQuestions([], ["가".repeat(101)], 800).ok).toBe(false);
+});
+
+test("글자 수 범위를 벗어나면 message, 아무것도 없으면 message", () => {
+  expect(freeformQuestions(["motive"], [], 10).ok).toBe(false);
+  expect(freeformQuestions([], [], 800).ok).toBe(false);
+});
