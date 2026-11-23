@@ -15,7 +15,7 @@ import { type AnswerTopic, APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KI
 import type { Asks } from "@/modules/applications/types";
 import { AddRecordLink } from "../../../records/_shared/add-record-link";
 import { AnswerSection } from "./answer-section";
-import type { AnswerView } from "./answer-view";
+import { type AnswerView, wantsExperience, writePlan } from "./answer-view";
 import { DraftView, type DraftData } from "./draft-view";
 import { ErrorLine, useRun } from "./use-run";
 
@@ -123,15 +123,17 @@ function Picker({
   question,
   selection,
   hasDraft,
+  checked,
+  setChecked,
 }: {
   question: QuestionView;
   selection: SelectionView;
   hasDraft: boolean;
+  checked: string[]; // 카드가 들고 있다(경험형이 없는 문항은 답 구역의 쓰기 단추가 이 값을 쓴다)
+  setChecked: (ids: string[]) => void;
 }) {
-  // 경험형이 아닌 문항(동기포부형·자기소개형만)은 "맞는 기록이 없다"고 알리지 않는다
-  const wantsExperience = question.kinds === null || question.kinds.includes("experience");
-  const initial = selection.approvedIds.length > 0 ? selection.approvedIds : selection.picks.filter((p) => p.name !== null).map((p) => p.experienceId);
-  const [checked, setChecked] = useState<string[]>(initial);
+  // 경험형이 아닌 문항(동기포부형·자기소개형만)은 "맞는 기록이 없다"고 알리지 않고, 쓰기 단추는 답 구역에 있다
+  const wants = wantsExperience(question.kinds);
   const { message, pending, run } = useRun();
 
   const toggle = (id: string, on: boolean) => setChecked(on ? [...checked, id] : checked.filter((value) => value !== id));
@@ -144,7 +146,7 @@ function Picker({
     run(() => approveAndWriteAction(question.id, usableChecked.map((c) => c.experienceId)));
   }
 
-  const writeButton = (
+  const writeButton = !wants ? null : (
     <div className="flex flex-wrap items-center gap-3">
       {full && <span className="w-full text-xs text-foreground/60">{APPLICATION_LIMITS.approved}개까지 고를 수 있습니다</span>}
       <button type="button" disabled={pending || selection.approvedStale || usableChecked.length === 0} onClick={write} className={primary}>
@@ -168,15 +170,16 @@ function Picker({
   if (selection.noMatch) {
     return (
       <div className="space-y-3">
-        {wantsExperience && (
+        {wants && (
           <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
             <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
             <AddRecordLink href="/records/scenes/new" label="경험 사례 추가" />
           </div>
         )}
+        {!wants && selection.passed.length === 0 && <p className="text-sm text-foreground/70">이어지는 경험이 없습니다</p>}
         {selection.passed.length > 0 && (
           <div className="space-y-3">
-            <p className="text-sm text-foreground/70">그래도 쓰고 싶은 경험이 있으면 직접 고를 수 있습니다</p>
+            <p className="text-sm text-foreground/70">{wants ? "그래도 쓰고 싶은 경험이 있으면 직접 고를 수 있습니다" : "이어지는 경험이 있으면 고를 수 있습니다"}</p>
             {passedList}
             {writeButton}
             <ErrorLine message={message} />
@@ -359,9 +362,24 @@ export function QuestionCard({
   const select = useRun();
   const remove = useRun();
   const { selection, draft } = question;
+  // 고른 경험. 다시 고르면(selectedAt이 바뀌면) 처음으로 돌린다
+  const initialChecked = selection
+    ? selection.approvedIds.length > 0
+      ? selection.approvedIds
+      : selection.picks.filter((p) => p.name !== null).map((p) => p.experienceId)
+    : [];
+  const [checkedState, setCheckedState] = useState({ at: selection?.selectedAt ?? null, ids: initialChecked });
+  let checked = checkedState.ids;
+  if (checkedState.at !== (selection?.selectedAt ?? null)) {
+    checked = initialChecked;
+    setCheckedState({ at: selection?.selectedAt ?? null, ids: initialChecked });
+  }
+  const setChecked = (ids: string[]) => setCheckedState({ at: selection?.selectedAt ?? null, ids });
+  const usableChecked = selection ? [...selection.picks, ...selection.passed].filter((c) => c.name !== null && checked.includes(c.experienceId)).map((c) => c.experienceId) : [];
   const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
   // 근거가 옛 기록인 문단이 있으면 다시 고르기를 눈에 띄게 한다(문단마다 단추를 두지 않고 문항에 하나만)
-  const wantsExperience = question.kinds === null || question.kinds.includes("experience"); // 경험형이 없으면 경험 고르기를 숨기고 답 구역에서 쓴다
+  const wants = wantsExperience(question.kinds); // 경험형이 없으면 경험 고르기는 답 구역 아래의 선택 사항이다
+  const plan = writePlan({ kinds: question.kinds, answerCount: question.answers.length, checked: usableChecked, hasSelection: !!selection && !selection.approvedStale });
   const structureChanged = !empty && draft.check.paragraphs.some((paragraph) => paragraph.structureChanged);
 
   return (
@@ -402,7 +420,7 @@ export function QuestionCard({
 
       <KindChips question={question} canAct={canAct} />
 
-      {canAct && wantsExperience && (
+      {canAct && wants && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -424,7 +442,7 @@ export function QuestionCard({
           )}
           <ErrorLine message={select.message} />
           {empty && <ManualWrite question={question} />}
-          {selection && <Picker key={selection.selectedAt} question={question} selection={selection} hasDraft={!empty} />}
+          {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} />}
         </div>
       )}
 
@@ -437,10 +455,23 @@ export function QuestionCard({
           kinds={question.kinds}
           hasDraft={!empty}
           canAct={canAct}
+          write={plan}
+          experience={
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" disabled={select.pending} onClick={() => select.run(() => selectAction(question.id))} className={small}>
+                  {select.pending ? "경험을 찾는 중…" : selection ? "이어지는 경험 다시 고르기" : "이어지는 경험도 고르기"}
+                </button>
+                <span className="text-xs text-foreground/60">선택 사항</span>
+              </div>
+              <ErrorLine message={select.message} />
+              {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} />}
+            </div>
+          }
         />
       )}
 
-      {canAct && !wantsExperience && empty && <ManualWrite question={question} />}
+      {canAct && !wants && empty && <ManualWrite question={question} />}
 
       {draft && !empty && <DraftView questionId={question.id} data={draft} canRevise={canAct} />}
     </section>

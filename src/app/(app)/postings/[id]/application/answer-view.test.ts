@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Answer } from "@/modules/applications/answers-repo";
 import type { AskItem } from "@/modules/applications/types";
-import { answerNames, answerViews, picksToSend, toggled, writesWithoutExperience } from "./answer-view";
+import { answerNames, answerViews, picksToSend, toggled, wantsExperience, writePlan } from "./answer-view";
 
 const answer = (id: string, topic: Answer["topic"], text: string): Answer => ({
   id,
@@ -47,8 +47,23 @@ test("아무것도 고르지 않은 질문은 보내지 않고 기타는 공백�
   ]);
 });
 
-test("경험형이 없는 문항만 고르기 없이 쓴다", () => {
-  expect(writesWithoutExperience(["motive"])).toBe(true);
-  expect(writesWithoutExperience(["experience", "motive"])).toBe(false);
-  expect(writesWithoutExperience(null)).toBe(false);
+test("경험형이 들어 있는지(유형을 모르면 경험형)", () => {
+  expect(wantsExperience(["motive"])).toBe(false);
+  expect(wantsExperience(["experience", "motive"])).toBe(true);
+  expect(wantsExperience(null)).toBe(true);
+});
+
+test("경험형이 없는 문항은 답이 있으면 쓰고, 고른 경험은 고르기 결과가 있을 때만 보낸다", () => {
+  const base = { kinds: ["motive"], answerCount: 1, checked: ["e1"], hasSelection: true };
+  expect(writePlan(base)).toEqual({ ids: ["e1"], enabled: true });
+  expect(writePlan({ ...base, checked: [] })).toEqual({ ids: [], enabled: true });
+  expect(writePlan({ ...base, hasSelection: false })).toEqual({ ids: [], enabled: true });
+  expect(writePlan({ ...base, answerCount: 0 })).toEqual({ ids: ["e1"], enabled: false });
+});
+
+test("경험형 문항은 고른 경험이 있어야 쓴다", () => {
+  const base = { kinds: ["experience", "motive"], answerCount: 2, checked: ["e1"], hasSelection: true };
+  expect(writePlan(base)).toEqual({ ids: ["e1"], enabled: true });
+  expect(writePlan({ ...base, checked: [] }).enabled).toBe(false);
+  expect(writePlan({ ...base, hasSelection: false }).enabled).toBe(false);
 });

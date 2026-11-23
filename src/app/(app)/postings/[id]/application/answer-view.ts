@@ -41,5 +41,13 @@ export function picksToSend(items: AskItem[], picks: AskPicks): { id: string; op
   });
 }
 
-// 쓰기 단추가 고르기 없이 켜지는 문항(경험형이 없는 문항)
-export const writesWithoutExperience = (kinds: string[] | null): boolean => kinds !== null && !kinds.includes("experience");
+// 경험형이 들어 있는 문항(유형을 정하기 전이면 경험형으로 본다)
+export const wantsExperience = (kinds: string[] | null): boolean => kinds === null || kinds.includes("experience");
+
+// 문항 하나의 쓰기 길은 하나다. 경험형 문항은 고른 경험이 있어야 쓰고(고르기 쪽 단추),
+// 경험형이 없는 문항은 붙인 답이 하나 이상이면 쓴다. 보낼 경험은 고르기 결과가 있을 때만 고른 것(없을 수도 있다), 없으면 []
+export function writePlan(input: { kinds: string[] | null; answerCount: number; checked: string[]; hasSelection: boolean }): { ids: string[]; enabled: boolean } {
+  const ids = input.hasSelection ? input.checked : [];
+  if (wantsExperience(input.kinds)) return { ids, enabled: ids.length > 0 };
+  return { ids, enabled: input.answerCount > 0 };
+}

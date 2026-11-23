@@ -5,7 +5,7 @@ import { answerAsksAction, detachAnswerAction, makeAsksAction, writeAnswerAction
 import { approveAndWriteAction } from "@/modules/applications/actions";
 import { ANSWER_TOPIC_LABELS, type AnswerTopic, APPLICATION_LIMITS } from "@/modules/applications/options";
 import type { AskItem, Asks } from "@/modules/applications/types";
-import { type AnswerView, type AskPick, type AskPicks, emptyPick, picksToSend, toggled, writesWithoutExperience } from "./answer-view";
+import { type AnswerView, type AskPick, type AskPicks, emptyPick, picksToSend, toggled, wantsExperience } from "./answer-view";
 import { ErrorLine, useRun } from "./use-run";
 
 // 동기포부형·자기소개형 문항의 답 구역: 붙인 답 → 질문 받기 → 선택지 고르기 → 답 저장. 입력은 체크가 먼저고, 글은 기타·직접 적기에만 쓴다
@@ -39,7 +39,7 @@ function AskCard({ item, pick, onChange }: { item: AskItem; pick: AskPick; onCha
           <div className="mt-1 border-t border-dashed border-foreground/20 pt-1">
             {item.previous.map((previous, i) => (
               <Check key={previous.answerId} checked={pick.previous.includes(i)} onChange={(on) => onChange({ ...pick, previous: toggled(pick.previous, i, on) })}>
-                <span className="font-medium">지난번 답</span> <span className="text-foreground/60">({previous.label})</span>
+                <span className="font-medium">지난번 답</span> <span className="text-foreground/60">· {previous.label}</span>
                 <span className="block text-foreground/80">{previous.text}</span>
               </Check>
             ))}
@@ -167,6 +167,8 @@ export function AnswerSection({
   kinds,
   hasDraft,
   canAct,
+  write: plan,
+  experience,
 }: {
   questionId: string;
   topics: AnswerTopic[];
@@ -175,15 +177,17 @@ export function AnswerSection({
   kinds: string[] | null;
   hasDraft: boolean;
   canAct: boolean;
+  write: { ids: string[]; enabled: boolean }; // 쓰기에 보낼 경험과 단추를 켤지(문항 하나에 쓰기 길은 하나)
+  experience: React.ReactNode; // 이어지는 경험을 고르는 선택 구역(경험형이 없는 문항)
 }) {
   const ask = useRun();
   const write = useRun();
   if (topics.length === 0) return null;
-  const withoutExperience = writesWithoutExperience(kinds);
+  const withoutExperience = !wantsExperience(kinds);
 
   function writeNow() {
     if (hasDraft && !confirm("지금 쓴 답을 지우고 다시 씁니다. 직접 고친 문단도 사라집니다. 다시 쓸까요?")) return;
-    write.run(() => approveAndWriteAction(questionId, []));
+    write.run(() => approveAndWriteAction(questionId, plan.ids));
   }
 
   return (
@@ -214,9 +218,10 @@ export function AnswerSection({
           </div>
           <ErrorLine message={ask.message} />
           {asks && <AskList key={asks.madeAt} questionId={questionId} asks={asks} />}
+          {withoutExperience && experience}
           {withoutExperience && (
             <div className="flex flex-wrap items-center gap-3">
-              <button type="button" disabled={write.pending || answers.length === 0} onClick={writeNow} className={primary}>
+              <button type="button" disabled={write.pending || !plan.enabled} onClick={writeNow} className={primary}>
                 {write.pending ? "쓰는 중…" : hasDraft ? "다시 쓰기" : "이 답으로 쓰기"}
               </button>
               {write.pending && (
