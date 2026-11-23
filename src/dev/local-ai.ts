@@ -323,7 +323,7 @@ function applicationSelect(text: string) {
   };
 }
 
-// 답 쓰기 흉내. E1의 "본인이 한 일"과 "결과"로 두 문단을 쓴다
+// 답 쓰기 흉내. E1의 "본인이 한 일"과 "결과"로 두 문단을 쓰고, [내 답]이 있으면 A1의 답 글을 첫 문단으로 쓴다
 function applicationWrite(text: string) {
   const experiences = section(text, "경험 기록");
   const first = experiences.split(/\n\n(?=E\d+\n)/)[0] ?? "";
@@ -332,12 +332,39 @@ function applicationWrite(text: string) {
     return value === "없음" ? "" : value;
   };
   const paragraphs = [field("본인이 한 일"), field("결과")].filter(Boolean).map((line) => ({ text: line, sources: ["E1"] }));
+  // [내 답]이 있으면 첫 답의 글을 A1이 근거인 문단으로 앞에 둔다
+  const answer = section(text, "내 답").split(/\n\n(?=A\d+\n)/)[0]?.match(/^- 답: (.*)$/m)?.[1] ?? "";
+  if (answer) paragraphs.unshift({ text: answer, sources: ["A1"] });
   return { paragraphs, shortage: "" };
 }
 
-// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다
+// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다. 근거는 경험이 있으면 E1, 답이 있으면 A1
 function applicationRevise(text: string) {
-  return { text: `${section(text, "고칠 문단")} (고침)`, sources: ["E1"] };
+  const sources = [section(text, "경험 기록") ? "E1" : "", section(text, "내 답") ? "A1" : ""].filter(Boolean);
+  return { text: `${section(text, "고칠 문단")} (고침)`, sources };
+}
+
+// 묻기 흉내. 질문 2개에 선택지 3개씩. [내 기록]이 있으면 첫 기록을 연결고리로 적는다
+function applicationAsk(text: string) {
+  const topics = [...section(text, "물을 주제").matchAll(/^([a-z]+) \(/gm)].map((match) => match[1]);
+  const first = topics[0] ?? "motive";
+  const hook = section(text, "내 기록").split("\n")[0]?.replace(/^- /, "").split(" — ")[0] ?? "";
+  return {
+    items: [
+      {
+        topic: first,
+        link: hook ? `공고의 담당 업무 ↔ ${hook}` : "",
+        question: hook ? "이 기록이 이 직무를 고른 이유와 이어지나요?" : "이 공고에서 가장 끌린 점은 무엇인가요?",
+        options: ["배운 것을 실무에서 더 키우고 싶다", "많은 사람이 쓰는 서비스를 만들고 싶다", "이어지지 않는다"],
+      },
+      {
+        topic: topics[1] ?? first,
+        link: "",
+        question: "입사하면 어떤 일을 먼저 해 보고 싶나요?",
+        options: ["맡은 서비스를 안정적으로 운영하고 싶다", "새 기능을 빨리 만들어 보고 싶다", "아직 잘 모르겠다"],
+      },
+    ],
+  };
 }
 
 // 이력서 줄 쓰기 흉내. 경험마다 "본인이 한 일" 첫 줄과(자세히면) "결과"를 줄로 쓴다
@@ -390,6 +417,8 @@ export const ai: AiClient = {
                       ? applicationWrite(text)
                       : request.purpose === "application_revise"
                         ? applicationRevise(text)
+                        : request.purpose === "application_ask"
+                          ? applicationAsk(text)
                         : request.purpose === "resume_write"
                           ? resumeWrite(text)
                           : request.purpose === "resume_emphasis"

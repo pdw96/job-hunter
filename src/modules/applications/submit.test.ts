@@ -12,6 +12,7 @@ import { applyToPosting, createPosting, getPosting, saveAnalysis, setChosenDocum
 import { saveContact } from "@/modules/profile/repo";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
+import { createAnswer } from "./answers-repo";
 import { addQuestions, createDraft, listQuestions } from "./repo";
 import { editResume } from "./resume-edit";
 import { getTailoredResume, insertCommonResume, saveTailoredContent } from "./resume-repo";
@@ -190,7 +191,7 @@ test("freeze: 이름에 없는 경험은 지운 경험으로 적는다", async (
   const resume: SubmittedResume | null = null;
   const questions = [
     {
-      id: "q1", postingId, position: 0, version: 1, selection: null, kinds: null, topics: null, freeformItem: null, createdAt: now, updatedAt: now,
+      id: "q1", postingId, position: 0, version: 1, selection: null, kinds: null, topics: null, freeformItem: null, asks: null, answerIds: [], createdAt: now, updatedAt: now,
       prompt: "지원 동기", charLimit: 500, countSpaces: true,
       draft: { questionVersion: 1, basedOn: [], paragraphs: [{ text: "답", sources: ["e1", "gone"], edited: false }], shortage: "", writtenAt: now.toISOString() },
     },
@@ -396,3 +397,62 @@ test("스위치를 켠 뒤 옛 기록을 근거로 한 답을 제출하면 근�
   expect(submitted?.content.answers[0].paragraphs[0].sources).toEqual([{ experienceId: exp, name: "옛 결제 경험" }]);
 });
 
+
+// 답 근거
+
+async function addMotiveAnswer(postingId: string) {
+  return createAnswer(
+    db,
+    "u1",
+    { topic: "motive", question: "왜 이 회사인가요?", answer: "하루 30만 명이 쓰는 주문 서비스를 만들고 싶다", postingId, company: "가나다", companyKey: "가나다" },
+    now,
+  );
+}
+
+test("답 근거는 '내 답: 지원동기'로 얼린다", async () => {
+  const exp = await addExperience();
+  const postingId = await addPosting();
+  const questionId = await addQuestion(postingId, "지원 동기");
+  const answerId = await addMotiveAnswer(postingId);
+  const draft: Draft = {
+    questionVersion: 0,
+    basedOn: [{ experienceId: exp, contentVersion: versions.get(exp) ?? 1 }],
+    paragraphs: [
+      { text: "결제 개편 경험을 했다", sources: [exp], answers: [answerId, "gone"], edited: false },
+      { text: "주문 서비스를 만들고 싶습니다", sources: [], answers: [answerId], edited: false },
+    ],
+    shortage: "",
+    answers: [answerId, "gone"],
+    writtenAt: now.toISOString(),
+  };
+  expect((await createDraft(db, "u1", questionId, draft)).ok).toBe(true);
+
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  const paragraphs = (await getSubmission(db, "u1", postingId, 1))?.content.answers[0].paragraphs;
+  expect(paragraphs?.map((p) => p.sources)).toEqual([
+    [
+      { experienceId: exp, name: "결제 시스템 개편" },
+      { experienceId: answerId, name: "내 답: 지원동기" },
+      { experienceId: "gone", name: "지운 답" },
+    ],
+    [{ experienceId: answerId, name: "내 답: 지원동기" }],
+  ]);
+});
+
+test("submitPreview: 답이 근거인 문단과 답 글의 숫자는 표시로 세지 않는다", async () => {
+  const postingId = await addPosting();
+  const questionId = await addQuestion(postingId, "지원 동기");
+  const answerId = await addMotiveAnswer(postingId);
+  const draft: Draft = {
+    questionVersion: 0,
+    basedOn: [],
+    paragraphs: [{ text: "하루 30만 명이 쓰는 주문 서비스를 만들고 싶습니다", sources: [], answers: [answerId], edited: false }],
+    shortage: "",
+    answers: [answerId],
+    writtenAt: now.toISOString(),
+  };
+  expect((await createDraft(db, "u1", questionId, draft)).ok).toBe(true);
+  await setChosenDocuments(db, "u1", postingId, ["cover_letter"]);
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  expect((await submitPreview(db, "u1", posting)).warnings).toEqual([]);
+});

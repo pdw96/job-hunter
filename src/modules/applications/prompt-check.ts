@@ -1,16 +1,21 @@
 import type { Db } from "@/db/types";
 import type { AiClient } from "@/modules/ai/client";
+import { numbersIn } from "@/modules/experiences/grounding";
+import type { MotiveHook } from "@/modules/experiences/motive-hooks";
 import type { CheckRow } from "@/modules/experiences/prompt-check";
 import type { WritingSource } from "@/modules/experiences/writing";
 import { FULL_POSTING } from "@/modules/postings/prompt-check";
+import type { Answer } from "./answers-repo";
 import { ANSWER_TOPIC_LABELS, QUESTION_KIND_LABELS } from "./options";
 import { cut } from "./text";
+import { askText } from "./ask";
 import { answerText, checkDraft, countChars } from "./check";
 import { selectText } from "./select";
 import type { Draft } from "./types";
 import { writeText } from "./write";
 
-// 준비한 자소서 문항 예시를 실제 AI에 돌려, 맞는 경험을 고르고 기록에 없는 것을 쓰지 않는지 본다(관리자 전용, 호출 2번)
+// 준비한 자소서 문항 예시를 실제 AI에 돌려, 맞는 경험을 고르고 기록에 없는 것을 쓰지 않는지,
+// 답만으로 쓸 때 답을 근거로 삼고 경력을 지어내지 않는지, 묻기가 기록과 맞는 연결고리로 묻는지 본다(관리자 전용, 호출 4번)
 
 const SAMPLE = "자소서 고르기·쓰기";
 const PROMPT = "지원 동기와 직무 역량을 경험을 들어 적어 주세요 (500자 이내)";
@@ -51,6 +56,29 @@ export const SAMPLE_SOURCES: WritingSource[] = [
 ];
 const [KOTLIN, CAFE] = SAMPLE_SOURCES;
 const QUESTION = { prompt: PROMPT, charLimit: CHAR_LIMIT, countSpaces: true, version: 0 };
+
+// 답으로 쓰기 예시: 경험 없이 지원자의 답 하나만으로 지원 동기를 쓴다
+const ANSWER_SAMPLE = "자소서 답으로 쓰기";
+const ANSWER_PROMPT = "지원 동기를 적어 주세요 (300자 이내)";
+const ANSWER_LIMIT = 300;
+const ANSWER: Answer = {
+  id: "sample-answer-motive",
+  topic: "motive",
+  question: "이 공고에서 가장 끌린 점은 무엇인가요?",
+  answer: "주문·결제처럼 많은 사람이 매일 쓰는 서비스를 안정적으로 만드는 일을 하고 싶다",
+  postingId: null,
+  company: "(주)가나다테크",
+  companyKey: "가나다테크",
+  createdAt: new Date(0),
+};
+
+// 묻기 예시: 공고(Java·Kotlin 백엔드)와 이어지는 교육과, 이어지지 않는 바리스타 사례
+const ASK_SAMPLE = "자소서 묻기";
+const ASK_PROMPT = "지원 동기를 적어 주세요";
+const ASK_HOOKS: MotiveHook[] = [
+  { kind: "scene", label: CAFE.name, detail: [CAFE.situation, CAFE.actions, CAFE.result].join(" / ") },
+  { kind: "course", label: "Kotlin 백엔드 개발 과정", detail: "Kotlin 백엔드 개발 과정 · 나다아카데미 · Spring Boot로 주문 API를 만들며 Kotlin을 익혔다" },
+];
 
 export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<CheckRow[]> {
   const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample: SAMPLE, check, expected, actual, pass });
@@ -110,9 +138,15 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     ];
   };
 
-  // 고르기 결과와 상관없이 ①만 승인한 것으로 쓴다
+  // 고르기 결과와 상관없이 ①만 승인한 것으로 쓴다. 답이 없는 문항이 쓰기에 닿는 것은 경험형일 때뿐이므로 경험형으로 보낸다
   const write = async (): Promise<CheckRow[]> => {
-    const result = await writeText(db, ai, userId, { prompt: PROMPT, charLimit: CHAR_LIMIT, countSpaces: true, postingText, sources: [KOTLIN] }, now);
+    const result = await writeText(
+      db,
+      ai,
+      userId,
+      { prompt: PROMPT, charLimit: CHAR_LIMIT, countSpaces: true, postingText, sources: [KOTLIN], kinds: ["experience"], answers: [], unanswered: [] },
+      now,
+    );
     if (!result.ok) return failed(writeChecks, result.reason);
     const draft: Draft = { questionVersion: 0, basedOn: [{ experienceId: KOTLIN.id, contentVersion: 0 }], ...result.value, writtenAt: now.toISOString() };
     const check = checkDraft(draft, QUESTION, [KOTLIN]);
@@ -133,5 +167,70 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     ];
   };
 
-  return (await Promise.all([select(), write()])).flat();
+  const answerChecks = ["모든 문단의 근거가 내 답이다", "기록에 없는 숫자가 없다", `${ANSWER_LIMIT}자를 넘지 않는다`, "경력·성과를 지어 쓰지 않는다"];
+  // 경험 없이 답 하나로 쓴다. 답 글의 숫자만 허용하고(공고 글의 숫자는 허용하지 않는다), 한 일을 지어낸 말이 없는지 본다
+  const answerWrite = async (): Promise<CheckRow[]> => {
+    const answerRow = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample: ANSWER_SAMPLE, check, expected, actual, pass });
+    const result = await writeText(
+      db,
+      ai,
+      userId,
+      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER], unanswered: [] },
+      now,
+    );
+    if (!result.ok) return answerChecks.map((check) => answerRow(check, "AI 호출 성공", `실패: ${result.reason}`, false));
+    const draft: Draft = { questionVersion: 0, basedOn: [], ...result.value, answers: [ANSWER.id], writtenAt: now.toISOString() };
+    const check = checkDraft(draft, { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, version: 0 }, [], { answers: [ANSWER] });
+    const text = answerText(draft);
+    const count = countChars(text, true);
+    const notAnswer = draft.paragraphs.filter((p) => !(p.answers ?? []).includes(ANSWER.id)).length;
+    const ungrounded = [...new Set(check.paragraphs.flatMap((p) => p.ungrounded))];
+    const invented = ["개발했", "경험이 있"].filter((word) => text.includes(word));
+    return [
+      answerRow(answerChecks[0], "모두 내 답", notAnswer === 0 ? "모두 내 답" : `내 답이 근거가 아닌 문단 ${notAnswer}개`, draft.paragraphs.length > 0 && notAnswer === 0),
+      answerRow(answerChecks[1], "없음", ungrounded.join(", ") || "없음", ungrounded.length === 0),
+      answerRow(answerChecks[2], `${ANSWER_LIMIT}자 이하`, `${count}자`, count <= ANSWER_LIMIT),
+      answerRow(answerChecks[3], "없음", invented.join(", ") || "없음", invented.length === 0),
+    ];
+  };
+
+  const askChecks = [
+    "질문 2~3개",
+    "질문마다 선택지 3~5개",
+    "주제가 모두 지원동기",
+    "연결고리에 Kotlin 교육이 나온다",
+    "바리스타를 연결고리로 쓰지 않는다",
+    "선택지에 공고·기록에 없는 숫자가 없다",
+  ];
+  // 코드가 다듬기 전의 AI 답으로 지시를 따랐는지 본다
+  const ask = async (): Promise<CheckRow[]> => {
+    const askRow = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample: ASK_SAMPLE, check, expected, actual, pass });
+    let raw: { items: { topic: string; link: string; question: string; options: string[] }[] } | undefined;
+    const result = await askText(
+      db,
+      ai,
+      userId,
+      { prompt: ASK_PROMPT, company: "(주)가나다테크", title: "백엔드 개발자", postingText, topics: ["motive"], hooks: ASK_HOOKS },
+      now,
+      { onRaw: (value) => (raw = value) },
+    );
+    if (!result.ok || !raw) return askChecks.map((check) => askRow(check, "AI 호출 성공", `실패: ${result.ok ? "invalid" : result.reason}`, false));
+    const items = raw.items;
+    const counts = items.map((x) => x.options.length);
+    const topics = items.map((x) => x.topic);
+    const links = items.map((x) => x.link).filter((link) => link.trim() !== "");
+    const cafe = links.filter((link) => ["바리스타", "카페"].some((word) => link.includes(word)));
+    const known = new Set([ASK_PROMPT, postingText, ...ASK_HOOKS.map((h) => h.detail)].flatMap(numbersIn));
+    const invented = [...new Set(items.flatMap((x) => x.options.flatMap(numbersIn)).filter((n) => !known.has(n)))];
+    return [
+      askRow(askChecks[0], "2~3개", `${items.length}개`, items.length >= 2 && items.length <= 3),
+      askRow(askChecks[1], "3~5개", counts.join(", ") || "없음", counts.length > 0 && counts.every((n) => n >= 3 && n <= 5)),
+      askRow(askChecks[2], "motive", topics.join(", ") || "없음", topics.length > 0 && topics.every((t) => t === "motive")),
+      askRow(askChecks[3], "Kotlin", links.join(" / ") || "없음", links.some((link) => link.includes("Kotlin"))),
+      askRow(askChecks[4], "없음", cafe.join(" / ") || "없음", cafe.length === 0),
+      askRow(askChecks[5], "없음", invented.join(", ") || "없음", invented.length === 0),
+    ];
+  };
+
+  return (await Promise.all([select(), write(), answerWrite(), ask()])).flat();
 }

@@ -1,5 +1,6 @@
 // applications 모듈이 저장하는 JSON의 모양. 타입만 둔다
 import type { Kind } from "@/modules/experiences/options";
+import type { AnswerTopic } from "./options";
 
 // 근거로 삼은 경험과, 그때의 내용 버전
 export type SourceRef = { experienceId: string; contentVersion: number };
@@ -14,14 +15,22 @@ export type Selection = {
   approved: SourceRef[] | null;
   approvedAt: string | null;
 };
-export type Paragraph = { text: string; sources: string[]; edited: boolean }; // sources는 경험 id
+// sources는 경험 id, answers는 근거로 삼은 지원자의 답(applications_answers) id. 옛 답에는 answers가 없다(빈 배열로 본다)
+export type Paragraph = { text: string; sources: string[]; answers?: string[]; edited: boolean };
 export type Draft = {
   questionVersion: number;
   basedOn: SourceRef[];
   paragraphs: Paragraph[];
   shortage: string;
+  answers?: string[]; // 쓸 때 AI에 보낸 답 id. 옛 답에는 없다
   writtenAt: string;
 };
+
+// 묻기. 쓰기 전에 동기·포부 같은 재료를 고를 수 있는 질문으로 묻는다
+export type PreviousAnswer = { answerId: string; text: string; label: string }; // label: "삼성전자 · 2026-11"
+export type AskItem = { id: string; topic: AnswerTopic; link: string; question: string; options: string[]; previous: PreviousAnswer[] }; // id: 질문을 만들 때 붙인 고유 값(답할 때 이 값으로 가리킨다). link: 연결고리 한 줄(없으면 빈 글)
+// companyKey: 질문을 만들 때 공고 회사 이름의 정리 값. 그 뒤 회사 이름을 바꾸면 이 질문으로 답을 저장하지 않는다(옛 질문에는 없다)
+export type Asks = { questionVersion: number; items: AskItem[]; madeAt: string; companyKey?: string };
 
 // 이력서. 항목마다 근거 경험이 하나다
 export type ResumeDetail = "full" | "summary";

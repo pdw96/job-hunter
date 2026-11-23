@@ -23,3 +23,9 @@ export function resolveAlias<T extends { name: string }>(raw: string, sources: T
   const hits = sources.filter((s) => normalizeName(s.name) === want);
   return hits.length === 1 ? hits[0] : undefined;
 }
+
+// AI가 답 별명을 "A1", "[A1]", "a1", "A1 (지원동기)"처럼 조금 다르게 써도 읽는다. 별명으로 시작할 때만 번호를 돌려준다
+export function answerAlias(raw: string): number | null {
+  const found = raw.match(/^[\s"'`“”‘’「」『』<>()[\]{}]*A(\d+)\b/i);
+  return found ? Number(found[1]) : null;
+}

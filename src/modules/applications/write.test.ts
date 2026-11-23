@@ -10,12 +10,15 @@ import { confirmExperience, createExperience, setTrackScope, unconfirmExperience
 import { experiences } from "@/modules/experiences/schema";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { validatePosting } from "@/modules/postings/input";
-import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus } from "@/modules/postings/repo";
+import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus, updatePosting } from "@/modules/postings/repo";
 
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { listWritingSources } from "@/modules/experiences/writing";
-import { addQuestions, approveSelection, getQuestion, saveSelection, updateQuestion } from "./repo";
+import { createAnswer } from "./answers-repo";
+import type { QuestionKind } from "./options";
+import { addQuestions, approveSelection, attachAnswer, detachAnswer, getQuestion, saveSelection, setQuestionKinds, updateQuestion } from "./repo";
+import { answers as answersTable, questions as questionsTable } from "./schema";
 import { reopenPosting, submitPosting } from "./submit";
 import { checkDraft } from "./check";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
@@ -228,8 +231,8 @@ test("글자 수 기준과 제한 없음이 글에 적힌다", async () => {
   await addExperience();
   const sources = await listWritingSources(db, "u1", trackId);
   const ai = createFakeAi([writeReply(), writeReply()]);
-  await writeText(db, ai, "u1", { prompt: "문항", charLimit: 300, countSpaces: false, postingText: "공고", sources }, now);
-  await writeText(db, ai, "u1", { prompt: "문항", charLimit: null, countSpaces: true, postingText: "공고", sources }, now);
+  await writeText(db, ai, "u1", { prompt: "문항", charLimit: 300, countSpaces: false, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [] }, now);
+  await writeText(db, ai, "u1", { prompt: "문항", charLimit: null, countSpaces: true, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [] }, now);
   expect(ai.requests[0].messages[0].text).toContain("[글자 수]\n300자 이내(공백 제외)");
   expect(ai.requests[1].messages[0].text).toContain("[글자 수]\n제한 없음");
 });
@@ -240,10 +243,11 @@ test("쓴 답이 저장된다: 문단의 근거는 실제 id, 기반 경험과 �
     questionVersion: 0,
     basedOn: [{ experienceId: expId, contentVersion: 0 }],
     paragraphs: [
-      { text: "결제 승인 API를 Java로 다시 설계했습니다.", sources: [expId], edited: false },
-      { text: "그 결과 장애가 줄었습니다.", sources: [expId], edited: false },
+      { text: "결제 승인 API를 Java로 다시 설계했습니다.", sources: [expId], answers: [], edited: false },
+      { text: "그 결과 장애가 줄었습니다.", sources: [expId], answers: [], edited: false },
     ],
     shortage: "",
+    answers: [],
     writtenAt: now.toISOString(),
   });
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
@@ -459,7 +463,7 @@ test("부분 수정은 그 문단만 바꾸고 다른 문단은 그대로이며,
   expect(result.ok).toBe(true);
   if (!result.ok) return;
   expect(result.value.paragraphs[0]).toEqual(draft.paragraphs[0]);
-  expect(result.value.paragraphs[1]).toEqual({ text: "더 짧게 고친 문단입니다.", sources: [expId], edited: false });
+  expect(result.value.paragraphs[1]).toEqual({ text: "더 짧게 고친 문단입니다.", sources: [expId], answers: [], edited: false });
   expect(result.value.basedOn).toEqual(draft.basedOn);
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(result.value);
   const request = ai.requests[0];
@@ -532,7 +536,7 @@ test("부분 수정의 답도 같은 검사를 거친다: 없는 별명은 버�
   const bad = await reviseParagraph(db, createFakeAi([{ text: "  ", sources: ["E1"] }]), "u1", questionId, 0, { preset: "shorter", note: "" }, draft, now);
   expect(bad).toEqual({ ok: false, reason: "invalid" });
   const ok = await reviseParagraph(db, createFakeAi([{ text: "고쳤다", sources: ["E8"] }]), "u1", questionId, 0, { preset: "shorter", note: "" }, draft, now);
-  expect(ok.ok && ok.value.paragraphs[0]).toEqual({ text: "고쳤다", sources: [], edited: false });
+  expect(ok.ok && ok.value.paragraphs[0]).toEqual({ text: "고쳤다", sources: [], answers: [], edited: false });
 });
 
 test("직접 고친 문단은 edited가 되고 sources는 남는다. 다른 문단은 그대로", async () => {
@@ -541,7 +545,7 @@ test("직접 고친 문단은 edited가 되고 sources는 남는다. 다른 문�
   expect(result.ok).toBe(true);
   if (!result.ok) return;
   expect(result.value.paragraphs).toEqual([
-    { text: "내가 쓴 글", sources: [expId], edited: true },
+    { text: "내가 쓴 글", sources: [expId], answers: [], edited: true },
     draft.paragraphs[1],
   ]);
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(result.value);
@@ -722,4 +726,328 @@ test("고치는 사이 제출하면 reviseParagraph는 submitted이고 답을 �
   ]);
   expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, draft, now)).toEqual({ ok: false, reason: "submitted" });
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
+});
+
+// 답으로 쓰기
+
+async function addAnswer(over: Partial<Parameters<typeof createAnswer>[2]> = {}) {
+  return createAnswer(
+    db,
+    "u1",
+    { topic: "motive", question: "왜 이 회사인가요?", answer: "하루 30만 명이 쓰는 주문 서비스를 안정적으로 만들고 싶다", postingId: null, company: "가나다", companyKey: "가나다", ...over },
+    now,
+  );
+}
+
+// 유형을 정하고 답을 붙인 문항. withSelection이면 고르기까지 한다
+async function answered(kinds: QuestionKind[], answerCount = 1, withSelection = false) {
+  const expId = await addExperience();
+  const questionId = await addQuestion(await addPosting());
+  if (withSelection) {
+    const r = await selectForQuestion(db, createFakeAi([selectReply]), "u1", questionId, now);
+    if (!r.ok) throw new Error(r.reason);
+  }
+  const set = await setQuestionKinds(db, "u1", questionId, kinds);
+  if (!set.ok) throw new Error(set.reason);
+  // 둘째 답부터는 입사 후 포부이므로 주제에 넣어 둔다(주제에 없는 답은 쓰기에 보내지 않는다)
+  if (answerCount > 1 && kinds.includes("motive")) {
+    await db.update(questionsTable).set({ topics: ["motive", "aspiration"] }).where(eq(questionsTable.id, questionId));
+  }
+  const answerIds: string[] = [];
+  for (let i = 0; i < answerCount; i++) {
+    // 첫 답은 그 유형의 주제(동기포부형이면 지원동기, 자기소개형만이면 기타)
+    const first = kinds.includes("motive") ? {} : { topic: "other" as const, answer: "사람들이 매일 쓰는 것을 만들 때 보람을 느낀다" };
+    const id = await addAnswer(i === 0 ? first : { topic: "aspiration", answer: `포부 ${i}` });
+    const attached = await attachAnswer(db, "u1", questionId, id);
+    if (!attached.ok) throw new Error(attached.reason);
+    answerIds.push(id);
+  }
+  return { expId, questionId, answerIds };
+}
+
+const answerReply = (sources: string[][] = [["A1"]]) => ({
+  paragraphs: sources.map((s, i) => ({ text: `주문 서비스를 안정적으로 만들고 싶습니다 ${i}`, sources: s })),
+  shortage: "",
+});
+
+test("동기포부형인데 답이 없으면 need_answers이고 AI를 부르지 않는다", async () => {
+  const motive = await answered(["motive"], 0);
+  const mixed = await answered(["experience", "motive"], 0, true);
+  const ai = createFakeAi([writeReply(), writeReply()]);
+  expect(await approveAndWrite(db, ai, "u1", motive.questionId, [], now)).toEqual({ ok: false, reason: "need_answers" });
+  expect(await approveAndWrite(db, ai, "u1", mixed.questionId, [mixed.expId], now)).toEqual({ ok: false, reason: "need_answers" });
+  expect(ai.requests).toHaveLength(0);
+  expect((await getQuestion(db, "u1", mixed.questionId))?.selection?.approved).toBeNull();
+});
+
+test("자기소개형만인 문항은 고르기 없이 답만으로 쓴다", async () => {
+  const { questionId, answerIds } = await answered(["self"]);
+  const ai = createFakeAi([answerReply()]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(result).toEqual({
+    ok: true,
+    value: {
+      questionVersion: 0,
+      basedOn: [],
+      paragraphs: [{ text: "주문 서비스를 안정적으로 만들고 싶습니다 0", sources: [], answers: answerIds, edited: false }],
+      shortage: "",
+      answers: answerIds,
+      writtenAt: now.toISOString(),
+    },
+  });
+  const stored = await getQuestion(db, "u1", questionId);
+  expect(stored?.draft).toEqual(result.ok && result.value);
+  expect(stored?.selection).toBeNull();
+  expect(ai.requests[0].messages[0].text).toContain("[경험 기록]\n없음");
+});
+
+test("경험형 문항은 지금처럼 고르기가 있어야 한다(changed)", async () => {
+  const experience = await answered(["experience"], 0);
+  const both = await answered(["experience", "motive"], 1);
+  const motive = await answered(["motive"], 1);
+  const ai = createFakeAi([writeReply()]);
+  expect(await approveAndWrite(db, ai, "u1", experience.questionId, [experience.expId], now)).toEqual({ ok: false, reason: "changed" });
+  expect(await approveAndWrite(db, ai, "u1", both.questionId, [], now)).toEqual({ ok: false, reason: "changed" });
+  // 고르기 없이 경험을 보내면 승인할 고르기가 없으므로 changed
+  expect(await approveAndWrite(db, ai, "u1", motive.questionId, [motive.expId], now)).toEqual({ ok: false, reason: "changed" });
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("AI의 A 별명은 paragraph.answers로, E 별명은 sources로 나뉜다", async () => {
+  const { expId, questionId, answerIds } = await answered(["experience", "motive"], 2, true);
+  const ai = createFakeAi([answerReply([["E1", "A1"], ["A2 (입사 후 포부)", "[a1]"], ["E1"]])]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.value.basedOn).toEqual([{ experienceId: expId, contentVersion: 0 }]);
+  expect(result.value.answers).toEqual(answerIds);
+  expect(result.value.paragraphs.map((p) => [p.sources, p.answers])).toEqual([
+    [[expId], [answerIds[0]]],
+    [[], [answerIds[1], answerIds[0]]],
+    [[expId], []],
+  ]);
+});
+
+test("경험형·동기포부형 문항에서 경험을 하나도 고르지 않아도 답이 있으면 답만으로 쓴다", async () => {
+  const { questionId, answerIds } = await answered(["experience", "motive"], 1, true);
+  const ai = createFakeAi([answerReply()]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(result.ok && result.value.basedOn).toEqual([]);
+  expect(result.ok && result.value.answers).toEqual(answerIds);
+});
+
+test("없는 A 별명은 버린다", async () => {
+  const { questionId, answerIds } = await answered(["motive"]);
+  const result = await approveAndWrite(db, createFakeAi([answerReply([["A2", "A9", "A0", "A1", "A1"]])]), "u1", questionId, [], now);
+  expect(result.ok && result.value.paragraphs[0].answers).toEqual(answerIds);
+});
+
+test("붙인 답 중 지금 없는 답은 보내지 않는다", async () => {
+  const { questionId, answerIds } = await answered(["motive"], 2);
+  await db.delete(answersTable).where(eq(answersTable.id, answerIds[0]));
+  const ai = createFakeAi([answerReply([["A1"]])]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(result.ok && result.value.answers).toEqual([answerIds[1]]);
+  expect(result.ok && result.value.paragraphs[0].answers).toEqual([answerIds[1]]);
+  expect(ai.requests[0].messages[0].text).not.toContain("하루 30만 명");
+});
+
+test("쓰는 사이 답을 붙이거나 뗐으면 changed", async () => {
+  const added = await answered(["motive"]);
+  const extra = await addAnswer({ answer: "다른 답" });
+  const attachAi = createFakeAi([
+    async () => {
+      expect((await attachAnswer(db, "u1", added.questionId, extra)).ok).toBe(true);
+      return answerReply();
+    },
+  ]);
+  expect(await approveAndWrite(db, attachAi, "u1", added.questionId, [], now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", added.questionId))?.draft).toBeNull();
+
+  const removed = await answered(["motive"], 2);
+  const detachAi = createFakeAi([
+    async () => {
+      expect((await detachAnswer(db, "u1", removed.questionId, removed.answerIds[1])).ok).toBe(true);
+      return answerReply();
+    },
+  ]);
+  expect(await approveAndWrite(db, detachAi, "u1", removed.questionId, [], now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", removed.questionId))?.draft).toBeNull();
+});
+
+test("고르기 없이 답만으로 쓰는 사이 고르기를 하면 changed", async () => {
+  const { questionId } = await answered(["motive"]);
+  const ai = createFakeAi([
+    async () => {
+      await saveSelection(db, "u1", questionId, { questionVersion: 0, picks: [], passed: [], noMatch: true, selectedAt: now.toISOString(), approved: null, approvedAt: null });
+      return answerReply();
+    },
+  ]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [], now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toBeNull();
+});
+
+test("부분 수정은 답을 함께 보내고, 그 답이 없으면 stale", async () => {
+  const { questionId, answerIds } = await answered(["motive"]);
+  const first = await approveAndWrite(db, createFakeAi([answerReply()]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1"] }, reviseReply]);
+
+  const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
+  expect(revised.ok && revised.value.paragraphs[0]).toEqual({ text: "고친 문단입니다.", sources: [], answers: answerIds, edited: false });
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain("[내 답]\nA1\n");
+  expect(sent).toContain("하루 30만 명이 쓰는 주문 서비스를 안정적으로 만들고 싶다");
+  expect(sent).toContain("[문항 유형]\n동기포부형");
+  if (!revised.ok) return;
+
+  await db.delete(answersTable).where(eq(answersTable.id, answerIds[0]));
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, revised.value, now)).toEqual({ ok: false, reason: "stale" });
+  expect(ai.requests).toHaveLength(1);
+});
+
+test("AI에 보낸 글에 [문항 유형]과 [내 답], 답 글이 있고 답 id는 없다", async () => {
+  const { expId, questionId, answerIds } = await answered(["experience", "motive"], 1, true);
+  const ai = createFakeAi([answerReply()]);
+  await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain("[문항 유형]\n경험형, 동기포부형");
+  expect(sent).toContain("[내 답]\nA1\n- 주제: 지원동기\n- 질문: 왜 이 회사인가요?\n- 답: 하루 30만 명이 쓰는 주문 서비스를 안정적으로 만들고 싶다");
+  expect(sent).toContain("[경험 기록]\nE1\n");
+  for (const secret of [...answerIds, expId, questionId]) expect(sent).not.toContain(secret);
+
+  // 유형이 없는(옛) 문항은 경험형으로 보고, 답이 없으면 "없음"
+  const old = await ready();
+  await db.update(questionsTable).set({ kinds: null }).where(eq(questionsTable.id, old.questionId));
+  const oldAi = createFakeAi([writeReply()]);
+  await approveAndWrite(db, oldAi, "u1", old.questionId, [old.expId], now);
+  const oldSent = oldAi.requests[0].messages[0].text;
+  expect(oldSent).toContain("[문항 유형]\n경험형");
+  expect(oldSent).toContain("[내 답]\n없음");
+});
+
+test("지원동기·포부 문항에서 지원동기 답만 있으면 [답이 없는 주제]에 입사 후 포부가 들어간다", async () => {
+  const { questionId } = await answered(["motive"]);
+  await db.update(questionsTable).set({ topics: ["motive", "aspiration"] }).where(eq(questionsTable.id, questionId));
+  const ai = createFakeAi([answerReply(), { text: "고친 문단입니다.", sources: ["A1"] }]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(result.ok).toBe(true);
+  expect(ai.requests[0].messages[0].text).toContain("[답이 없는 주제]\n입사 후 포부");
+  if (!result.ok) return;
+  await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, result.value, now);
+  expect(ai.requests[1].messages[0].text).toContain("[답이 없는 주제]\n입사 후 포부");
+
+  // 주제마다 답이 있으면 없음
+  const full = await answered(["motive"], 2);
+  await db.update(questionsTable).set({ topics: ["motive", "aspiration"] }).where(eq(questionsTable.id, full.questionId));
+  const fullAi = createFakeAi([answerReply()]);
+  await approveAndWrite(db, fullAi, "u1", full.questionId, [], now);
+  expect(fullAi.requests[0].messages[0].text).toContain("[답이 없는 주제]\n없음");
+});
+
+test("동기포부형+자기소개형인데 자기소개 쪽 답이 없으면 need_answers", async () => {
+  const { questionId } = await answered(["motive", "self"]);
+  const ai = createFakeAi([answerReply()]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [], now)).toEqual({ ok: false, reason: "need_answers" });
+  expect(ai.requests).toHaveLength(0);
+  // 자기소개 쪽 답을 붙이면 쓴다
+  const other = await addAnswer({ topic: "other", answer: "끝까지 확인하는 편이다" });
+  expect((await attachAnswer(db, "u1", questionId, other)).ok).toBe(true);
+  expect((await approveAndWrite(db, ai, "u1", questionId, [], now)).ok).toBe(true);
+});
+
+test("경험형으로 바꾼 문항은 붙어 있던 답을 쓰기에 보내지 않는다", async () => {
+  const { expId, questionId, answerIds } = await answered(["experience", "motive"], 1, true);
+  const first = await approveAndWrite(db, createFakeAi([answerReply([["E1", "A1"]])]), "u1", questionId, [expId], now);
+  if (!first.ok) throw new Error(first.reason);
+  expect(first.value.answers).toEqual(answerIds);
+
+  expect((await setQuestionKinds(db, "u1", questionId, ["experience"])).ok).toBe(true);
+  expect((await getQuestion(db, "u1", questionId))?.answerIds).toEqual(answerIds); // 붙은 답은 남는다
+  const ai = createFakeAi([answerReply([["E1", "A1"]]), { text: "고친 문단입니다.", sources: ["E1", "A1"] }]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result.ok).toBe(true);
+  if (!result.ok) return;
+  expect(result.value.answers).toEqual([]);
+  expect(result.value.paragraphs[0]).toMatchObject({ sources: [expId], answers: [] });
+  expect(ai.requests[0].messages[0].text).toContain("[내 답]\n없음");
+  expect(ai.requests[0].messages[0].text).not.toContain("하루 30만 명");
+
+  // 부분 수정도 지금 주제에 맞지 않는 답은 보내지 않는다(답을 보냈던 옛 초안이라도)
+  await db.update(questionsTable).set({ draft: first.value }).where(eq(questionsTable.id, questionId));
+  const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
+  expect(revised.ok && revised.value.paragraphs[0]).toMatchObject({ sources: [expId], answers: [] });
+  expect(ai.requests[1].messages[0].text).toContain("[내 답]\n없음");
+});
+
+async function renameCompany(questionId: string, company: string) {
+  const postingId = (await getQuestion(db, "u1", questionId))!.postingId;
+  const checked = validatePosting({ ...raw, company });
+  if (!checked.ok) throw new Error("공고 입력 오류");
+  const updated = await updatePosting(db, "u1", postingId, checked.value);
+  if (!updated.ok) throw new Error(updated.reason);
+}
+
+test("회사 이름이 바뀐 공고에서는 다른 회사의 지원동기 답을 쓰지 않는다(need_answers)", async () => {
+  const { questionId } = await answered(["motive"]);
+  await renameCompany(questionId, "라마바 주식회사");
+  const ai = createFakeAi([answerReply()]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [], now)).toEqual({ ok: false, reason: "need_answers" });
+  expect(ai.requests).toHaveLength(0);
+  // 표기만 다른 같은 회사면 쓴다
+  await renameCompany(questionId, "(주)가나다");
+  expect((await approveAndWrite(db, ai, "u1", questionId, [], now)).ok).toBe(true);
+});
+
+test("회사 이름이 바뀐 공고의 부분 수정은 다른 회사의 지원동기 답을 보내지 않는다", async () => {
+  const { questionId } = await answered(["motive", "self"], 1);
+  const self = await addAnswer({ topic: "other", answer: "끝까지 확인하는 편이다", companyKey: null });
+  expect((await attachAnswer(db, "u1", questionId, self)).ok).toBe(true);
+  const first = await approveAndWrite(db, createFakeAi([answerReply([["A1", "A2"]])]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  await renameCompany(questionId, "라마바 주식회사");
+  const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1", "A2"] }]);
+  const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).not.toContain("하루 30만 명");
+  expect(sent).toContain("끝까지 확인하는 편이다");
+  // 남은 답(A1 = 자기소개 답)만 근거로 남는다
+  expect(revised.ok && revised.value.paragraphs[0].answers).toEqual([self]);
+});
+
+test("[내 답]의 질문에 연결고리가 있으면 연결고리를 함께 보낸다", async () => {
+  const { questionId } = await answered(["motive"], 0);
+  const linked = await addAnswer({ question: "공고의 사내 업무 시스템 개발 ↔ 교육 ERP 개발 과정\n그 교육이 이 직무를 고른 이유와 이어지나요?" });
+  expect((await attachAnswer(db, "u1", questionId, linked)).ok).toBe(true);
+  const ai = createFakeAi([answerReply()]);
+  await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(ai.requests[0].messages[0].text).toContain(
+    "- 질문: (연결고리: 공고의 사내 업무 시스템 개발 ↔ 교육 ERP 개발 과정) 그 교육이 이 직무를 고른 이유와 이어지나요?",
+  );
+});
+
+test("쓰는 사이 유형을 바꾸면 저장하지 않는다(changed)", async () => {
+  const { questionId } = await answered(["motive"]);
+  const ai = createFakeAi([
+    async () => {
+      expect((await setQuestionKinds(db, "u1", questionId, ["experience", "motive"])).ok).toBe(true);
+      return answerReply();
+    },
+  ]);
+  expect(await approveAndWrite(db, ai, "u1", questionId, [], now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toBeNull();
+});
+
+test("부분 수정하는 사이 유형을 바꾸면 저장하지 않는다(changed)", async () => {
+  const { questionId } = await answered(["motive"]);
+  const first = await approveAndWrite(db, createFakeAi([answerReply()]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  const ai = createFakeAi([
+    async () => {
+      expect((await setQuestionKinds(db, "u1", questionId, ["self"])).ok).toBe(true);
+      return { text: "고친 문단입니다.", sources: ["A1"] };
+    },
+  ]);
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "changed" });
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(first.value);
 });

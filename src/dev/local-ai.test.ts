@@ -156,3 +156,48 @@ test("옮기기 정리 흉내는 구분과 이름이 같은 기록을 앞의 것
     ],
   });
 }, DB_TEST_TIMEOUT);
+
+test("묻기 흉내는 질문 2개에 선택지 3개씩이고, 기록이 있으면 첫 기록을 연결고리로 적는다", async () => {
+  const schema = z.object({ items: z.array(z.object({ topic: z.string(), link: z.string(), question: z.string(), options: z.array(z.string()) })) });
+  const ask = async (records: string) => {
+    const text = ["[문항]\n지원 동기", "[물을 주제]\nmotive (지원동기)\naspiration (입사 후 포부)", "[공고]\n백엔드", `[내 기록]\n${records}`].join("\n\n");
+    const result = await ai.complete({ purpose: "application_ask", system: "", messages: [{ role: "user", text }], schema, effort: "low", maxTokens: 4000 });
+    if (!result.ok) throw new Error(result.reason);
+    return result.value.items;
+  };
+  const withHook = await ask("- 교육 과정: Kotlin 백엔드 개발 과정 · 나다아카데미");
+  expect(withHook.map((x) => [x.topic, x.options.length])).toEqual([
+    ["motive", 3],
+    ["aspiration", 3],
+  ]);
+  expect(withHook[0].link).toContain("Kotlin 백엔드 개발 과정");
+  expect((await ask("없음"))[0].link).toBe("");
+});
+
+test("쓰기 흉내는 [내 답]이 있으면 A1을 근거로 한 첫 문단을 쓰고, 경험이 있으면 E1 문단을 잇는다", async () => {
+  const { createTestDb } = await import("@/db/test-db");
+  const { user } = await import("@/modules/auth/schema");
+  const { writeText } = await import("@/modules/applications/write");
+  const { SAMPLE_SOURCES } = await import("@/modules/applications/prompt-check");
+  const db = await createTestDb();
+  await db.insert(user).values({ id: "u1", name: "A", email: "u1@example.com" });
+  const answer = {
+    id: "a1",
+    topic: "motive" as const,
+    question: "왜 이 회사인가요?",
+    answer: "많은 사람이 쓰는 서비스를 만들고 싶다",
+    postingId: null,
+    company: "가나다",
+    companyKey: "가나다",
+    createdAt: new Date(),
+  };
+  const base = { prompt: "지원 동기", charLimit: 300, countSpaces: true, postingText: "공고" };
+  const onlyAnswer = await writeText(db, ai, "u1", { ...base, sources: [], kinds: ["motive"], answers: [answer], unanswered: [] });
+  expect(onlyAnswer.ok && onlyAnswer.value.paragraphs).toEqual([{ text: answer.answer, sources: [], answers: ["a1"], edited: false }]);
+  const both = await writeText(db, ai, "u1", { ...base, sources: [SAMPLE_SOURCES[0]], kinds: ["experience", "motive"], answers: [answer], unanswered: [] });
+  expect(both.ok && both.value.paragraphs.map((p) => [p.sources, p.answers])).toEqual([
+    [[], ["a1"]],
+    [[SAMPLE_SOURCES[0].id], []],
+    [[SAMPLE_SOURCES[0].id], []],
+  ]);
+}, DB_TEST_TIMEOUT);

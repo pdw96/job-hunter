@@ -2,20 +2,32 @@ import { z } from "zod";
 import type { Db } from "@/db/types";
 import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
+import { companyKey } from "@/modules/postings/company";
 import { getPosting } from "@/modules/postings/repo";
-import { APPLICATION_LIMITS } from "./options";
+import { type Answer, listAnswersByIds } from "./answers-repo";
+import { answerUnused, unansweredKinds, unansweredTopics } from "./kinds";
+import { ANSWER_TOPIC_LABELS, type AnswerTopic, APPLICATION_LIMITS, type QuestionKind, QUESTION_KIND_LABELS } from "./options";
 import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
 import { editBlock, withEditLock } from "./submission-repo";
-import { cut, resolveAlias } from "./text";
+import { answerAlias, cut, resolveAlias } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
-// 승인한 경험만으로 답을 쓰고, 문단 하나를 AI로 고치거나 직접 고친다.
-// AI에게는 경험의 실제 id 대신 E1, E2 같은 별명만 보내고, 답의 별명은 코드가 실제 id로 바꾼다.
+// 승인한 경험과 지원자의 답(묻기)만으로 자소서 답을 쓰고, 문단 하나를 AI로 고치거나 직접 고친다.
+// AI에게는 실제 id 대신 경험은 E1, E2, 지원자의 답은 A1, A2 같은 별명만 보내고, 문단의 별명은 코드가 실제 id로 바꾼다.
 // 숫자·금지 표현은 저장 뒤 checkDraft가 표시한다(저장은 막지 않는다).
 
-export type WriteFailure = "not_found" | "not_apply" | "submitted" | "changed" | "stale" | "over_limit" | "too_many_selected" | AiFailure;
+export type WriteFailure =
+  | "not_found"
+  | "not_apply"
+  | "submitted"
+  | "changed"
+  | "stale"
+  | "over_limit"
+  | "too_many_selected"
+  | "need_answers"
+  | AiFailure;
 export type RevisePreset = "shorter" | "concrete" | "natural";
 
 const paragraphSchema = z.object({ text: z.string(), sources: z.array(z.string()) });
@@ -27,6 +39,9 @@ export type WriteInput = {
   countSpaces: boolean;
   postingText: string;
   sources: WritingSource[]; // 승인한 경험
+  kinds: QuestionKind[];
+  answers: Answer[]; // 문항에 붙인 지원자의 답. 이력 사실(학력·자격)은 보내지 않는다
+  unanswered: AnswerTopic[]; // 문항의 주제 중 답이 없는 것. AI가 그 주제를 지어 쓰지 않게 알린다
 };
 
 const PRESET_TEXT: Record<RevisePreset, string> = {
@@ -39,26 +54,53 @@ function limitText(charLimit: number | null, countSpaces: boolean): string {
   return charLimit === null ? "제한 없음" : `${charLimit}자 이내(${countSpaces ? "공백 포함" : "공백 제외"})`;
 }
 
+// 답의 질문 글에는 연결고리로 쓰인 교육·전공 이름이 남아 있을 수 있다(지시문이 한 줄만 쓰게 한다).
+// 연결고리가 있던 질문은 "연결고리\n질문"으로 저장되어 있다(묻기의 answerAsks)
+function describeQuestion(question: string): string {
+  const [first, ...rest] = question.split("\n");
+  return rest.length > 0 ? `(연결고리: ${first}) ${rest.join(" ")}` : question;
+}
+const describeAnswer = (alias: string, a: Answer) =>
+  [alias, `- 주제: ${ANSWER_TOPIC_LABELS[a.topic]}`, `- 질문: ${describeQuestion(a.question)}`, `- 답: ${a.answer}`].join("\n");
+
+const orNone = (blocks: string[]) => (blocks.length > 0 ? blocks.join("\n\n") : "없음");
+
 function buildBase(input: WriteInput): [string, string][] {
   return [
     ["문항", input.prompt],
+    ["문항 유형", input.kinds.map((kind) => QUESTION_KIND_LABELS[kind]).join(", ")],
     ["글자 수", limitText(input.charLimit, input.countSpaces)],
     ["공고", input.postingText],
-    ["경험 기록", input.sources.map((s, i) => describeSource(`E${i + 1}`, s, true)).join("\n\n")],
+    ["경험 기록", orNone(input.sources.map((s, i) => describeSource(`E${i + 1}`, s, true)))],
+    ["내 답", orNone(input.answers.map((a, i) => describeAnswer(`A${i + 1}`, a)))],
+    ["답이 없는 주제", input.unanswered.length > 0 ? input.unanswered.map((topic) => ANSWER_TOPIC_LABELS[topic]).join(", ") : "없음"],
   ];
 }
 
 const render = (sections: [string, string][]) => sections.map(([label, value]) => `[${label}]\n${value}`).join("\n\n");
 
-// AI가 준 문단을 검사한다. 승인 경험에 없는 별명은 버리고(같은 별명은 한 번), 글은 다듬고 2000자로 자른다.
+// AI가 준 문단을 검사한다. A 별명은 보낸 답의 id로, 그 밖의 별명은 승인 경험의 id로 바꾸고,
+// 없는 별명은 버리고(같은 별명은 한 번), 글은 다듬고 2000자로 자른다.
 // 근거가 없는 문단은 남긴다(checkDraft가 "근거 없음"으로 표시한다)
-function cleanParagraph(text: string, aliases: string[], sources: WritingSource[]): { text: string; sources: string[] } {
+function cleanParagraph(
+  text: string,
+  aliases: string[],
+  sources: WritingSource[],
+  answers: Answer[],
+): { text: string; sources: string[]; answers: string[] } {
   const ids = new Set<string>();
+  const answerIds = new Set<string>();
   for (const alias of aliases) {
+    const n = answerAlias(alias);
+    const answer = n === null ? undefined : answers[n - 1];
+    if (answer) {
+      answerIds.add(answer.id);
+      continue;
+    }
     const s = resolveAlias(alias, sources);
     if (s) ids.add(s.id);
   }
-  return { text: cut(text.trim(), APPLICATION_LIMITS.paragraph), sources: [...ids] };
+  return { text: cut(text.trim(), APPLICATION_LIMITS.paragraph), sources: [...ids], answers: [...answerIds] };
 }
 
 // 저장하지 않는다. 프롬프트 점검도 이것을 쓴다
@@ -86,13 +128,17 @@ export async function writeText(
   if (!result.ok) return { ok: false, reason: result.reason };
 
   const paragraphs: Paragraph[] = result.value.paragraphs
-    .map((p) => cleanParagraph(p.text, p.sources, input.sources))
+    .map((p) => cleanParagraph(p.text, p.sources, input.sources, input.answers))
     .filter((p) => p.text !== "")
     .slice(0, APPLICATION_LIMITS.paragraphs)
     .map((p) => ({ ...p, edited: false }));
   if (paragraphs.length === 0) return { ok: false, reason: "invalid" };
   return { ok: true, value: { paragraphs, shortage: cut(result.value.shortage.trim(), APPLICATION_LIMITS.shortage) } };
 }
+
+// 쓰기에 보낼 수 있는 답만: 주제가 문항의 지금 주제에 있고, 회사에 묶인 답이면 지금 공고의 회사다
+const usableAnswers = (answers: Answer[], topics: AnswerTopic[] | null, company: string) =>
+  answers.filter((answer) => answerUnused(answer, topics, companyKey(company)) === null);
 
 const sameRef = (a: SourceRef, b: SourceRef) => a.experienceId === b.experienceId && a.contentVersion === b.contentVersion;
 const sameRefs = (a: SourceRef[], b: SourceRef[]) => a.length === b.length && a.every((ref, i) => sameRef(ref, b[i]));
@@ -111,8 +157,13 @@ function canon(value: unknown): string {
 const sameJson = (a: unknown, b: unknown) => canon(a) === canon(b);
 
 // 고른 경험을 승인하고 곧바로 쓴다. experienceIds는 화면이 보낸 것이므로 지금의 WritingSource에 있는 것만 받는다.
-// 규칙: 보낸 id 중 이미 승인한 경험이 지금 목록에 없거나(확인 풀림, 요약만·제외) 버전이 다르면 stale이고 AI를 부르지 않는다.
-// 이미 승인한 경험을 빼고 다른 묶음을 보내면 새 승인이다(지금 버전으로 다시 승인한다)
+// 지원자의 답은 서버가 문항에 붙인 답(answerIds)에서 읽는다. 지금 없는 답, 주제가 문항의 지금 주제에 없는 답
+// (유형을 경험형으로 바꾼 뒤에도 붙어 남은 답 등), 다른 회사에 묶인 답(공고의 회사 이름을 바꿈)은 빼고 쓴다.
+// 규칙: 유형에 동기포부형·자기소개형이 있는데 그 유형 주제의 답이 없으면(유형마다 본다) need_answers이고 AI를 부르지 않는다.
+// 답이 일부 주제에만 있으면 쓰되, 답이 없는 주제는 AI에 알려 쓰지 않게 한다.
+// 고르기 결과가 없으면, 보낸 경험이 없고 유형에 경험형이 없을 때만 답만으로 쓴다(승인 없음). 아니면 changed.
+// 보낸 id 중 이미 승인한 경험이 지금 목록에 없거나(확인 풀림, 요약만·제외) 버전이 다르면 stale이고 AI를 부르지 않는다.
+// 이미 승인한 경험을 빼고 다른 묶음을 보내면 새 승인이다(지금 버전으로 다시 승인한다). 경험도 답도 없으면 none_selected
 export async function approveAndWrite(
   db: Db,
   ai: AiClient,
@@ -127,43 +178,75 @@ export async function approveAndWrite(
   if (!posting) return { ok: false, reason: "not_found" };
   const block = await editBlock(db, userId, posting);
   if (block) return { ok: false, reason: block };
-  const selection = question.selection;
-  if (!selection) return { ok: false, reason: "changed" };
 
-  const listed = await listWritingSources(db, userId, posting.trackId);
-  const byId = new Map(listed.map((s) => [s.id, s]));
+  const kinds: QuestionKind[] = question.kinds ?? ["experience"]; // 유형을 정하기 전의 옛 문항은 경험형으로 본다
+  const answers = usableAnswers(await listAnswersByIds(db, userId, question.answerIds), question.topics, posting.company);
+  const answerTopics = answers.map((a) => a.topic);
+  if (unansweredKinds(kinds, answerTopics).length > 0) return { ok: false, reason: "need_answers" };
+
   const requested = [...new Set(experienceIds)];
+  const selection = question.selection;
+  let sources: WritingSource[] = [];
+  let approved: SourceRef[] | null = null; // null: 고르기 없이 답만으로 쓴다
+  if (!selection) {
+    if (requested.length > 0 || kinds.includes("experience")) return { ok: false, reason: "changed" };
+  } else {
+    const listed = await listWritingSources(db, userId, posting.trackId);
+    const byId = new Map(listed.map((s) => [s.id, s]));
 
-  const stale = (selection.approved ?? []).some((ref) => {
-    if (!requested.includes(ref.experienceId)) return false;
-    const current = byId.get(ref.experienceId);
-    return !current || current.contentVersion !== ref.contentVersion;
-  });
-  if (stale) return { ok: false, reason: "stale" };
+    const stale = (selection.approved ?? []).some((ref) => {
+      if (!requested.includes(ref.experienceId)) return false;
+      const current = byId.get(ref.experienceId);
+      return !current || current.contentVersion !== ref.contentVersion;
+    });
+    if (stale) return { ok: false, reason: "stale" };
 
-  const sources = requested.flatMap((id) => byId.get(id) ?? []);
-  if (sources.length === 0) return { ok: false, reason: "none_selected" };
-  if (sources.length > APPLICATION_LIMITS.approved) return { ok: false, reason: "too_many_selected" };
-  const approved: SourceRef[] = sources.map((s) => ({ experienceId: s.id, contentVersion: s.contentVersion }));
+    sources = requested.flatMap((id) => byId.get(id) ?? []);
+    if (sources.length === 0 && answers.length === 0) return { ok: false, reason: "none_selected" };
+    if (sources.length > APPLICATION_LIMITS.approved) return { ok: false, reason: "too_many_selected" };
+    approved = sources.map((s) => ({ experienceId: s.id, contentVersion: s.contentVersion }));
 
-  if (!selection.approved || !sameRefs(selection.approved, approved)) {
-    const done = await approveSelection(db, userId, questionId, approved, selection, now);
-    if (!done.ok) return done;
+    if (!selection.approved || !sameRefs(selection.approved, approved)) {
+      const done = await approveSelection(db, userId, questionId, approved, selection, now);
+      if (!done.ok) return done;
+    }
   }
 
   const written = await writeText(
     db,
     ai,
     userId,
-    { prompt: question.prompt, charLimit: question.charLimit, countSpaces: question.countSpaces, postingText: postingTextOf(posting), sources },
+    {
+      prompt: question.prompt,
+      charLimit: question.charLimit,
+      countSpaces: question.countSpaces,
+      postingText: postingTextOf(posting),
+      sources,
+      kinds,
+      answers,
+      unanswered: unansweredTopics(question.topics, answerTopics),
+    },
     now,
   );
   if (!written.ok) return written;
-  // 읽었을 때의 문항 글, 승인, 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 직접 고쳤으면 changed).
+  // 읽었을 때의 문항 글, 승인, 붙인 답, 쓴 답 그대로일 때만 저장한다(그사이 고쳤거나 다시 골랐거나 답을 붙이거나 뗐거나 직접 고쳤으면 changed).
   // AI가 쓰는 사이 제출했으면 저장하지 않는다: 확인과 저장을 공고 잠금 안에서 한다
-  const draft: Draft = { questionVersion: question.version, basedOn: approved, ...written.value, writtenAt: now.toISOString() };
+  const draft: Draft = {
+    questionVersion: question.version,
+    basedOn: approved ?? [],
+    ...written.value,
+    answers: answers.map((a) => a.id),
+    writtenAt: now.toISOString(),
+  };
   const saved = await withEditLock(db, userId, posting.id, (tx) =>
-    saveDraft(tx, userId, questionId, draft, { version: question.version, approved, draft: question.draft }),
+    saveDraft(tx, userId, questionId, draft, {
+      version: question.version,
+      kinds: question.kinds,
+      topics: question.topics,
+      approved,
+      answerIds: question.answerIds,
+      draft: question.draft,
+    }),
   );
   return saved.ok ? { ok: true, value: draft } : saved;
 }
@@ -194,7 +277,7 @@ export async function reviseParagraph(
     return { ok: false, reason: "changed" };
   }
 
-  // 근거로 삼은 경험이 하나라도 없어졌거나 버전이 다르면 막는다
+  // 근거로 삼은 경험이 하나라도 없어졌거나 버전이 다르면, 쓸 때 보낸 답이 하나라도 없어졌으면 막는다(답은 고치지 않으므로 버전이 없다)
   const listed = await listWritingSources(db, userId, posting.trackId);
   const byId = new Map(listed.map((s) => [s.id, s]));
   const sources: WritingSource[] = [];
@@ -203,6 +286,10 @@ export async function reviseParagraph(
     if (!current || current.contentVersion !== ref.contentVersion) return { ok: false, reason: "stale" };
     sources.push(current);
   }
+  const sentIds = stored.answers ?? [];
+  const sent = await listAnswersByIds(db, userId, sentIds);
+  if (sent.length !== sentIds.length) return { ok: false, reason: "stale" };
+  const answers = usableAnswers(sent, question.topics, posting.company); // 유형·회사가 바뀌어 쓸 수 없게 된 답은 다시 보내지 않는다
 
   const requestText = [request.preset ? PRESET_TEXT[request.preset] : "", note].filter(Boolean).join("\n");
   const sections = buildBase({
@@ -211,6 +298,9 @@ export async function reviseParagraph(
     countSpaces: question.countSpaces,
     postingText: postingTextOf(posting),
     sources,
+    kinds: question.kinds ?? ["experience"],
+    answers,
+    unanswered: unansweredTopics(question.topics, answers.map((a) => a.topic)),
   });
   sections.push(
     ["지금 답", stored.paragraphs.map((p) => p.text).join("\n")],
@@ -233,13 +323,15 @@ export async function reviseParagraph(
   );
   if (!result.ok) return { ok: false, reason: result.reason };
 
-  const cleaned = cleanParagraph(result.value.text, result.value.sources, sources);
+  const cleaned = cleanParagraph(result.value.text, result.value.sources, sources, answers);
   if (cleaned.text === "") return { ok: false, reason: "invalid" };
   const next: Draft = {
     ...stored,
     paragraphs: stored.paragraphs.map((p, i) => (i === index ? { ...cleaned, edited: false } : p)),
   };
-  const saved = await withEditLock(db, userId, posting.id, (tx) => replaceDraft(tx, userId, questionId, expected, next));
+  const saved = await withEditLock(db, userId, posting.id, (tx) =>
+    replaceDraft(tx, userId, questionId, expected, next, { kinds: question.kinds, topics: question.topics }),
+  );
   return saved.ok ? { ok: true, value: next } : saved;
 }
 

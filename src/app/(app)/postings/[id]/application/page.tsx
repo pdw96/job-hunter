@@ -2,15 +2,18 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
+import { type Answer, listAnswersByIds } from "@/modules/applications/answers-repo";
 import { checkDraft } from "@/modules/applications/check";
 import { listQuestions, type Question } from "@/modules/applications/repo";
 import { isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import type { PassedReason, PickReason, SourceRef } from "@/modules/applications/types";
 import { recordHrefs } from "@/modules/experiences/record-href";
 import { listWritingSources, oldRecordIds, type WritingSource } from "@/modules/experiences/sources";
+import { companyKey } from "@/modules/postings/company";
 import { getPosting } from "@/modules/postings/repo";
 import { koreaDate } from "@/modules/postings/today";
 import { AddQuestions } from "./add-questions";
+import { answerNames, answerViews } from "./answer-view";
 import type { DraftData } from "./draft-view";
 import { type CandidateView, QuestionCard, type QuestionView, type SelectionView } from "./question-card";
 
@@ -32,6 +35,8 @@ function toView(
   byId: Map<string, WritingSource>,
   oldIds: Set<string>,
   hrefs: Map<string, string>,
+  answers: Answer[],
+  postingKey: string, // 공고 회사 이름의 정리 값(다른 회사에 묶인 답을 가린다)
 ): QuestionView {
   const candidate = (item: (PickReason | PassedReason) & { whyNot?: string }): CandidateView => {
     const source = byId.get(item.experienceId);
@@ -56,7 +61,7 @@ function toView(
       picks: s.picks.map(candidate),
       passed: s.passed.map(candidate),
       noMatch: s.noMatch,
-      approvedIds: s.approved?.map((ref) => ref.experienceId) ?? [],
+      approvedIds: s.approved?.map((ref) => ref.experienceId) ?? null,
       approvedStale: s.approved !== null && isStale(s.approved, byId),
     };
   }
@@ -66,8 +71,8 @@ function toView(
     const ids = new Set([...question.draft.basedOn.map((ref) => ref.experienceId), ...question.draft.paragraphs.flatMap((p) => p.sources)]);
     draft = {
       draft: question.draft,
-      check: checkDraft(question.draft, question, sources, { oldIds }),
-      names: Object.fromEntries([...ids].flatMap((id) => (byId.has(id) ? [[id, byId.get(id)!.name]] : []))),
+      check: checkDraft(question.draft, question, sources, { oldIds, answers }),
+      names: { ...Object.fromEntries([...ids].flatMap((id) => (byId.has(id) ? [[id, byId.get(id)!.name]] : []))), ...answerNames(answers) },
       limit: question.charLimit,
       countSpaces: question.countSpaces,
     };
@@ -80,6 +85,9 @@ function toView(
     charLimit: question.charLimit,
     countSpaces: question.countSpaces,
     kinds: question.kinds,
+    topics: question.topics ?? [],
+    answers: answerViews(question.answerIds, answers, question.topics, postingKey),
+    asks: question.asks,
     selection,
     draft,
   };
@@ -98,12 +106,23 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
     latestSubmission(db, user.id, posting.id),
     oldRecordIds(db, user.id),
   ]);
+  // 붙인 답과 쓴 답이 근거로 삼은 답을 한 번에 읽는다
+  const answerIds = [
+    ...new Set(
+      questions.flatMap((question) => [
+        ...question.answerIds,
+        ...(question.draft?.answers ?? []),
+        ...(question.draft?.paragraphs.flatMap((paragraph) => paragraph.answers ?? []) ?? []),
+      ]),
+    ),
+  ];
+  const answers = await listAnswersByIds(db, user.id, answerIds);
   const locked = isLocked(latest);
   const byId = new Map(sources.map((source) => [source.id, source]));
   // 후보마다 그 기록을 여는 화면(표마다 한 번 읽는다)
   const candidateIds = questions.flatMap((question) => [...(question.selection?.picks ?? []), ...(question.selection?.passed ?? [])].map((item) => item.experienceId));
   const hrefs = await recordHrefs(db, user.id, candidateIds);
-  const views = questions.map((question, index) => toView(question, index, questions, sources, byId, oldIds, hrefs));
+  const views = questions.map((question, index) => toView(question, index, questions, sources, byId, oldIds, hrefs, answers, companyKey(posting.company)));
   const isApply = posting.status === "apply";
   const canAct = isApply && !locked;
 

@@ -11,8 +11,12 @@ import {
   writeManuallyAction,
 } from "@/modules/applications/actions";
 import { countChars } from "@/modules/applications/check";
-import { APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KINDS, type QuestionKind } from "@/modules/applications/options";
+import { unansweredKinds } from "@/modules/applications/kinds";
+import { type AnswerTopic, APPLICATION_LIMITS, QUESTION_KIND_LABELS, QUESTION_KINDS, type QuestionKind } from "@/modules/applications/options";
+import type { Asks } from "@/modules/applications/types";
 import { AddRecordLink } from "../../../records/_shared/add-record-link";
+import { AnswerSection } from "./answer-section";
+import { type AnswerView, initialChecked, wantsExperience, writePlan } from "./answer-view";
 import { DraftView, type DraftData } from "./draft-view";
 import { ErrorLine, useRun } from "./use-run";
 
@@ -34,7 +38,7 @@ export type SelectionView = {
   picks: CandidateView[];
   passed: CandidateView[];
   noMatch: boolean;
-  approvedIds: string[]; // 승인한 경험 id. 승인 전이면 빈 배열
+  approvedIds: string[] | null; // 승인한 경험 id. 승인 전이면 null(빈 승인 []과 구분한다: 경험 없이 답만으로 쓴 것)
   approvedStale: boolean; // 승인한 경험의 기록이 바뀌었거나 쓸 수 없게 됨
 };
 
@@ -45,6 +49,9 @@ export type QuestionView = {
   charLimit: number | null;
   countSpaces: boolean;
   kinds: QuestionKind[] | null; // 아직 정하지 않았으면 null
+  topics: AnswerTopic[]; // 물을 수 있는 주제(경험형만이면 빈 배열)
+  answers: AnswerView[]; // 붙인 답
+  asks: Asks | null; // 받아 둔 질문
   selection: SelectionView | null;
   draft: DraftData | null;
 };
@@ -112,20 +119,26 @@ function Candidate({
   );
 }
 
-// 고른 결과. selectedAt이 바뀌면(다시 고르면) 체크를 처음으로 돌리려고 key로 새로 만든다
+// 고른 결과. 체크 상태는 카드가 들고 있고, 다시 고르면(selectedAt이 바뀌면) 카드가 처음으로 돌린다
 function Picker({
   question,
   selection,
   hasDraft,
+  checked,
+  setChecked,
+  canWrite,
+  needAnswers,
 }: {
   question: QuestionView;
   selection: SelectionView;
   hasDraft: boolean;
+  checked: string[]; // 카드가 들고 있다(경험형이 없는 문항은 답 구역의 쓰기 단추가 이 값을 쓴다)
+  setChecked: (ids: string[]) => void;
+  canWrite: boolean; // writePlan의 판단(고른 경험, 바뀐 기록, 유형마다의 답)
+  needAnswers: boolean; // 동기포부형·자기소개형 쪽 답이 아직 없다
 }) {
-  // 경험형이 아닌 문항(동기포부형·자기소개형만)은 "맞는 기록이 없다"고 알리지 않는다
-  const wantsExperience = question.kinds === null || question.kinds.includes("experience");
-  const initial = selection.approvedIds.length > 0 ? selection.approvedIds : selection.picks.filter((p) => p.name !== null).map((p) => p.experienceId);
-  const [checked, setChecked] = useState<string[]>(initial);
+  // 경험형이 아닌 문항(동기포부형·자기소개형만)은 "맞는 기록이 없다"고 알리지 않고, 쓰기 단추는 답 구역에 있다
+  const wants = wantsExperience(question.kinds);
   const { message, pending, run } = useRun();
 
   const toggle = (id: string, on: boolean) => setChecked(on ? [...checked, id] : checked.filter((value) => value !== id));
@@ -138,10 +151,11 @@ function Picker({
     run(() => approveAndWriteAction(question.id, usableChecked.map((c) => c.experienceId)));
   }
 
-  const writeButton = (
+  const writeButton = !wants ? null : (
     <div className="flex flex-wrap items-center gap-3">
       {full && <span className="w-full text-xs text-foreground/60">{APPLICATION_LIMITS.approved}개까지 고를 수 있습니다</span>}
-      <button type="button" disabled={pending || selection.approvedStale || usableChecked.length === 0} onClick={write} className={primary}>
+      {needAnswers && <span className="w-full text-xs text-foreground/60">먼저 &apos;내 답&apos;의 질문에 답해 주세요</span>}
+      <button type="button" disabled={pending || !canWrite} onClick={write} className={primary}>
         {pending ? "쓰는 중…" : hasDraft ? "다시 쓰기" : "이 경험으로 쓰기"}
       </button>
       {pending && (
@@ -159,18 +173,26 @@ function Picker({
     </ul>
   );
 
+  const staleHint = selection.approvedStale && (
+    <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+      고른 경험의 기록이 바뀌었습니다. 다시 고르기를 눌러 주세요
+    </p>
+  );
+
   if (selection.noMatch) {
     return (
       <div className="space-y-3">
-        {wantsExperience && (
+        {staleHint}
+        {wants && (
           <div className="space-y-2 rounded-lg bg-foreground/5 p-3">
             <p className="text-sm">이 문항에 맞는 확인된 기록이 없습니다</p>
             <AddRecordLink href="/records/scenes/new" label="경험 사례 추가" />
           </div>
         )}
+        {!wants && selection.passed.length === 0 && <p className="text-sm text-foreground/70">이어지는 경험이 없습니다</p>}
         {selection.passed.length > 0 && (
           <div className="space-y-3">
-            <p className="text-sm text-foreground/70">그래도 쓰고 싶은 경험이 있으면 직접 고를 수 있습니다</p>
+            <p className="text-sm text-foreground/70">{wants ? "그래도 쓰고 싶은 경험이 있으면 직접 고를 수 있습니다" : "이어지는 경험이 있으면 고를 수 있습니다"}</p>
             {passedList}
             {writeButton}
             <ErrorLine message={message} />
@@ -182,11 +204,7 @@ function Picker({
 
   return (
     <div className="space-y-3">
-      {selection.approvedStale && (
-        <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
-          고른 경험의 기록이 바뀌었습니다. 다시 고르기를 눌러 주세요
-        </p>
-      )}
+      {staleHint}
       <ul className="divide-y divide-foreground/10 border-y border-foreground/10">
         {selection.picks.map((item) => (
           <Candidate key={item.experienceId} item={item} checked={checked.includes(item.experienceId)} full={full} onChange={(on) => toggle(item.experienceId, on)} />
@@ -353,8 +371,23 @@ export function QuestionCard({
   const select = useRun();
   const remove = useRun();
   const { selection, draft } = question;
+  // 고른 경험. 다시 고르면(selectedAt이 바뀌면) 처음으로 돌린다
+  const initial = initialChecked(selection);
+  const [checkedState, setCheckedState] = useState({ at: selection?.selectedAt ?? null, ids: initial });
+  let checked = checkedState.ids;
+  if (checkedState.at !== (selection?.selectedAt ?? null)) {
+    checked = initial;
+    setCheckedState({ at: selection?.selectedAt ?? null, ids: initial });
+  }
+  const setChecked = (ids: string[]) => setCheckedState({ at: selection?.selectedAt ?? null, ids });
+  const usableChecked = selection ? [...selection.picks, ...selection.passed].filter((c) => c.name !== null && checked.includes(c.experienceId)).map((c) => c.experienceId) : [];
   const empty = draft === null || draft.draft.paragraphs.length === 0; // 문단을 다 지운 답은 답이 없는 것으로 본다
   // 근거가 옛 기록인 문단이 있으면 다시 고르기를 눈에 띄게 한다(문단마다 단추를 두지 않고 문항에 하나만)
+  const wants = wantsExperience(question.kinds); // 경험형이 없으면 경험 고르기는 답 구역 아래의 선택 사항이다
+  // 쓰기에 보내는 답만 센다(서버와 같게). 유형을 바꿔 남은 답, 다른 회사에 묶인 답은 세지 않는다
+  const answerTopics = question.answers.filter((answer) => answer.unused === null).map((answer) => answer.topic);
+  const plan = writePlan({ kinds: question.kinds, answerTopics, checked: usableChecked, hasSelection: !!selection, approvedStale: !!selection?.approvedStale });
+  const needAnswers = unansweredKinds(question.kinds, answerTopics).length > 0;
   const structureChanged = !empty && draft.check.paragraphs.some((paragraph) => paragraph.structureChanged);
 
   return (
@@ -395,7 +428,7 @@ export function QuestionCard({
 
       <KindChips question={question} canAct={canAct} />
 
-      {canAct && (
+      {canAct && wants && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -417,9 +450,36 @@ export function QuestionCard({
           )}
           <ErrorLine message={select.message} />
           {empty && <ManualWrite question={question} />}
-          {selection && <Picker key={selection.selectedAt} question={question} selection={selection} hasDraft={!empty} />}
+          {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} canWrite={plan.enabled} needAnswers={needAnswers} />}
         </div>
       )}
+
+      {(question.topics.length > 0 || question.answers.length > 0) && (
+        <AnswerSection
+          questionId={question.id}
+          topics={question.topics}
+          answers={question.answers}
+          asks={question.asks}
+          kinds={question.kinds}
+          hasDraft={!empty}
+          canAct={canAct}
+          write={plan}
+          experience={
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" disabled={select.pending} onClick={() => select.run(() => selectAction(question.id))} className={small}>
+                  {select.pending ? "경험을 찾는 중…" : selection ? "이어지는 경험 다시 고르기" : "이어지는 경험도 고르기"}
+                </button>
+                <span className="text-xs text-foreground/60">선택 사항</span>
+              </div>
+              <ErrorLine message={select.message} />
+              {selection && <Picker question={question} selection={selection} hasDraft={!empty} checked={checked} setChecked={setChecked} canWrite={plan.enabled} needAnswers={needAnswers} />}
+            </div>
+          }
+        />
+      )}
+
+      {canAct && !wants && empty && <ManualWrite question={question} />}
 
       {draft && !empty && <DraftView questionId={question.id} data={draft} canRevise={canAct} />}
     </section>
