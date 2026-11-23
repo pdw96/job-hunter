@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { chooseDocumentsAction, rereadPostingAction } from "@/modules/applications/document-actions";
-import { DOCUMENT_KINDS, DOCUMENT_LABELS, DOCUMENT_WRITER, type DocumentKind } from "@/modules/postings/options";
+import { documentRows } from "@/modules/postings/documents";
+import { DOCUMENT_WRITER, type DocumentKind } from "@/modules/postings/options";
 
 type Result = { ok: true } | { ok: false; message: string };
 
@@ -34,10 +35,7 @@ export function DocumentsSection({ id, isApply, locked, found, chosen, userChose
     });
   }
 
-  const foundOf = (kind: DocumentKind) => (found ?? []).filter((item) => item.kind === kind).map((item) => item.label);
-  // 기타는 찾은 것이 있을 때만 고르게 하고, 공고에 적힌 이름으로 보인다
-  const kinds = DOCUMENT_KINDS.filter((kind) => kind !== "other" || foundOf("other").length > 0);
-  const nameOf = (kind: DocumentKind) => (kind === "other" ? foundOf("other").join(", ") : DOCUMENT_LABELS[kind]);
+  const rows = documentRows(found, chosen);
 
   function toggle(kind: DocumentKind) {
     const next = chosen.includes(kind) ? chosen.filter((item) => item !== kind) : [...chosen, kind];
@@ -74,7 +72,7 @@ export function DocumentsSection({ id, isApply, locked, found, chosen, userChose
 
       {isApply ? (
         <ul className="space-y-2">
-          {kinds.map((kind) => {
+          {rows.map(({ kind, name }) => {
             const on = chosen.includes(kind);
             return (
               <li key={kind} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
@@ -87,7 +85,7 @@ export function DocumentsSection({ id, isApply, locked, found, chosen, userChose
                     onChange={() => toggle(kind)}
                     className="size-4"
                   />
-                  <span className="min-w-0 break-words">{nameOf(kind)}</span>
+                  <span className="min-w-0 break-words">{name}</span>
                 </label>
                 {on && link(kind)}
               </li>

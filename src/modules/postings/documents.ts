@@ -1,4 +1,4 @@
-import { DEFAULT_DOCUMENTS, DOCUMENT_KINDS, type DocumentKind, POSTING_LIMITS } from "./options";
+import { DEFAULT_DOCUMENTS, DOCUMENT_KINDS, DOCUMENT_LABELS, type DocumentKind, POSTING_LIMITS } from "./options";
 
 // 공고에서 찾은 제출 서류와 자소서 문항. 화면과 DB를 모르는 순수 함수
 
@@ -50,4 +50,14 @@ export function chosenDocuments(p: { foundDocuments: FoundDocument[] | null; cho
   if (p.chosenDocuments && p.chosenDocuments.length > 0) return pick(p.chosenDocuments);
   const found = pick((p.foundDocuments ?? []).map((d) => d.kind));
   return found.length > 0 ? found : [...DEFAULT_DOCUMENTS];
+}
+
+// 서류 고르기 화면의 줄. 기타는 공고에서 찾았거나 이미 고른 경우에만 보인다(다시 읽어 사라져도 고른 것은 끌 수 있게).
+// 기타의 이름은 공고에 적힌 이름들, 없으면 "기타"
+export function documentRows(found: FoundDocument[] | null, chosen: DocumentKind[]): { kind: DocumentKind; name: string }[] {
+  const others = (found ?? []).filter((item) => item.kind === "other").map((item) => item.label);
+  return DOCUMENT_KINDS.filter((kind) => kind !== "other" || others.length > 0 || chosen.includes("other")).map((kind) => ({
+    kind,
+    name: kind === "other" && others.length > 0 ? others.join(", ") : DOCUMENT_LABELS[kind],
+  }));
 }

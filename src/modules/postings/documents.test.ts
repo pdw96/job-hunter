@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { chosenDocuments, cleanFound } from "./documents";
+import { chosenDocuments, cleanFound, documentRows } from "./documents";
 import { DOCUMENT_WRITER } from "./options";
 
 const text = "자기소개서: 지원 동기를 쓰시오 (500자)\n성장 과정을 쓰시오";
@@ -91,4 +91,20 @@ test("글이 아닌 문항 글은 버리고, countSpaces가 불린이 아니면 
 
 test("DOCUMENT_WRITER: 이력서·자기소개서·경력기술서는 ai, 포트폴리오·기타는 self", () => {
   expect(DOCUMENT_WRITER).toEqual({ resume: "ai", cover_letter: "ai", career: "ai", portfolio: "self", other: "self" });
+});
+
+test("documentRows: 기타는 찾았을 때 공고의 이름으로 보인다", () => {
+  const rows = documentRows([{ kind: "other", label: "졸업증명서" }, { kind: "other", label: "성적증명서" }], ["resume"]);
+  expect(rows.map((row) => row.kind)).toEqual(["resume", "cover_letter", "career", "portfolio", "other"]);
+  expect(rows.at(-1)).toEqual({ kind: "other", name: "졸업증명서, 성적증명서" });
+});
+
+test("documentRows: 기타를 찾지 못했으면 보이지 않는다", () => {
+  expect(documentRows([], ["resume"]).map((row) => row.kind)).not.toContain("other");
+  expect(documentRows(null, ["resume"]).map((row) => row.kind)).not.toContain("other");
+});
+
+test("documentRows: 다시 읽은 뒤 기타가 사라져도 고른 기타는 보여 끌 수 있다", () => {
+  const rows = documentRows([{ kind: "resume", label: "이력서" }], ["resume", "other"]);
+  expect(rows.at(-1)).toEqual({ kind: "other", name: "기타" });
 });
