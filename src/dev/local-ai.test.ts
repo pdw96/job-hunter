@@ -232,3 +232,22 @@ test("회사 조사 흉내는 [홈페이지]가 있으면 그 도메인의 인�
   expect(result.value.news).toEqual([expect.objectContaining({ url: "https://news.example.com/a1" })]);
   expect(result.value.dropped).toBe(0);
 }, DB_TEST_TIMEOUT);
+
+test("고치기 흉내는 [회사 정보]가 있으면 C1을 근거에 남긴다", async () => {
+  const revise = async (sections: string[]) => {
+    const result = await ai.complete({
+      purpose: "application_revise",
+      system: "",
+      messages: [{ role: "user", text: sections.join("\n\n") }],
+      schema: z.object({ text: z.string(), sources: z.array(z.string()) }),
+      effort: "low",
+      maxTokens: 8000,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    return result.value;
+  };
+  const answer = "[내 답]\nA1\n- 답: 많은 사람이 쓰는 서비스를 만들고 싶다";
+  const fact = "[회사 정보]\nC1 - 소식(날짜 모름): 간편결제 거래액이 늘었다 (출처: news.example.com)";
+  expect(await revise(["[경험 기록]\n없음", answer, fact, "[고칠 문단]\n첫 문단"])).toEqual({ text: "첫 문단 (고침)", sources: ["A1", "C1"] });
+  expect(await revise(["[경험 기록]\n없음", answer, "[회사 정보]\n없음", "[고칠 문단]\n첫 문단"])).toEqual({ text: "첫 문단 (고침)", sources: ["A1"] });
+});

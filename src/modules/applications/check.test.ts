@@ -267,6 +267,15 @@ describe("회사 정보 근거", () => {
     expect(out.paragraphs.map((p) => p.ungrounded)).toEqual([[], ["40"]]);
   });
 
+  it("단 회사 정보의 날짜(연·월·일)도 숫자로 허용한다", () => {
+    const d = motive([withCompany({ text: "2026년 10월 발표처럼 거래액이 40% 늘어난 결제 서비스를 만들고 싶습니다" })], {
+      companyFacts: [fact({ date: "2026-10-15" })],
+    });
+    expect(checkDraft(d, question, [], options).paragraphs[0].ungrounded).toEqual([]);
+    const other = motive([withCompany({ text: "2026년 10월 발표처럼 거래액이 40% 늘어난", company: [] })], { companyFacts: [fact({ date: "2026-10-15" })] });
+    expect(checkDraft(other, question, [], options).paragraphs[0].ungrounded).toEqual(["2026", "10", "40"]);
+  });
+
   it("답의 복사본에 없는 회사 정보 id의 숫자는 허용하지 않는다", () => {
     const d = motive([withCompany()], { companyFacts: [] });
     expect(checkDraft(d, question, [], options).paragraphs[0].ungrounded).toEqual(["40"]);

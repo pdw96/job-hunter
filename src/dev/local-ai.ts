@@ -340,9 +340,9 @@ function applicationWrite(text: string) {
   return { paragraphs, shortage: "" };
 }
 
-// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다. 근거는 경험이 있으면 E1, 답이 있으면 A1
+// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다. 근거는 경험이 있으면 E1, 답이 있으면 A1, 회사 정보가 있으면 C1(쓰기 흉내와 같게)
 function applicationRevise(text: string) {
-  const sources = [section(text, "경험 기록") ? "E1" : "", section(text, "내 답") ? "A1" : ""].filter(Boolean);
+  const sources = [section(text, "경험 기록") ? "E1" : "", section(text, "내 답") ? "A1" : "", section(text, "회사 정보") ? "C1" : ""].filter(Boolean);
   return { text: `${section(text, "고칠 문단")} (고침)`, sources };
 }
 
