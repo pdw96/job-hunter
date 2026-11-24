@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
+import { RESUME_LIMITS } from "@/modules/applications/options";
+import { buildTailoredAction, selectEmphasisAction } from "@/modules/applications/resume-actions";
 import { getCommonResume, getTailoredResume } from "@/modules/applications/resume-repo";
 import { getSubmission, isLocked, latestSubmission } from "@/modules/applications/submission-repo";
 import { recordHrefs } from "@/modules/experiences/record-href";
@@ -103,6 +105,10 @@ export default async function TailoredResumePage({ params }: { params: Promise<{
           others={others}
           tailoredVersion={tailored?.version ?? null}
           hasTailored={data !== null}
+          select={selectEmphasisAction}
+          build={buildTailoredAction}
+          noun="경험"
+          limit={RESUME_LIMITS.emphasis}
         />
       )}
 

@@ -30,7 +30,7 @@ function buildMessage(input: EmphasisInput): string {
   return sections.map(([label, value]) => `[${label}]\n${value}`).join("\n\n");
 }
 
-// 저장하지 않는다. 프롬프트 점검도 이것을 쓴다
+// 저장하지 않는다. 프롬프트 점검도 이것을 쓴다. 경력기술서도 지시문은 그대로 두고 purpose만 바꿔 쓴다(사용량 구분)
 export async function emphasisText(
   db: Db,
   ai: AiClient,
@@ -38,6 +38,7 @@ export async function emphasisText(
   input: EmphasisInput,
   now: Date = new Date(),
   onRaw?: (raw: unknown) => void,
+  purpose: "resume_emphasis" | "career_emphasis" = "resume_emphasis",
 ): Promise<{ ok: true; value: ResumeSelection } | { ok: false; reason: "over_limit" | AiFailure }> {
   const selectedAt = now.toISOString();
   // 후보가 없으면 AI를 부르지 않는다
@@ -48,7 +49,7 @@ export async function emphasisText(
     ai,
     userId,
     {
-      purpose: "resume_emphasis",
+      purpose,
       system: RESUME_EMPHASIS_SYSTEM,
       messages: [{ role: "user", text: buildMessage(input) }],
       schema: emphasisSchema,

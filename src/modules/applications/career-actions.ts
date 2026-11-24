@@ -8,6 +8,7 @@ import type { AiFailure } from "@/modules/ai/client";
 import { ai } from "@/modules/ai/provider";
 import { editCareer, type CareerEdit } from "./career-edit";
 import { getCareer } from "./career-repo";
+import { buildTailoredCareer, selectCareerEmphasis } from "./career-tailor";
 import { rewriteCareerItems, startCommonCareer } from "./career-write";
 
 // 경력기술서 공통본·맞춤본 액션. 모두 requireUser()로 얻은 userId만 쓰고, 끝나면 그 화면을 다시 그리게 한다.
@@ -25,6 +26,7 @@ const MESSAGES = {
   changed: "그사이 내용이 바뀌었습니다. 화면을 새로 고친 뒤 다시 해 주세요",
   full: "경력기술서 항목은 30개까지입니다. 항목을 빼고 넣어 주세요",
   none_selected: "다시 쓸 수 있는 항목이 없습니다. 기록이 확인됐는지, 트랙에서 제외되지 않았는지 보세요",
+  too_many_selected: "강조할 항목은 5개까지 골라 주세요",
   too_many_lines: "줄은 8개까지 쓸 수 있습니다",
   too_long: "한 줄은 150자까지 쓸 수 있습니다",
   invalid_edit: "고친 내용을 읽지 못했습니다. 줄은 8개, 한 줄은 150자까지 쓸 수 있습니다",
@@ -103,5 +105,26 @@ export async function editCareerAction(careerId: string, edit: CareerEdit, expec
   const result = await editCareer(db, user.id, careerId, parsed.data, expectedVersion);
   if (!result.ok) return fail(result.reason);
   await refreshOf(user.id, careerId);
+  return { ok: true };
+}
+
+// 공고에 맞춰 강조할 항목을 고른다(AI 1번)
+export async function selectCareerEmphasisAction(postingId: string): Promise<Result> {
+  const user = await requireUser();
+  if (typeof postingId !== "string") return fail("not_found");
+  const result = await selectCareerEmphasis(db, ai, user.id, postingId);
+  if (!result.ok) return fail(result.reason);
+  refreshPosting(postingId);
+  return { ok: true };
+}
+
+// 체크한 항목을 강조해 공통본에서 맞춤본을 만든다. 아무것도 고르지 않으면 공통본을 그대로 복사한다(AI 없음)
+export async function buildTailoredCareerAction(postingId: string, itemIds: string[], expectedVersion: number | null): Promise<Result> {
+  const user = await requireUser();
+  if (typeof postingId !== "string") return fail("not_found");
+  if (expectedVersion !== null && !isVersion(expectedVersion)) return fail("changed");
+  const result = await buildTailoredCareer(db, ai, user.id, postingId, idsOf(itemIds), expectedVersion);
+  if (!result.ok) return fail(result.reason);
+  refreshPosting(postingId);
   return { ok: true };
 }

@@ -7,6 +7,7 @@ import { CAREER_TYPE_LABELS, POSTING_EMPLOYMENT_LABELS, POSTING_STATUS_LABELS } 
 import { recordHrefs } from "@/modules/experiences/record-href";
 import { listEvidenceCandidates } from "@/modules/experiences/sources";
 import { listQuestions } from "@/modules/applications/repo";
+import { getTailoredCareer } from "@/modules/applications/career-repo";
 import { getTailoredResume } from "@/modules/applications/resume-repo";
 import { isLocked, listSubmissions } from "@/modules/applications/submission-repo";
 import { submitPreview } from "@/modules/applications/submit";
@@ -41,11 +42,12 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
 
   const today = todayInKorea();
   const key = companyKey(posting.company);
-  const [track, candidates, questions, tailored, submissions, research] = await Promise.all([
+  const [track, candidates, questions, tailored, tailoredCareer, submissions, research] = await Promise.all([
     getTrack(db, user.id, posting.trackId),
     listEvidenceCandidates(db, user.id, posting.trackId),
     listQuestions(db, user.id, posting.id),
     getTailoredResume(db, user.id, posting.id),
+    getTailoredCareer(db, user.id, posting.id),
     listSubmissions(db, user.id, posting.id),
     key ? getResearch(db, user.id, key) : Promise.resolve(null),
   ]);
@@ -145,7 +147,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         />
       )}
 
-      {posting.status !== "apply" && (questions.length > 0 || tailored?.content) && (
+      {posting.status !== "apply" && (questions.length > 0 || tailored?.content || tailoredCareer?.content) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {questions.length > 0 && (
             <Link href={`/postings/${posting.id}/application`} className="inline-block text-sm underline">
@@ -155,6 +157,11 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
           {tailored?.content && (
             <Link href={`/postings/${posting.id}/resume`} className="inline-block text-sm underline">
               이력서 맞춤본 보기
+            </Link>
+          )}
+          {tailoredCareer?.content && (
+            <Link href={`/postings/${posting.id}/career`} className="inline-block text-sm underline">
+              경력기술서 맞춤본 보기
             </Link>
           )}
         </div>
@@ -168,6 +175,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         preview={preview}
         withResume={chosen.includes("resume")}
         withLetter={chosen.includes("cover_letter")}
+        withCareer={chosen.includes("career")}
         submissions={submissions.map((item) => ({
           number: item.number,
           dateLabel: koreaDate(item.submittedAt),

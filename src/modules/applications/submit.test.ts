@@ -12,7 +12,14 @@ import { applyToPosting, createPosting, getPosting, saveAnalysis, setChosenDocum
 import { saveContact } from "@/modules/profile/repo";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
+import { createFact } from "@/modules/experiences/facts-repo";
+import type { JobInput, SceneInput } from "@/modules/experiences/record-input";
+import { confirmScene, createScene } from "@/modules/experiences/scenes-repo";
+import { scenes } from "@/modules/experiences/schema";
+import { listCareerSources } from "@/modules/experiences/sources";
 import { createAnswer } from "./answers-repo";
+import { buildCompany, buildItem } from "./career-entries";
+import { insertCommonCareer, saveTailoredCareerContent } from "./career-repo";
 import { addQuestions, createDraft, listQuestions } from "./repo";
 import { editResume } from "./resume-edit";
 import { getTailoredResume, insertCommonResume, saveTailoredContent } from "./resume-repo";
@@ -20,7 +27,7 @@ import { resumes } from "./schema";
 import { editParagraph } from "./write";
 import { freeze, reopenPosting, submitPosting, submitPreview } from "./submit";
 import { getSubmission, listSubmissions } from "./submission-repo";
-import type { Draft, ResumeContent, ResumeEntry, SubmittedResume } from "./types";
+import type { CareerContent, Draft, ResumeContent, ResumeEntry, SubmittedCareer, SubmittedResume } from "./types";
 import type { Posting } from "@/modules/postings/repo";
 import { companyKey } from "@/modules/postings/company";
 import type { CompanyFact } from "@/modules/postings/research";
@@ -299,7 +306,7 @@ test("submitPreview: 문항도 이력서도 없으면 두 가지를 알린다", 
   const postingId = await addPosting();
   const posting = (await getPosting(db, "u1", postingId)) as Posting;
   const preview = await submitPreview(db, "u1", posting);
-  expect(preview).toEqual({ resumeFrom: null, questionCount: 0, warnings: ["자소서 문항이 없습니다", "이력서가 없습니다"] });
+  expect(preview).toEqual({ resumeFrom: null, careerFrom: null, questionCount: 0, warnings: ["자소서 문항이 없습니다", "이력서가 없습니다"] });
 });
 
 test("submitPreview: 답이 없는 문항과 한도를 넘은 문항, 공통본만 있는 경우", async () => {
@@ -349,7 +356,7 @@ test("이력서를 고르지 않으면 이력서 경고가 없고 resume이 null
 test("고른 서류가 기본값이면 지금과 같다", async () => {
   const postingId = await addPosting();
   const posting = (await getPosting(db, "u1", postingId)) as Posting;
-  expect(await submitPreview(db, "u1", posting)).toEqual({ resumeFrom: null, questionCount: 0, warnings: ["자소서 문항이 없습니다", "이력서가 없습니다"] });
+  expect(await submitPreview(db, "u1", posting)).toEqual({ resumeFrom: null, careerFrom: null, questionCount: 0, warnings: ["자소서 문항이 없습니다", "이력서가 없습니다"] });
   // 찾은 서류에 자소서·이력서가 없어도 고르지 않았을 뿐 기본값이 아니면 같은 규칙을 따른다
   await setChosenDocuments(db, "u1", postingId, ["resume", "cover_letter"]);
   const chosen = (await getPosting(db, "u1", postingId)) as Posting;
@@ -540,4 +547,163 @@ test("submitPreview: 쓸 수 없게 된 회사 정보를 단 문단은 표시로
 
   expect((await setNewsChecked(db, "u1", key, "news-1", false)).ok).toBe(true);
   expect((await submitPreview(db, "u1", posting)).warnings).toEqual(["표시가 남은 문항: 1번"]);
+});
+
+// 경력기술서
+
+const jobInput: JobInput = {
+  company: "라마바 주식회사",
+  department: "개발팀",
+  title: "사원",
+  employment: "regular",
+  startMonth: "2022-03",
+  endMonth: "2024-08",
+  isOngoing: false,
+  duties: ["결제 서버 운영"],
+  bannedPhrases: [],
+};
+const sceneInput = (jobId: string, over: Partial<SceneInput> = {}): SceneInput => ({
+  head: { kind: "job", id: jobId },
+  title: "결제 장애 대응",
+  startMonth: "2023-03",
+  endMonth: "2023-11",
+  isOngoing: false,
+  situation: "결제 장애가 잦았다",
+  judgment: null,
+  actions: "승인 API를 다시 설계했다",
+  result: "장애가 줄었다",
+  lessons: null,
+  metrics: [{ text: "월 장애 5건에서 1건", basis: "장애 보고서" }],
+  notDone: null,
+  bannedPhrases: [],
+  evidenceNote: "",
+  tags: [],
+  ...over,
+});
+
+// 확인된 경력 하나와 그 아래 확인된 사례 하나
+async function addCareerRecords() {
+  const job = await createFact(db, "u1", "job", jobInput, { confirmed: true });
+  if (!job.ok) throw new Error(job.reason);
+  const created = await createScene(db, "u1", sceneInput(job.id));
+  if (!created.ok) throw new Error(created.reason);
+  await db
+    .update(scenes)
+    .set({
+      rubric: {
+        period: { status: "met", note: null },
+        role: { status: "met", note: null },
+        level: { status: "met", note: null },
+        metrics: { status: "met", note: null },
+        evidence: { status: "unjudged", note: null },
+      },
+    })
+    .where(eq(scenes.id, created.id));
+  await confirmScene(db, "u1", created.id);
+  return { jobId: job.id, sceneId: created.id };
+}
+
+// 지금의 원천으로 회사·항목을 만든다(표시가 없는 내용). done은 항목마다 같은 줄
+async function careerFromSources(done: string, results: string[] = [], commonVersion: number | null = null): Promise<CareerContent> {
+  const sources = await listCareerSources(db, "u1", trackId);
+  return {
+    companies: sources.map((source) => ({
+      ...buildCompany(source),
+      items: source.items.map((item) => buildItem(item, "full", false, { done: [done], results }, now)),
+    })),
+    commonVersion,
+  };
+}
+
+async function chooseCareer(postingId: string) {
+  await setChosenDocuments(db, "u1", postingId, ["resume", "cover_letter", "career"]);
+  return (await getPosting(db, "u1", postingId)) as Posting;
+}
+
+test("경력기술서를 고르면 맞춤본을 얼린다", async () => {
+  await addCareerRecords();
+  const postingId = await addPosting();
+  const posting = await chooseCareer(postingId);
+  const common = await careerFromSources("공통본 한 일");
+  const tailored = await careerFromSources("맞춤본 한 일", [], 1);
+  expect((await insertCommonCareer(db, "u1", trackId, common)).ok).toBe(true);
+  expect((await saveTailoredCareerContent(db, "u1", postingId, trackId, tailored, null)).ok).toBe(true);
+
+  const preview = await submitPreview(db, "u1", posting);
+  expect(preview.careerFrom).toBe("tailored");
+  expect(preview.warnings.filter((w) => w.includes("경력기술서"))).toEqual([]);
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  const saved = await getSubmission(db, "u1", postingId, 1);
+  expect(saved?.content.career).toEqual({ from: "tailored", content: tailored });
+});
+
+test("맞춤본이 없으면 공통본을 얼린다", async () => {
+  await addCareerRecords();
+  const common = await careerFromSources("공통본 한 일");
+  expect((await insertCommonCareer(db, "u1", trackId, common)).ok).toBe(true);
+
+  const first = await addPosting();
+  const preview = await submitPreview(db, "u1", await chooseCareer(first));
+  expect(preview.careerFrom).toBe("common");
+  expect(preview.warnings).toContain("경력기술서 맞춤본이 없어 트랙 공통본으로 냅니다");
+  expect(await submitPosting(db, "u1", first, 0, now)).toEqual({ ok: true, number: 1 });
+  expect((await getSubmission(db, "u1", first, 1))?.content.career).toEqual({ from: "common", content: common });
+
+  // 회사가 0개인 맞춤본은 없는 것으로 본다
+  const second = await addPosting();
+  await chooseCareer(second);
+  expect((await saveTailoredCareerContent(db, "u1", second, trackId, { companies: [], commonVersion: 1 }, null)).ok).toBe(true);
+  expect(await submitPosting(db, "u1", second, 0, now)).toEqual({ ok: true, number: 1 });
+  expect((await getSubmission(db, "u1", second, 1))?.content.career?.from).toBe("common");
+});
+
+test("경력기술서를 고르지 않으면 career는 null", async () => {
+  await addCareerRecords();
+  expect((await insertCommonCareer(db, "u1", trackId, await careerFromSources("공통본 한 일"))).ok).toBe(true);
+  const postingId = await addPosting();
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+
+  const preview = await submitPreview(db, "u1", posting);
+  expect(preview.careerFrom).toBeNull();
+  expect(preview.warnings.filter((w) => w.includes("경력기술서"))).toEqual([]);
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  expect((await getSubmission(db, "u1", postingId, 1))?.content.career).toBeNull();
+});
+
+test("경력기술서가 없으면 경고하고 career는 null", async () => {
+  // 확인된 경력이 없는 사용자: 공통본도 맞춤본도 없다
+  const postingId = await addPosting();
+  const posting = await chooseCareer(postingId);
+
+  const preview = await submitPreview(db, "u1", posting);
+  expect(preview.careerFrom).toBeNull();
+  expect(preview.warnings).toContain("경력기술서가 없습니다");
+  expect(await submitPosting(db, "u1", postingId, 0, now)).toEqual({ ok: true, number: 1 });
+  expect((await getSubmission(db, "u1", postingId, 1))?.content.career).toBeNull();
+});
+
+test("표시가 남은 항목을 센다", async () => {
+  const { jobId } = await addCareerRecords();
+  const postingId = await addPosting();
+  const posting = await chooseCareer(postingId);
+  // 표시 없는 내용은 세지 않는다
+  const clean = await careerFromSources("승인 API를 다시 설계했다", ["월 장애 5건에서 1건으로 줄였다"]);
+  expect((await insertCommonCareer(db, "u1", trackId, clean)).ok).toBe(true);
+  expect((await submitPreview(db, "u1", posting)).warnings.filter((w) => w.includes("표시"))).toEqual([]);
+
+  // 기록에 없는 숫자가 있는 항목 1개 + 지금 쓸 수 없는 회사 1개(그 아래 항목은 회사 줄에서 한 번만 센다)
+  const marked = await careerFromSources("승인 API를 다시 설계했다", ["장애를 99% 줄였다"], 1);
+  const gone = { ...marked.companies[0], experienceId: "gone-job", items: marked.companies[0].items.map((item) => ({ ...item, experienceId: "gone-item" })) };
+  expect(marked.companies[0].experienceId).toBe(jobId);
+  const tailored: CareerContent = { companies: [...marked.companies, gone], commonVersion: 1 };
+  expect((await saveTailoredCareerContent(db, "u1", postingId, trackId, tailored, null)).ok).toBe(true);
+  expect((await submitPreview(db, "u1", posting)).warnings).toContain("경력기술서에 표시가 남은 항목: 2개");
+});
+
+test("freeze의 career 기본값은 null(옛 호출 그대로)", async () => {
+  const postingId = await addPosting();
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  expect(freeze(posting, [], null, new Map()).career).toBeNull();
+  const career: SubmittedCareer = { from: "common", content: { companies: [], commonVersion: null } };
+  expect(freeze(posting, [], null, new Map(), new Map(), career).career).toEqual(career);
 });
