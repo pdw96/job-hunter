@@ -504,6 +504,39 @@ test("다시 쓰기: 다른 회사로 옮긴 프로젝트는 옛 회사에서 �
   expect(texts(itemOf(result.value, projectId)?.done)).toEqual(["옮긴 줄"]);
 });
 
+test("다시 쓰기: 30개가 차도 옮긴 항목은 제 자리를 지켜 새 회사에 들어가고, 같이 보낸 새 항목은 들어가지 않는다", async () => {
+  const first = await fact("job", job);
+  const second = await fact("job", { ...job, company: "라마바 주식회사", startMonth: "2024-09", endMonth: null, isOngoing: true });
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: first } });
+  const made = await startCommonCareer(db, createFakeAi([reply(["E1", ["정산 줄"]])]), "u1", trackId, now);
+  if (!made.ok) throw new Error(made.reason);
+  const career = await getCareer(db, "u1", made.id);
+  const filler = (n: number): CareerItem => ({ ...itemOf(career!.content, projectId)!, experienceId: `채움-${n}` });
+  const padded: CareerContent = {
+    ...career!.content!,
+    companies: career!.content!.companies.map((c) => (c.experienceId === first ? { ...c, items: [...c.items, ...Array.from({ length: 29 }, (_, n) => filler(n))] } : c)),
+  };
+  const saved = await saveCareerContent(db, "u1", made.id, padded, career!.version);
+  if (!saved.ok) throw new Error(saved.reason);
+  await updateFact(db, "u1", "project", projectId, { ...project, parent: { kind: "job", id: second } });
+  await confirmFact(db, "u1", "project", projectId);
+  // 새 사례는 목록에서 옮긴 프로젝트보다 앞이다
+  const fresh = await addScene(scene({ kind: "job", id: second }, { title: "새 사례", startMonth: "2024-10" }));
+  const ai = createFakeAi([reply(["E1", ["옮긴 줄"]])]);
+
+  const result = await rewriteCareerItems(db, ai, "u1", made.id, [fresh, projectId], saved.version, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(ai.requests[0].messages[0].text).toContain("E1\n- 이름: 사내 정산 도구");
+  expect((ai.requests[0].messages[0].text.match(/^E\d+$/gm) ?? []).length).toBe(1);
+  expect(result.value.companies.map((c) => [c.experienceId, c.items.length])).toEqual([
+    [second, 1],
+    [first, 29],
+  ]);
+  expect(texts(itemOf(result.value, projectId)?.done)).toEqual(["옮긴 줄"]);
+  expect(itemOf(result.value, fresh)).toBeUndefined();
+});
+
 test("다시 쓰기: AI가 뺀 기존 항목은 그대로 둔다", async () => {
   const { a, b, id, career } = await commonWithTwo();
   const ai = createFakeAi([reply(["E2", ["B 새 줄"]])]); // E1(A)을 빠뜨림

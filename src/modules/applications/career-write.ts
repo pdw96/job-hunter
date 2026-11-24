@@ -159,19 +159,31 @@ export async function rewriteCareerItems(
   const companyOf = new Map(listed.map(({ companyId, item }) => [item.id, companyId]));
   const wanted = new Set(ids.filter((id) => companyOf.has(id)));
 
-  // 다른 회사로 옮긴 항목은 옛 회사에서 빼고 새 회사의 새 항목으로 넣는다(한 항목이 두 회사에 있지 않게)
+  // 다른 회사로 옮긴 항목은 옛 회사에서 빼고 새 회사의 새 항목으로 넣는다(한 항목이 두 회사에 있지 않게).
+  // 새 항목으로 다시 만들므로 분량은 지금 범위로, 강조는 꺼진다
+  const moved = new Set(
+    career.content.companies.flatMap((company) =>
+      company.items
+        .filter((item) => wanted.has(item.experienceId) && companyOf.get(item.experienceId) !== company.experienceId)
+        .map((item) => item.experienceId),
+    ),
+  );
   const content: CareerContent = {
     ...career.content,
     companies: career.content.companies.map((company) => ({
       ...company,
-      items: company.items.filter((item) => !wanted.has(item.experienceId) || companyOf.get(item.experienceId) === company.experienceId),
+      items: company.items.filter((item) => !moved.has(item.experienceId)),
     })),
   };
   const existing = new Map<string, CareerItem>(content.companies.flatMap((company) => company.items.map((item) => [item.experienceId, item])));
-  // 있는 항목은 모두 다시 쓸 수 있고, 새 항목은 30개까지 남은 자리만큼만 받는다(목록 순서대로)
-  const room = Math.max(0, CAREER_LIMITS.items - itemCount(content));
-  const fresh = listed.filter(({ item }) => wanted.has(item.id) && !existing.has(item.id));
-  const chosen = [...listed.filter(({ item }) => wanted.has(item.id) && existing.has(item.id)), ...fresh.slice(0, room)];
+  // 있는 항목과 옮긴 항목(빼 둔 제 자리를 쓴다)은 모두 받고, 새 항목은 30개까지 남은 자리만큼만 받는다(목록 순서대로)
+  const room = Math.max(0, CAREER_LIMITS.items - itemCount(content) - moved.size);
+  const fresh = listed.filter(({ item }) => wanted.has(item.id) && !existing.has(item.id) && !moved.has(item.id));
+  const chosen = [
+    ...listed.filter(({ item }) => existing.has(item.id) && wanted.has(item.id)),
+    ...listed.filter(({ item }) => moved.has(item.id)),
+    ...fresh.slice(0, room),
+  ];
   if (chosen.length === 0 && jobs.length === 0) return { ok: false, reason: fresh.length > 0 ? "full" : "none_selected" };
 
   const requests: CareerRequest[] = chosen.map(({ companyId, item }) => {
