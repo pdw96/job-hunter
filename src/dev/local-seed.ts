@@ -6,6 +6,7 @@ import { createFact } from "@/modules/experiences/facts-repo";
 import { applyWithCurrentScore } from "@/modules/postings/apply";
 import { validatePosting } from "@/modules/postings/input";
 import { createPosting, saveAnalysis } from "@/modules/postings/repo";
+import { todayInKorea } from "@/modules/postings/today";
 import { confirmScene, createScene } from "@/modules/experiences/scenes-repo";
 import { scenes } from "@/modules/experiences/schema";
 import { createTrack } from "@/modules/tracks/repo";
@@ -111,7 +112,7 @@ async function seedApplyPosting(db: Db, userId: string, trackId: string): Promis
   const checked = validatePosting({
     company: "라마바 페이",
     title: "백엔드 개발자",
-    deadline: "2026-12-31",
+    deadline: todayInKorea(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
     isRolling: false,
     locationText: "서울 강남구",
     regions: ["seoul"],

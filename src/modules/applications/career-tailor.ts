@@ -2,10 +2,10 @@ import type { Db } from "@/db/types";
 import type { AiClient, AiFailure } from "@/modules/ai/client";
 import { type CareerItemSource, listCareerSources } from "@/modules/experiences/sources";
 import { getPosting } from "@/modules/postings/repo";
-import { buildItem, emphasizeItems } from "./career-entries";
+import { buildItem, emphasizeItems, itemCount } from "./career-entries";
 import { getCommonCareer, getTailoredCareer, saveTailoredCareerContent, saveTailoredCareerSelection } from "./career-repo";
 import { writeCareerItems } from "./career-write";
-import { RESUME_LIMITS } from "./options";
+import { CAREER_LIMITS, RESUME_LIMITS } from "./options";
 import { emphasisText } from "./resume-tailor";
 import { postingTextOf, requirementsOf } from "./select";
 import { editBlock, withEditLock } from "./submission-repo";
@@ -80,7 +80,7 @@ export async function buildTailoredCareer(
   expectedVersion: number | null,
   now: Date = new Date(),
 ): Promise<
-  { ok: true; value: CareerContent } | { ok: false; reason: Failure | "changed" | "too_many_selected" | "over_limit" | AiFailure }
+  { ok: true; value: CareerContent } | { ok: false; reason: Failure | "changed" | "too_many_selected" | "full" | "over_limit" | AiFailure }
 > {
   const base = await loadBase(db, userId, postingId);
   if (!base.ok) return base;
@@ -91,6 +91,11 @@ export async function buildTailoredCareer(
   const { sources, items } = await listedItems(db, userId, trackId);
   const chosen = [...new Set(itemIds)].flatMap((id) => items.get(id) ?? []);
   if (chosen.length > RESUME_LIMITS.emphasis) return { ok: false, reason: "too_many_selected" };
+
+  // 공통본에 없는 항목만 개수를 늘린다. 30개를 넘기게 되면 AI 전에 멈춘다
+  const inCommonIds = new Set(commonContent.companies.flatMap((company) => company.items.map((item) => item.experienceId)));
+  const added = chosen.filter(({ item }) => !inCommonIds.has(item.id)).length;
+  if (itemCount(commonContent) + added > CAREER_LIMITS.items) return { ok: false, reason: "full" };
 
   // 읽었을 때의 맞춤본 그대로일 때만 만든다(AI 호출 전에도 본다)
   const current = await getTailoredCareer(db, userId, postingId);

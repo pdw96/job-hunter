@@ -308,6 +308,40 @@ test("공통본에 없는 항목은 그 회사 맨 위에 넣고, 공통본에 �
   expect(texts(itemOf(result.value, d)?.done)).toEqual(["D 맞춤"]);
 });
 
+// 공통본을 가짜 항목으로 채워 29개로 만든다(사례 A·B 포함). 같은 회사에 새 사례 c, d를 확인된 상태로 더한다
+async function commonWith29() {
+  const { jobId, a, common, commonId } = await commonWithTwo();
+  const company = common.content!.companies[0];
+  const filler = Array.from({ length: 27 }, (_, i) => ({ ...company.items[0], experienceId: `filler-${i}` }));
+  const content = { ...common.content!, companies: [{ ...company, items: [...company.items, ...filler] }] };
+  const saved = await saveCareerContent(db, "u1", commonId, content, common.version);
+  if (!saved.ok) throw new Error(saved.reason);
+  const c = await addScene(scene({ kind: "job", id: jobId }, { title: "사례C", startMonth: "2021-01", endMonth: "2021-02" }));
+  const d = await addScene(scene({ kind: "job", id: jobId }, { title: "사례D", startMonth: "2020-01", endMonth: "2020-02" }));
+  return { a, c, d };
+}
+
+test("공통본에 없는 항목을 더해 30개를 넘으면 AI 없이 full", async () => {
+  const { c, d } = await commonWith29();
+  const postingId = await addPosting();
+  const ai = createFakeAi([]);
+
+  expect(await buildTailoredCareer(db, ai, "u1", postingId, [c, d], null, now)).toEqual({ ok: false, reason: "full" });
+  expect(ai.requests).toHaveLength(0);
+  expect(await getTailoredCareer(db, "u1", postingId)).toBeNull();
+});
+
+test("30개까지는 만든다", async () => {
+  const { a, c } = await commonWith29();
+  const postingId = await addPosting();
+
+  // 공통본에 있는 a는 개수를 늘리지 않고, 새 c 하나만 더해 30개
+  const result = await buildTailoredCareer(db, createFakeAi([reply(["E1", ["A 맞춤"]], ["E2", ["C 맞춤"]])]), "u1", postingId, [a, c], null, now);
+
+  if (!result.ok) throw new Error(result.reason);
+  expect(allItems(result.value)).toHaveLength(30);
+});
+
 test("6개면 too_many_selected이고 AI를 부르지 않는다", async () => {
   const { jobId, a, b } = await commonWithTwo();
   const more: string[] = [];
