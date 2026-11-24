@@ -26,11 +26,12 @@ function toUsage(usage: {
   };
 }
 
-function webSearchTool(options: NonNullable<AiRequest<unknown>["webSearch"]>): BetaWebSearchTool20260209 {
+// maxUses는 API 요청 하나에 대한 한도라서, 이어 부를 때는 남은 횟수를 넘긴다
+function webSearchTool(options: NonNullable<AiRequest<unknown>["webSearch"]>, maxUses: number): BetaWebSearchTool20260209 {
   return {
     type: "web_search_20260209",
     name: "web_search",
-    max_uses: options.maxUses,
+    max_uses: maxUses,
     ...(options.allowedDomains ? { allowed_domains: options.allowedDomains } : {}),
     // 모델이 직접 부르게 한다(코드 실행 도구를 거치지 않는다)
     allowed_callers: ["direct"],
@@ -73,24 +74,31 @@ export const anthropicAi: AiClient = {
         const webSearch = request.webSearch;
         const messages: BetaMessageParam[] = [...common.messages];
         const api = client;
-        const send = () =>
+        const send = (searchesLeft: number) =>
           api.beta.messages.create({
             ...common,
             messages,
             system: looseSystem(request.system, request.schema),
             output_config: { effort: request.effort },
-            ...(webSearch ? { tools: [webSearchTool(webSearch)] } : {}),
+            ...(webSearch ? { tools: [webSearchTool(webSearch, searchesLeft)] } : {}),
           });
-        let response = await send();
+        const answerText = (content: typeof response.content) =>
+          content.map((block) => (block.type === "text" ? block.text : "")).join("");
+        let response = await send(webSearch?.maxUses ?? 0);
+        // 인용이 붙으면 답이 여러 text 블록으로 나뉘어 오고, 이어 부르면 응답도 여럿이다. 모두 순서대로 잇는다
+        let text = answerText(response.content);
         spent = {
           usage: toUsage(response.usage),
           model: response.model,
           ...(webSearch ? { sources: collectSources(response.content) } : {}),
         };
-        // 서버가 검색 도중 멈추면 받은 내용을 그대로 붙여 이어 부른다
+        // 서버가 검색 도중 멈추면 받은 내용을 그대로 붙여 이어 부른다. 검색 횟수를 다 썼으면 멈춘 채(truncated) 끝낸다
         for (let i = 0; i < MAX_CONTINUATIONS && response.stop_reason === "pause_turn"; i++) {
+          const searchesLeft = webSearch ? webSearch.maxUses - (spent.usage.webSearchRequests ?? 0) : 0;
+          if (webSearch && searchesLeft <= 0) break;
           messages.push({ role: "assistant", content: response.content });
-          response = await send();
+          response = await send(searchesLeft);
+          text += answerText(response.content);
           spent = {
             usage: mergeUsage(spent.usage, toUsage(response.usage)),
             model: response.model,
@@ -100,8 +108,6 @@ export const anthropicAi: AiClient = {
         const meta = spent;
         if (response.stop_reason === "refusal") return { ok: false, reason: "refused", ...meta };
         if (response.stop_reason !== "end_turn") return { ok: false, reason: "truncated", ...meta };
-        // 인용이 붙으면 답이 여러 text 블록으로 나뉘어 온다. 순서대로 잇는다
-        const text = response.content.map((block) => (block.type === "text" ? block.text : "")).join("");
         const parsed = parseLoose(text, request.schema);
         return parsed.ok ? { ok: true, value: parsed.value, ...meta } : { ok: false, reason: "invalid", ...meta };
       }

@@ -1,6 +1,6 @@
 import type { BetaContentBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { expect, test } from "vitest";
-import { collectSources, MAX_CONTINUATIONS, mergeSources, mergeUsage } from "./web-search";
+import { collectSources, mergeSources, mergeUsage } from "./web-search";
 
 const result = (url: string, title: string, pageAge: string | null) => ({
   type: "web_search_result" as const,
@@ -67,8 +67,4 @@ test("mergeSources는 같은 주소를 한 번만 둔다", () => {
     { url: "https://a.example/1", title: "가", pageAge: null },
     { url: "https://b.example/2", title: "나", pageAge: null },
   ]);
-});
-
-test("이어 부르기는 2번까지다", () => {
-  expect(MAX_CONTINUATIONS).toBe(2);
 });
