@@ -299,8 +299,8 @@ function MissingPanel({ data }: { data: CareerEditorData }) {
       <p className="text-sm">빠진 항목 {data.missing.length}개</p>
       <ul className="space-y-1">
         {data.missing.map((entry) => {
-          // 회사째 빠졌으면 이름이 곧 회사 이름이다
-          const label = entry.name === entry.companyName ? entry.companyName : [entry.companyName, entry.name].filter(Boolean).join(" · ");
+          // 회사째 빠졌으면(id가 회사 id) 이름이 곧 회사 이름이다. 이름으로 비교하면 회사 이름과 같은 제목의 사례가 회사처럼 보인다
+          const label = entry.id === entry.companyId ? entry.companyName : [entry.companyName, entry.name].filter(Boolean).join(" · ");
           return (
             <li key={entry.id}>
               <label className="flex items-start gap-2 text-sm">
