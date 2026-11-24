@@ -248,6 +248,20 @@ test("후보가 없으면 AI를 부르지 않고 noMatch", async () => {
   expect(ai.requests.length).toBe(0);
 });
 
+test("emphasisText의 기본 purpose는 resume_emphasis 그대로이고, career_emphasis를 주면 그것으로 남는다", async () => {
+  await addExperience({ name: "경험0", startMonth: "2023-01" });
+  const sources = await listResumeSources(db, "u1", trackId);
+  const input = { postingText: "Java 3년 이상", requirements: [], sources };
+  const ai = createFakeAi([pickReply(["E1", "겹칩니다"]), pickReply(["E1", "겹칩니다"])]);
+
+  expect((await emphasisText(db, ai, "u1", input, now)).ok).toBe(true);
+  expect((await emphasisText(db, ai, "u1", input, now, undefined, "career_emphasis")).ok).toBe(true);
+
+  expect(ai.requests.map((r) => r.purpose)).toEqual(["resume_emphasis", "career_emphasis"]);
+  expect(ai.requests.every((r) => r.system === RESUME_EMPHASIS_SYSTEM)).toBe(true);
+  expect((await db.select().from(aiUsage)).map((r) => r.purpose).sort()).toEqual(["career_emphasis", "resume_emphasis"]);
+});
+
 test("별명이 'E1 (경험 이름)'처럼 조금 달라도 강조로 읽는다", async () => {
   await addExperience({ name: "경험0", startMonth: "2023-01" });
   const sources = await listResumeSources(db, "u1", trackId);

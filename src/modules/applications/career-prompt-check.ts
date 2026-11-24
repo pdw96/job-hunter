@@ -7,11 +7,15 @@ import { buildCompany, buildItem } from "./career-entries";
 import { checkCareer } from "./career-check";
 import { writeCareerItems } from "./career-write";
 import { detailFor } from "./resume-entries";
+import { emphasisText } from "./resume-tailor";
 import { cut } from "./text";
 
-// 경력기술서 쓰기 예시를 실제 AI에 돌려, 기록에 없는 것을 쓰지 않고 항목마다 제 기록만 쓰는지 본다(관리자 전용, 호출 1번)
+// 경력기술서 쓰기·강조 고르기 예시를 실제 AI에 돌려, 기록에 없는 것을 쓰지 않고 항목마다 제 기록만 쓰는지,
+// 공고에 맞는 항목을 강조하는지 본다(관리자 전용, 호출 2번)
 
 const SAMPLE = "경력기술서 쓰기";
+const EMPHASIS_SAMPLE = "경력기술서 강조 고르기";
+const EMPHASIS_POSTING = "주문 API 성능 개선 경험자";
 
 const BASE: Pick<CareerItemSource, "organization" | "endMonth" | "isOngoing" | "notDone" | "bannedPhrases" | "contentVersion" | "metrics" | "tools" | "scope"> = {
   organization: null,
@@ -69,6 +73,19 @@ const JOB: CareerSource = {
 };
 
 export async function runCareerCheck(db: Db, ai: AiClient, userId: string, now: Date = new Date()): Promise<CheckRow[]> {
+  return (await Promise.all([write(db, ai, userId, now), emphasize(db, ai, userId, now)])).flat();
+}
+
+// 진단용 줄: 보이기만 하는 것이라 늘 통과한다(AI 호출을 더하지 않는다)
+const diagnosticRow = (sample: string, raw: unknown): CheckRow => ({
+  sample,
+  check: "AI가 보낸 답(진단용)",
+  expected: "-",
+  actual: raw === undefined ? "AI 호출 실패" : cut(JSON.stringify(raw), 600),
+  pass: true,
+});
+
+async function write(db: Db, ai: AiClient, userId: string, now: Date): Promise<CheckRow[]> {
   const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample: SAMPLE, check, expected, actual, pass });
   const checks = [
     "①의 한 일이 비지 않는다",
@@ -84,8 +101,7 @@ export async function runCareerCheck(db: Db, ai: AiClient, userId: string, now: 
   const result = await writeCareerItems(db, ai, userId, { requests, posting: null }, now, (value) => {
     raw = value;
   });
-  // 진단용 줄: 보이기만 하는 것이라 늘 통과한다(AI 호출을 더하지 않는다)
-  const diagnostic = () => row("AI가 보낸 답(진단용)", "-", raw === undefined ? "AI 호출 실패" : cut(JSON.stringify(raw), 600), true);
+  const diagnostic = () => diagnosticRow(SAMPLE, raw);
   if (!result.ok) return [...checks.map((check) => row(check, "AI 호출 성공", `실패: ${result.reason}`, false)), diagnostic()];
 
   const lines = (id: string) => result.value[id] ?? { done: [], results: [] };
@@ -106,6 +122,34 @@ export async function runCareerCheck(db: Db, ai: AiClient, userId: string, now: 
     row(checks[3], "없음", infra ? "인프라 설계를 씀" : "없음", !infra),
     row(checks[4], "없음", projectNumbers.join(", ") || "없음", projectNumbers.length === 0),
     row(checks[5], "없음", mixed ? "응답 시간이 섞임" : "없음", !mixed),
+    diagnostic(),
+  ];
+}
+
+// 후보는 ①(주문 API 응답 시간)과 ②(정산 화면)다. 공고는 ①에만 맞는다
+async function emphasize(db: Db, ai: AiClient, userId: string, now: Date): Promise<CheckRow[]> {
+  const row = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample: EMPHASIS_SAMPLE, check, expected, actual, pass });
+  const checks = ["①을 강조한다", "②를 강조하지 않는다", "①의 이유가 비지 않는다"];
+
+  let raw: unknown;
+  const input = { postingText: EMPHASIS_POSTING, requirements: [EMPHASIS_POSTING], sources: [SCENE, PROJECT] };
+  const onRaw = (value: unknown) => {
+    raw = value;
+  };
+  const result = await emphasisText(db, ai, userId, input, now, onRaw, "career_emphasis");
+  const diagnostic = () => diagnosticRow(EMPHASIS_SAMPLE, raw);
+  if (!result.ok) return [...checks.map((check) => row(check, "AI 호출 성공", `실패: ${result.reason}`, false)), diagnostic()];
+
+  const { picks } = result.value;
+  const picked = (id: string) => picks.some((pick) => pick.experienceId === id);
+  // 지어낸 숫자가 든 이유는 emphasisText가 비우므로, 비어 있으면 근거를 제대로 쓰지 못한 것이다
+  const scenePick = picks.find((pick) => pick.experienceId === SCENE.id);
+  const hasReason = scenePick !== undefined && scenePick.why !== "";
+  const pickedNames = picks.map((pick) => [SCENE, PROJECT].find((s) => s.id === pick.experienceId)?.name ?? pick.experienceId).join(", ") || "없음";
+  return [
+    row(checks[0], "강조함", picked(SCENE.id) ? "①을 강조함" : `강조하지 않음 · 고른 것: ${pickedNames}`, picked(SCENE.id)),
+    row(checks[1], "강조하지 않음", picked(PROJECT.id) ? "②를 강조함" : "강조하지 않음", !picked(PROJECT.id)),
+    row(checks[2], "이유 있음", hasReason ? "이유 있음" : "비어 있음", hasReason),
     diagnostic(),
   ];
 }
