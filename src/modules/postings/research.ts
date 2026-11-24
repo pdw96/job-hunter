@@ -53,9 +53,11 @@ const onDomain = (host: string, domain: string) => host === domain || host.endsW
 // 원문에 적힌 주소 중 채용 사이트도 공고 주소도 아닌 첫 호스트. 없으면 null
 export function homepageDomain(rawText: string, postingUrl: string | null): string | null {
   const postingHost = postingUrl ? hostOf(postingUrl) : null;
-  const found = rawText.match(/https?:\/\/[^\s<>"'()[\]]+|\bwww\.[^\s<>"'()[\]]+/gi) ?? [];
+  const found = rawText.match(/https?:\/\/[a-z0-9.-]+|\bwww\.[a-z0-9.-]+/gi) ?? [];
   for (const match of found) {
-    const full = /^https?:\/\//i.test(match) ? match : `https://${match}`;
+    // 호스트는 영문·숫자·점·하이픈까지만 읽는다(뒤에 붙은 조사와 문장부호를 떼기 위해). 끝의 점도 뗀다
+    const clean = match.replace(/\.+$/, "");
+    const full = /^https?:\/\//i.test(clean) ? clean : `https://${clean}`;
     let host: string;
     try {
       host = new URL(full).hostname.toLowerCase().replace(/^www\./, "");

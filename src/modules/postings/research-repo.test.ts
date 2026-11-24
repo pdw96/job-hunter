@@ -70,6 +70,7 @@ test("끝난 줄은 다시 잡을 수 있고, 지난 결과는 그대로 둔다"
 });
 
 test("동시에 두 번 잡아도 하나만 잡힌다", async () => {
+  // PGlite는 쿼리를 차례로 돌리므로, 원자성은 ON CONFLICT 한 문장에 기대고 있다
   const [a, b] = await Promise.all([claim(t0), claim(t0)]);
   expect([a, b].filter((x) => x !== null)).toHaveLength(1);
   await finishResearch(db, "u1", key, t0, result, min(1));

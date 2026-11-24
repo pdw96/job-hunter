@@ -106,7 +106,10 @@ function editResult(
     if (row.status === "running") return { ok: false, reason: "running" };
     const set = change(row);
     if (!set) return { ok: false, reason: "not_found" };
-    await tx.update(researches).set(set).where(eq(researches.id, row.id));
+    await tx
+      .update(researches)
+      .set({ ...set, updatedAt: new Date() })
+      .where(and(mine(userId, key), eq(researches.id, row.id)));
     return { ok: true };
   });
 }

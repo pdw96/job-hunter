@@ -37,6 +37,18 @@ test("homepageDomain: 주소가 없으면 null", () => {
   expect(homepageDomain("https://www.saramin.co.kr/1", null)).toBeNull();
 });
 
+test("homepageDomain: 뒤에 붙은 조사와 문장부호는 호스트에 넣지 않는다", () => {
+  expect(homepageDomain("www.gana.com에서 확인", null)).toBe("gana.com");
+  expect(homepageDomain("https://www.gana.com.", null)).toBe("gana.com");
+  expect(homepageDomain("https://gana.com, 문의", null)).toBe("gana.com");
+  expect(homepageDomain("https://www.gana.co.kr/careers 참고", null)).toBe("gana.co.kr");
+});
+
+test("homepageDomain: 조사가 붙은 채용 사이트도 건너뛴다", () => {
+  expect(homepageDomain("지원은 www.saramin.co.kr에서 하세요", null)).toBeNull();
+  expect(homepageDomain("https://www.saramin.co.kr. www.gana.com", null)).toBe("gana.com");
+});
+
 test("wantsTalent: 인재상 글이 있으면 false", () => {
   expect(wantsTalent({ rawText: "채용", companyNote: "우리는 이런 사람" })).toBe(false);
 });
