@@ -7,7 +7,11 @@ export type TokenUsage = {
   outputTokens: number; // 생각(thinking) 토큰 포함
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  webSearchRequests?: number; // 웹 검색 서버 도구를 쓴 횟수(없으면 0)
 };
+
+// 웹 검색 1번 값: 1,000번에 10달러
+export const WEB_SEARCH_MICRO_USD = 10_000;
 
 // USD / 100만 토큰 (2026-11-03 기준)
 const PRICES: Record<string, { input: number; output: number; cacheRead: number }> = {
@@ -28,7 +32,7 @@ export function costMicroUsd(model: string, usage: TokenUsage): number {
       usage.outputTokens * price.output +
       usage.cacheReadTokens * price.cacheRead +
       usage.cacheWriteTokens * price.input * CACHE_WRITE_MULTIPLIER,
-  );
+  ) + (usage.webSearchRequests ?? 0) * WEB_SEARCH_MICRO_USD;
 }
 
 export function currentModel(): string {

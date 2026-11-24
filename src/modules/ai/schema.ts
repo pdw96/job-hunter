@@ -15,6 +15,7 @@ export const aiUsage = pgTable(
     outputTokens: integer("output_tokens").notNull(),
     cacheReadTokens: integer("cache_read_tokens").notNull(),
     cacheWriteTokens: integer("cache_write_tokens").notNull(),
+    webSearchRequests: integer("web_search_requests").notNull().default(0),
     costMicroUsd: integer("cost_micro_usd").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

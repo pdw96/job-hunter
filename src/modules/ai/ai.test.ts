@@ -6,7 +6,7 @@ import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
 import { type AiRequest, runAi } from "./client";
 import { createFakeAi, FAKE_USAGE } from "./fake-client";
-import { costMicroUsd } from "./pricing";
+import { costMicroUsd, WEB_SEARCH_MICRO_USD } from "./pricing";
 import { redactContacts } from "./redact";
 import { aiUsage } from "./schema";
 import { checkBudget, monthlyCostMicroUsd, monthlyLimitMicroUsd, monthStart, recordUsage } from "./usage";
@@ -31,6 +31,16 @@ test("캐시 읽기와 쓰기는 따로 계산된다", () => {
 
 test("표에 없는 모델은 가장 비싼 값으로 계산한다", () => {
   expect(costMicroUsd("claude-unknown-9", usage({ inputTokens: M, outputTokens: M }))).toBe(24 * M);
+});
+
+test("검색 3번이면 토큰 값에 3만 마이크로달러를 더한다", () => {
+  expect(WEB_SEARCH_MICRO_USD).toBe(10_000);
+  expect(costMicroUsd("claude-sonnet-5-5", usage({ inputTokens: M, webSearchRequests: 3 }))).toBe(2 * M + 30_000);
+});
+
+test("검색 횟수가 없으면 0으로 센다", () => {
+  expect(costMicroUsd("claude-sonnet-5-5", usage({ inputTokens: M }))).toBe(2 * M);
+  expect(costMicroUsd("claude-sonnet-5-5", usage({ inputTokens: M, webSearchRequests: 0 }))).toBe(2 * M);
 });
 
 test("전화번호·이메일·주민등록번호 형태를 가린다", () => {
@@ -121,6 +131,40 @@ test("AI가 거절하거나 답이 스키마에 맞지 않아도 쓴 만큼 사�
   expect(await runAi(db, ai, "u1", request, now)).toMatchObject({ ok: false, reason: "refused" });
   expect(await runAi(db, ai, "u1", request, now)).toMatchObject({ ok: false, reason: "invalid" });
   expect(await db.select().from(aiUsage)).toHaveLength(2);
+});
+
+test("recordUsage가 검색 횟수를 남긴다", async () => {
+  const entry = { purpose: "company_research", model: "claude-sonnet-5-5", at: now };
+  await recordUsage(db, "u1", { ...entry, usage: usage({ outputTokens: 100, webSearchRequests: 4 }) });
+  await recordUsage(db, "u1", { ...entry, usage: usage({ outputTokens: 100 }) }); // 검색 없음
+  const rows = await db.select().from(aiUsage).orderBy(aiUsage.webSearchRequests);
+  expect(rows.map((row) => row.webSearchRequests)).toEqual([0, 4]);
+  expect(rows[1].costMicroUsd).toBe(1_000 + 40_000);
+});
+
+test("웹 검색 요청도 runAi가 한도를 먼저 보고 사용량에 검색 요금까지 센다", async () => {
+  const webRequest: AiRequest<{ answer: string }> = {
+    ...request,
+    purpose: "company_research",
+    webSearch: { maxUses: 5, allowedDomains: ["example.com"] },
+  };
+  const sources = [{ url: "https://example.com/a", title: "A", pageAge: null }];
+
+  // 한도에 닿았으면 부르지 않는다
+  process.env.AI_MONTHLY_LIMIT_USD = "0";
+  const blocked = createFakeAi([{ web: { answer: { answer: "x" }, sources, searches: 2 } }]);
+  expect(await runAi(db, blocked, "u1", webRequest, now)).toEqual({ ok: false, reason: "over_limit" });
+  expect(blocked.requests).toHaveLength(0);
+  delete process.env.AI_MONTHLY_LIMIT_USD;
+
+  const ai = createFakeAi([{ web: { answer: { answer: "회사 소개" }, sources, searches: 2 } }]);
+  const result = await runAi(db, ai, "u1", webRequest, now);
+  expect(result).toMatchObject({ ok: true, value: { answer: "회사 소개" }, sources });
+  expect(ai.requests[0].webSearch).toEqual({ maxUses: 5, allowedDomains: ["example.com"] });
+
+  const [row] = await db.select().from(aiUsage);
+  expect(row).toMatchObject({ purpose: "company_research", webSearchRequests: 2 });
+  expect(row.costMicroUsd).toBe(costMicroUsd("claude-sonnet-5-5", FAKE_USAGE) + 20_000);
 });
 
 test("사용자를 지우면 사용량도 지워진다", async () => {
