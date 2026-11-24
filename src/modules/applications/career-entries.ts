@@ -103,17 +103,17 @@ export function refreshCompany(content: CareerContent, source: CareerSource, sou
 // 같은 회사 안에서만 옮긴다
 export function moveItem(content: CareerContent, itemId: string, direction: "up" | "down"): CareerContent {
   const step = direction === "up" ? -1 : 1;
-  return {
-    ...content,
-    companies: content.companies.map((company) => {
-      const at = company.items.findIndex((item) => item.experienceId === itemId);
-      const to = at + step;
-      if (at < 0 || to < 0 || to >= company.items.length) return company;
-      const items = [...company.items];
-      [items[at], items[to]] = [items[to], items[at]];
-      return { ...company, items };
-    }),
-  };
+  let moved = false;
+  const companies = content.companies.map((company) => {
+    const at = company.items.findIndex((item) => item.experienceId === itemId);
+    const to = at + step;
+    if (at < 0 || to < 0 || to >= company.items.length) return company;
+    moved = true;
+    const items = [...company.items];
+    [items[at], items[to]] = [items[to], items[at]];
+    return { ...company, items };
+  });
+  return moved ? { ...content, companies } : content; // 옮길 것이 없으면 같은 객체
 }
 
 // 경력 id면 회사째 뺀다
