@@ -1,5 +1,5 @@
 // 로컬 미리보기 전용 가짜 AI. 실제 API를 부르지 않고, 받은 글을 보고 그럴듯한 정해진 답을 돌려준다.
-import type { AiClient, AiRequest, AiResult } from "@/modules/ai/client";
+import type { AiClient, AiRequest, AiResult, WebSource } from "@/modules/ai/client";
 import { FAKE_MODEL, FAKE_USAGE } from "@/modules/ai/fake-client";
 
 if (process.env.VERCEL) throw new Error("로컬 미리보기는 배포 환경에서 쓸 수 없습니다");
@@ -388,10 +388,27 @@ function resumeEmphasis(text: string) {
   return { picks: /^E1$/m.test(section(text, "경험 기록")) ? [{ exp: "E1", why: "공고의 담당 업무와 겹칩니다" }] : [] };
 }
 
+// 회사 조사 흉내. 검색 결과(출처) 두 개와 그 주소를 쓴 인재상·소식 하나. 소식 날짜는 [오늘]로 둔다
+const RESEARCH_SOURCES: WebSource[] = [
+  { url: "https://www.example.com/careers", title: "인재상 | 예시 회사", pageAge: null },
+  { url: "https://news.example.com/a1", title: "예시 회사, 새 서비스 출시", pageAge: null },
+];
+function companyResearch(text: string) {
+  return {
+    talent: { text: "고객을 먼저 생각하고 끝까지 해내는 사람", url: RESEARCH_SOURCES[0].url },
+    news: [{ summary: "예시 회사가 새 서비스를 내놓았다고 밝혔다.", date: section(text, "오늘") || null, url: RESEARCH_SOURCES[1].url }],
+  };
+}
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
     const text = request.messages.map((message) => message.text).join("\n");
+    if (request.purpose === "company_research") {
+      const parsed = request.schema.safeParse(companyResearch(text));
+      const meta = { usage: { ...FAKE_USAGE, webSearchRequests: 2 }, model: FAKE_MODEL, sources: RESEARCH_SOURCES };
+      return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };
+    }
     const answer =
       request.purpose === "judge"
         ? judge(text)

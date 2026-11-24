@@ -201,3 +201,16 @@ test("쓰기 흉내는 [내 답]이 있으면 A1을 근거로 한 첫 문단을 
     [[SAMPLE_SOURCES[0].id], []],
   ]);
 }, DB_TEST_TIMEOUT);
+
+test("회사 조사 흉내는 출처 두 개와 그 주소를 쓴 인재상·소식 하나를 돌려준다", async () => {
+  const { createTestDb } = await import("@/db/test-db");
+  const { user } = await import("@/modules/auth/schema");
+  const { researchText } = await import("@/modules/postings/research-run");
+  const db = await createTestDb();
+  await db.insert(user).values({ id: "u1", name: "A", email: "u1@example.com" });
+  const result = await researchText(db, ai, "u1", { company: "가나다", title: "백엔드", domain: null, wantTalent: true, today: "2026-11-24" });
+  if (!result.ok) throw new Error(result.reason);
+  expect(result.value.talent).toMatchObject({ url: "https://www.example.com/careers" });
+  expect(result.value.news).toEqual([expect.objectContaining({ url: "https://news.example.com/a1", date: "2026-11-24" })]);
+  expect(result.value.dropped).toBe(0);
+}, DB_TEST_TIMEOUT);
