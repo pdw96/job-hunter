@@ -1140,25 +1140,43 @@ test("조사가 없으면 회사 정보 없음으로 쓴다", async () => {
   expect(result.ok && result.value.paragraphs[0].company).toEqual([]);
 });
 
-test("고치기는 쓸 수 없게 된 회사 정보가 있으면 stale이고 AI를 부르지 않는다", async () => {
+test("고치는 문단이 쓸 수 없게 된 회사 정보를 달았으면 stale_company이고 AI를 부르지 않는다", async () => {
   await addResearch();
   const { questionId } = await answered(["motive"]);
-  const first = await approveAndWrite(db, createFakeAi([answerReply([["A1", "C2"]])]), "u1", questionId, [], now);
+  const first = await approveAndWrite(db, createFakeAi([answerReply([["A1", "C2"], ["A1"]])]), "u1", questionId, [], now);
   if (!first.ok) throw new Error(first.reason);
   expect((await setNewsChecked(db, "u1", KEY, NEWS[0].id, false)).ok).toBe(true);
   const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1"] }]);
-  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "stale" });
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "stale_company" });
   expect(ai.requests).toHaveLength(0);
 
-  // 다시 조사해 id가 바뀌어도 stale이다
+  // 다시 조사해 id가 바뀌어도 stale_company다
   expect((await setNewsChecked(db, "u1", KEY, NEWS[0].id, true)).ok).toBe(true);
   const later = new Date(now.getTime() + 60 * 60_000);
   const startedAt = await claimResearch(db, "u1", KEY, raw.company, later, { onlyIfMissing: false });
   if (!startedAt) throw new Error("조사를 잡지 못함");
   const renewed = { talent: { ...TALENT, id: "new-talent", verdict: "yes" as const }, talentSkipped: false, news: [{ ...NEWS[0], id: "new-news", checked: true }] };
   expect(await finishResearch(db, "u1", KEY, startedAt, renewed, later)).toBe(true);
-  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "stale" });
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "stale_company" });
   expect(ai.requests).toHaveLength(0);
+});
+
+test("다른 문단만 쓸 수 없게 된 회사 정보를 달았으면 고치고, 그 회사 정보는 보내지 않는다", async () => {
+  await addResearch();
+  const { questionId, answerIds } = await answered(["motive"]);
+  const first = await approveAndWrite(db, createFakeAi([answerReply([["A1", "C2"], ["A1", "C1"]])]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  expect((await setNewsChecked(db, "u1", KEY, NEWS[0].id, false)).ok).toBe(true);
+  // 지금 보내는 회사 정보는 인재상 하나라 C1이다. 없는 C2는 버린다
+  const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1", "C1", "C2"] }]);
+  const revised = await reviseParagraph(db, ai, "u1", questionId, 1, { preset: "shorter", note: "" }, first.value, now);
+  expect(ai.requests).toHaveLength(1);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain(`[회사 정보]\nC1 ${TALENT_LINE}\n\n`);
+  expect(sent).not.toContain("간편결제 거래액이 전년보다 40% 늘었다 (출처");
+  expect(revised.ok && revised.value.paragraphs[1]).toEqual({ text: "고친 문단입니다.", sources: [], answers: answerIds, company: [TALENT.id], edited: false });
+  // 복사본은 그대로 둔다(다른 문단의 근거 이름과 검사가 쓴다)
+  expect(revised.ok && revised.value.companyFacts).toEqual([talentFact, newsFact]);
 });
 
 test("고치기는 복사본을 다시 보낸다", async () => {

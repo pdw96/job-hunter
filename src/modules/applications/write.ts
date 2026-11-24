@@ -27,6 +27,7 @@ export type WriteFailure =
   | "submitted"
   | "changed"
   | "stale"
+  | "stale_company" // 고치는 문단이 단 회사 정보를 지금 쓸 수 없다(체크를 풀었거나 다시 조사함)
   | "over_limit"
   | "too_many_selected"
   | "need_answers"
@@ -314,13 +315,15 @@ export async function reviseParagraph(
   if (sent.length !== sentIds.length) return { ok: false, reason: "stale" };
   const answers = usableAnswers(sent, question.topics, posting.company); // 유형·회사가 바뀌어 쓸 수 없게 된 답은 다시 보내지 않는다
 
-  // 쓸 때 보낸 회사 정보가 하나라도 지금 쓸 수 없으면(체크를 풀었거나, 다시 조사했거나, 회사 이름을 바꿈) 막는다.
-  // 모두 있으면 지금 목록이 아닌 쓸 때의 복사본을 다시 보낸다. 유형에서 동기포부형을 뺐으면 보내지 않는다
+  // 고치는 문단이 단 회사 정보가 지금 쓸 수 없으면(체크를 풀었거나, 다시 조사했거나, 회사 이름을 바꿈) 막는다(검사의 바뀜 표시와 같은 문단 단위).
+  // 아니면 쓸 때의 복사본 중 지금도 쓸 수 있는 것만 다시 보낸다(쓴 뒤 더 체크한 것은 보내지 않는다). 유형에서 동기포부형을 뺐으면 보내지 않는다
   const kinds = question.kinds ?? ["experience"];
-  const sentFacts = stored.companyFacts ?? [];
-  if (sentFacts.length > 0) {
+  let sentFacts = stored.companyFacts ?? [];
+  const cited = stored.paragraphs[index].company ?? [];
+  if (sentFacts.length > 0 || cited.length > 0) {
     const current = new Set((await usableCompanyFacts(db, userId, posting.company)).map((f) => f.id));
-    if (sentFacts.some((f) => !current.has(f.id))) return { ok: false, reason: "stale" };
+    if (cited.some((id) => !current.has(id))) return { ok: false, reason: "stale_company" };
+    sentFacts = sentFacts.filter((f) => current.has(f.id));
   }
   const facts = kinds.includes("motive") ? sentFacts : [];
 

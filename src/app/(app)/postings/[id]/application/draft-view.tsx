@@ -29,7 +29,7 @@ function problems(check: ParagraphCheck, withCompany: boolean): string[] {
   if (check.banned.length > 0) lines.push(`쓰면 안 되는 표현: ${check.banned.join(", ")}`);
   if (check.ungrounded.length > 0) lines.push(`기록에 없는 숫자: ${check.ungrounded.join(", ")}`);
   if (check.noSource) lines.push("근거 경험이 없습니다");
-  if (check.staleSource) lines.push(withCompany ? "근거 경험의 기록이나 회사 정보가 바뀌었습니다" : "근거 경험의 기록이 바뀌었습니다");
+  if (check.staleSource) lines.push(withCompany ? "근거(경험·답·회사 정보)가 바뀌었습니다" : "근거 경험의 기록이 바뀌었습니다");
   if (check.structureChanged) lines.push("기록 구조가 바뀌어 다시 만들어야 합니다");
   return lines;
 }
