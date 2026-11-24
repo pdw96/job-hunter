@@ -80,7 +80,7 @@ const answering = (
   );
 const ASK_ROWS = 7;
 const ANSWER_ROWS = 4;
-const COMPANY_ROWS = 5;
+const COMPANY_ROWS = 6;
 const ROWS = 12 + ANSWER_ROWS + ASK_ROWS + COMPANY_ROWS;
 
 beforeEach(async () => {
@@ -325,9 +325,12 @@ test("회사 정보로 쓰기에는 [회사 정보]의 C1과 [내 답]의 A1을 
     "40%는 C1을 단 문단에만 있다",
     "지원자가 거래액을 늘린 것처럼 쓰지 않는다",
     "기록에 없는 숫자가 없다(회사 정보 숫자 허용)",
+    "인재상을 지원자의 자질로 쓰지 않는다",
   ]);
   const text = ai.requests.find(isCompanyWrite)?.messages[0].text ?? "";
-  expect(text).toContain("[회사 정보]\nC1 - 소식(날짜 모름): 3분기 간편결제 거래액이 전년보다 40% 늘었다 (출처: news.example.com)");
+  expect(text).toContain(
+    "[회사 정보]\nC1 - 소식(날짜 모름): 3분기 간편결제 거래액이 전년보다 40% 늘었다 (출처: news.example.com)\nC2 - 인재상: 끝까지 책임지는 사람 (출처: ganada-tech.example)",
+  );
   expect(text).toContain("[내 답]\nA1");
   expect(text).not.toContain("sample-");
 });
@@ -357,9 +360,23 @@ test("회사 정보만으로 된 문단, C1이 없는 문단의 40%, 지원자�
   expect(failedRows.at(-1)?.actual).toBe("500");
 });
 
-test("회사 정보로 쓰기 호출이 실패하면 그 5줄만 실패로 나온다", async () => {
+test("회사 정보로 쓰기 호출이 실패하면 그 6줄만 실패로 나온다", async () => {
   const rows = await runApplicationCheck(db, answering(select, write, ask, answerWrite, { fail: "invalid" }), "admin");
   const bad = rows.filter((row) => !row.pass);
   expect(bad).toHaveLength(COMPANY_ROWS);
   expect(bad.every((row) => row.actual === "실패: invalid" && row.sample === "자소서 회사 정보로 쓰기")).toBe(true);
+});
+
+test("인재상을 지원자의 자질로 쓰면 그 줄만 실패한다", async () => {
+  const bad = { ...companyWrite, paragraphs: [...companyWrite.paragraphs, { text: "저는 끝까지 책임지는 사람입니다.", sources: ["A1", "C2"] }] };
+  const rows = await runApplicationCheck(db, answering(select, write, ask, answerWrite, bad), "admin");
+  const failedRows = rows.filter((row) => !row.pass);
+  expect(failedRows.map((row) => row.check)).toEqual(["인재상을 지원자의 자질로 쓰지 않는다"]);
+  expect(failedRows[0].actual).toBe("책임지는 사람입니다");
+});
+
+test("회사가 찾는 사람으로 인재상을 쓰면 통과한다", async () => {
+  const good = { ...companyWrite, paragraphs: [...companyWrite.paragraphs, { text: "끝까지 책임지는 사람을 찾는 귀사에서 결제를 안정적으로 만들고 싶습니다.", sources: ["A1", "C2"] }] };
+  const rows = await runApplicationCheck(db, answering(select, write, ask, answerWrite, good), "admin");
+  expect(rows.filter((row) => !row.pass)).toEqual([]);
 });

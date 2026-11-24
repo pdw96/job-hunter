@@ -74,7 +74,7 @@ const ANSWER: Answer = {
   createdAt: new Date(0),
 };
 
-// 회사 정보 예시: 지원자가 체크한 회사 소식 하나. 답으로 쓰기 예시에 더해 쓰고, 묻기 예시에도 보낸다
+// 회사 정보 예시: 지원자가 체크한 회사 소식 하나(쓰기·묻기)와 맞다고 한 인재상 하나(쓰기). 답으로 쓰기 예시에 더해 쓴다
 const COMPANY_SAMPLE = "자소서 회사 정보로 쓰기";
 const COMPANY_FACT: CompanyFact = {
   id: "sample-fact-pay",
@@ -84,6 +84,16 @@ const COMPANY_FACT: CompanyFact = {
   title: "가나다테크 3분기 실적",
   date: null,
 };
+const TALENT_FACT: CompanyFact = {
+  id: "sample-fact-talent",
+  kind: "talent",
+  text: "끝까지 책임지는 사람",
+  url: "https://www.ganada-tech.example/careers",
+  title: "가나다테크 인재상",
+  date: null,
+};
+// 인재상을 지원자가 이미 그런 사람이라고 쓴 말("책임지는 사람입니다", "책임감이 강합니다" 등)
+const TALENT_CLAIM = /책임(?:지는|감\s*있는|감이\s*강한)\s*사람입니다|책임감이\s*(?:강|있)습니다/;
 
 // 묻기 예시: 공고(Java·Kotlin 백엔드)와 이어지는 교육과, 이어지지 않는 바리스타 사례
 const ASK_SAMPLE = "자소서 묻기";
@@ -213,24 +223,26 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     "40%는 C1을 단 문단에만 있다",
     "지원자가 거래액을 늘린 것처럼 쓰지 않는다",
     "기록에 없는 숫자가 없다(회사 정보 숫자 허용)",
+    "인재상을 지원자의 자질로 쓰지 않는다",
   ];
-  // 답으로 쓰기 예시에 회사 소식(C1)을 더해 쓴다. 회사 정보는 답과 이어진 문단에서 회사 이야기로만 써야 한다
+  // 답으로 쓰기 예시에 회사 소식(C1)과 인재상(C2)을 더해 쓴다. 회사 정보는 답과 이어진 문단에서 회사 이야기로만 써야 한다
   const companyWrite = async (): Promise<CheckRow[]> => {
     const companyRow = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample: COMPANY_SAMPLE, check, expected, actual, pass });
     const result = await writeText(
       db,
       ai,
       userId,
-      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER], unanswered: [], companyFacts: [COMPANY_FACT] },
+      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER], unanswered: [], companyFacts: [COMPANY_FACT, TALENT_FACT] },
       now,
     );
     if (!result.ok) return companyChecks.map((check) => companyRow(check, "AI 호출 성공", `실패: ${result.reason}`, false));
-    const draft: Draft = { questionVersion: 0, basedOn: [], ...result.value, answers: [ANSWER.id], companyFacts: [COMPANY_FACT], writtenAt: now.toISOString() };
+    const draft: Draft = { questionVersion: 0, basedOn: [], ...result.value, answers: [ANSWER.id], companyFacts: [COMPANY_FACT, TALENT_FACT], writtenAt: now.toISOString() };
     const tagged = draft.paragraphs.filter((p) => (p.company ?? []).includes(COMPANY_FACT.id));
     const withoutAnswer = tagged.filter((p) => !(p.answers ?? []).includes(ANSWER.id)).length;
     const strayForty = draft.paragraphs.filter((p) => !tagged.includes(p) && numbersIn(p.text).includes("40")).length;
     const text = answerText(draft);
     const claimed = ["늘렸", "기여했"].filter((word) => text.includes(word));
+    const selfClaim = text.match(TALENT_CLAIM)?.[0] ?? null;
     const check = checkDraft(draft, { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, version: 0 }, [], { answers: [ANSWER] });
     const factNums = new Set(factNumbers(COMPANY_FACT));
     const ungrounded = [...new Set(check.paragraphs.flatMap((p) => p.ungrounded))].filter((n) => !factNums.has(n));
@@ -240,6 +252,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       companyRow(companyChecks[2], "C1 문단에만", strayForty === 0 ? "C1 문단에만" : `C1이 없는 문단 ${strayForty}개`, strayForty === 0),
       companyRow(companyChecks[3], "없음", claimed.join(", ") || "없음", claimed.length === 0),
       companyRow(companyChecks[4], "없음", ungrounded.join(", ") || "없음", ungrounded.length === 0),
+      companyRow(companyChecks[5], "없음", selfClaim ?? "없음", selfClaim === null),
     ];
   };
 
