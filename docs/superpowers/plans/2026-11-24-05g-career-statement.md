@@ -12,7 +12,7 @@
 
 ## 정한 것 (설계가 빌더에게 맡긴 것)
 
-- **새 표** `applications_careers`(「제안」 사용자 승인 필요, 판단표 ③). 칸은 `applications_resumes`와 같다: `id`, `user_id`, `track_id`, `posting_id`(공통본은 null), `version`, `selection` jsonb(`CareerSelection`, 맞춤본만), `content` jsonb(`CareerContent`), `created_at`, `updated_at`. 유일 색인 `applications_careers_common_idx`(user_id, track_id) where posting_id is null, `applications_careers_tailored_idx`(posting_id) where posting_id is not null. 이력서 표에 서류 종류 칸을 더하지 않는 까닭: 내용의 모양(회사 → 항목)이 달라 한 jsonb 칸에 두 모양이 섞이고, 이미 도는 이력서 함수마다 종류 조건을 더해야 한다
+- **새 표** `applications_careers`(「결정」 2026-11-24 사용자 승인, 판단표 ③). 칸은 `applications_resumes`와 같다: `id`, `user_id`, `track_id`, `posting_id`(공통본은 null), `version`, `selection` jsonb(`CareerSelection`, 맞춤본만), `content` jsonb(`CareerContent`), `created_at`, `updated_at`. 유일 색인 `applications_careers_common_idx`(user_id, track_id) where posting_id is null, `applications_careers_tailored_idx`(posting_id) where posting_id is not null. 이력서 표에 서류 종류 칸을 더하지 않는 까닭: 내용의 모양(회사 → 항목)이 달라 한 jsonb 칸에 두 모양이 섞이고, 이미 도는 이력서 함수마다 종류 조건을 더해야 한다
 - **항목**: 경력(확인됨, 트랙에서 제외 아님)마다 회사 하나. 그 아래 항목은 ① 머리가 그 경력인 사례(업무), ② 소속이 그 경력인 확인된 프로젝트. 개인·학교·교육 과정 프로젝트와 활동은 넣지 않는다(설계: 프로젝트 기술서로 바꿔 쓰기는 하지 않음)
 - **확인 기준**(이력서와 같다): 사례는 확인됨이고 머리(경력)도 확인됨. 프로젝트는 확인됨이고 소속 경력도 확인됨. 프로젝트 항목에 묶는 사례는 확인됨이고 그 트랙에서 제외 아님. 범위는 경력과 항목 중 좁은 것(`narrowerScope`). 제외면 빠지고, 요약만이면 항목 분량이 요약이다
 - **항목의 재료**: 사례 항목은 그 사례의 칸(`sceneFields`와 같은 것: 상황·판단·한 일·결과·배운 점·수치·하지 않은 것·금지 표현(사례+경력)). 프로젝트 항목은 프로젝트 한 줄 요약과 그 아래 확인된 사례를 이력서의 프로젝트 원천처럼 이어 붙인 글(`[제목] 상황: … / 한 일: … / 결과: …`, 요약만이면 끝에 ` (요약만)`), 수치는 그 사례들의 수치, 금지 표현은 프로젝트+사례+경력
