@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CareerItemSource, CareerSource } from "@/modules/experiences/sources";
-import { buildCompany, buildItem, careerText, emphasizeItems, itemCount, moveItem, removeItem, replaceItemLines, upsertItems } from "./career-entries";
+import { buildCompany, buildItem, careerText, emphasizeItems, itemCount, moveItem, refreshCompany, removeItem, replaceItemLines, upsertItems } from "./career-entries";
 import type { CareerCompany, CareerContent, CareerItem } from "./types";
 
 const NOW = new Date("2026-11-24T00:00:00Z");
@@ -79,6 +79,29 @@ describe("buildCompany / buildItem", () => {
     expect(out.heading).toEqual({ name: "항목 p1", role: "백엔드", period: "2023.03 ~ 2023.08", tools: ["Go"] });
     expect(out.emphasized).toBe(true);
     expect(out.kind).toBe("project");
+  });
+});
+
+describe("buildItem 사례", () => {
+  it("사례 항목은 이름이 사례 제목이고 기술은 비어 있다", () => {
+    const out = buildItem(itemSource("s1", { itemKind: "scene", name: "장애 대응", role: "대리", tools: [] }), "full", false, { done: ["복구했다"], results: [] }, NOW);
+    expect(out.kind).toBe("scene");
+    expect(out.heading).toEqual({ name: "장애 대응", role: "대리", period: "2023.03 ~ 2023.08", tools: [] });
+  });
+});
+
+describe("refreshCompany", () => {
+  const sources = [companySource("j3"), companySource("j2"), companySource("j1")];
+  it("머리만 바꾸고 항목은 그대로", () => {
+    const base = content([company("j1", [item("a")])]);
+    const out = refreshCompany(base, { ...sources[2], company: "새 이름", contentVersion: 5 }, sources);
+    expect(out.companies[0].heading.company).toBe("새 이름");
+    expect(out.companies[0].contentVersion).toBe(5);
+    expect(ids(out)).toEqual([["j1", ["a"]]]);
+  });
+  it("없는 회사를 최근 순 자리에 빈 회사로 넣는다", () => {
+    const out = refreshCompany(content([company("j3"), company("j1")]), sources[1], sources);
+    expect(ids(out)).toEqual([["j3", []], ["j2", []], ["j1", []]]);
   });
 });
 

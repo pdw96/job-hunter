@@ -69,9 +69,12 @@ describe("checkCareer", () => {
     expect(out.companies[1].items[0].unavailable).toBe(true);
     expect(out.missing).toEqual([{ id: "p1", name: "항목 p1", companyId: "j2" }]);
   });
-  it("없는 회사는 missing에 회사로 들어간다", () => {
+  it("없는 회사는 missing에 회사와 그 항목이 함께 들어간다", () => {
     const out = checkCareer(content([]), [companySource("j1", [itemSource("p1")])], null);
-    expect(out.missing).toEqual([{ id: "j1", name: "j1사", companyId: "j1" }]);
+    expect(out.missing).toEqual([
+      { id: "j1", name: "j1사", companyId: "j1" },
+      { id: "p1", name: "항목 p1", companyId: "j1" },
+    ]);
   });
   it("다른 항목의 숫자는 이 항목의 근거가 아니다", () => {
     const sources = [

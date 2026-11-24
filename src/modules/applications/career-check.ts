@@ -12,7 +12,7 @@ export type CareerCompanyCheck = { unavailable: boolean; stale: boolean; items: 
 export type CareerCheck = { companies: CareerCompanyCheck[]; missing: { id: string; name: string; companyId: string }[]; commonChanged: boolean };
 
 const squash = (text: string) => text.replace(/\s+/g, "").toLowerCase();
-const gone: CareerItemCheck = { unavailable: true, empty: false, stale: false, scopeChanged: false, banned: [], ungrounded: [] };
+const gone = (): CareerItemCheck => ({ unavailable: true, empty: false, stale: false, scopeChanged: false, banned: [], ungrounded: [] });
 
 // currentCommonVersion이 null이면 공통본, 숫자면 맞춤본
 export function checkCareer(content: CareerContent, sources: CareerSource[], currentCommonVersion: number | null): CareerCheck {
@@ -21,14 +21,14 @@ export function checkCareer(content: CareerContent, sources: CareerSource[], cur
 
   const companies = content.companies.map((company): CareerCompanyCheck => {
     const source = byId.get(company.experienceId);
-    if (!source) return { unavailable: true, stale: false, items: company.items.map(() => gone) };
+    if (!source) return { unavailable: true, stale: false, items: company.items.map(gone) };
     const sourceItems = new Map(source.items.map((item) => [item.id, item]));
     return {
       unavailable: false,
       stale: company.contentVersion !== source.contentVersion,
       items: company.items.map((item): CareerItemCheck => {
         const current = sourceItems.get(item.experienceId);
-        if (!current) return gone;
+        if (!current) return gone();
         const texts = [...item.done, ...item.results];
         const squashed = squash(texts.map((line) => line.text).join("\n"));
         const banned = [...new Set(current.bannedPhrases)].filter((phrase) => squash(phrase) !== "" && squashed.includes(squash(phrase)));
@@ -52,9 +52,8 @@ export function checkCareer(content: CareerContent, sources: CareerSource[], cur
     const company = content.companies.find((candidate) => candidate.experienceId === source.id);
     if (!company) {
       missing.push({ id: source.id, name: source.company, companyId: source.id });
-      continue;
     }
-    const present = new Set(company.items.map((item) => item.experienceId));
+    const present = new Set((company?.items ?? []).map((item) => item.experienceId));
     for (const item of source.items) if (!present.has(item.id)) missing.push({ id: item.id, name: item.name, companyId: source.id });
   }
 

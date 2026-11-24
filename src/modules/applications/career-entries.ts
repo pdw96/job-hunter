@@ -87,7 +87,7 @@ export function upsertItems(content: CareerContent, sources: CareerSource[], ite
 }
 
 // 머리만 바꾸거나, 없는 회사는 빈 회사로 원천 순서 자리에 넣는다
-export function refreshCompany(content: CareerContent, source: CareerSource): CareerContent {
+export function refreshCompany(content: CareerContent, source: CareerSource, sources: CareerSource[]): CareerContent {
   const fresh = buildCompany(source);
   if (content.companies.some((company) => company.experienceId === source.id)) {
     return {
@@ -97,7 +97,7 @@ export function refreshCompany(content: CareerContent, source: CareerSource): Ca
       ),
     };
   }
-  return { ...content, companies: insertCompany(content.companies, fresh, [source]) };
+  return { ...content, companies: insertCompany(content.companies, fresh, sources) };
 }
 
 // 같은 회사 안에서만 옮긴다
