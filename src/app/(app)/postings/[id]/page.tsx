@@ -23,7 +23,7 @@ import { deadlineLabel } from "../deadline";
 import { PostingActions } from "../posting-actions";
 import { DocumentsSection } from "./documents-section";
 import { ResearchSection } from "./research-section";
-import { researchView } from "./research-view";
+import { kickFromApply, researchView } from "./research-view";
 import { ScoreSection } from "./score-section";
 import { SubmitPanel } from "./submit-panel";
 
@@ -64,6 +64,8 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
   const isApply = posting.status === "apply";
   // 회사 조사는 회사 단위다. 지원 공고에서는 늘 보이고, 아니면 같은 회사의 조사가 있을 때 읽기로만 보인다
   const showResearch = key !== "" && (isApply || research !== null);
+  const now = new Date();
+  const view = researchView(research, now);
 
   const facts: [string, string][] = [
     ["트랙", track?.name ?? ""],
@@ -132,8 +134,9 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
           postingId={posting.id}
           company={research?.company ?? posting.company}
           isApply={isApply}
-          view={researchView(research, new Date())}
+          view={view}
           runKey={research ? research.startedAt.toISOString() : "none"}
+          kickAt={kickFromApply({ isApply, state: view.state, appliedAt: posting.appliedScore?.appliedAt ?? null }, now)}
           lastDate={research?.researchedAt ? koreaDate(research.researchedAt) : null}
           talent={research?.talent ? { ...research.talent, host: hostOf(research.talent.url) } : null}
           talentSkipped={research?.talentSkipped ?? false}

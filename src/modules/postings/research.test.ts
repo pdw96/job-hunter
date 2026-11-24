@@ -5,6 +5,7 @@ import {
   factNumbers,
   homepageDomain,
   hostOf,
+  isWebUrl,
   researchState,
   wantsTalent,
   type NewsItem,
@@ -68,6 +69,29 @@ test("cleanResearch: 검색 결과에 없는 주소는 버린다", () => {
     opts,
   );
   expect(r.news).toEqual([]);
+});
+
+test("cleanResearch: http(s)가 아닌 주소는 검색 결과에 있어도 버린다", () => {
+  const bad = "javascript:alert(1)";
+  const sources = [src(bad), src("data:text/html,x"), src("https://gana.com/news")];
+  const raw = {
+    talent: { text: "도전", url: bad },
+    news: [
+      { summary: "가", date: null, url: "data:text/html,x" },
+      { summary: "나", date: null, url: "https://gana.com/news" },
+    ],
+  };
+  const result = cleanResearch(raw, sources, { wantTalent: true, domain: null, today });
+  expect(result.talent).toBeNull();
+  expect(result.news.map((n) => n.url)).toEqual(["https://gana.com/news"]);
+});
+
+test("isWebUrl: http·https로 시작하는 주소만 true", () => {
+  expect(isWebUrl("https://gana.com")).toBe(true);
+  expect(isWebUrl("HTTP://gana.com")).toBe(true);
+  expect(isWebUrl("javascript:alert(1)")).toBe(false);
+  expect(isWebUrl(" https://gana.com")).toBe(false);
+  expect(isWebUrl("gana.com")).toBe(false);
 });
 
 test("cleanResearch: 끝의 /와 해시가 달라도 같은 주소로 본다", () => {

@@ -46,3 +46,22 @@ export function researchView(r: Research | null, now: Date): ResearchView {
     }
   }
 }
+
+// 조사를 맡긴 직후(지원·다시 조사) 조사 줄이 잡힐 때까지 기다리는 시간. 그동안 자주 다시 그린다
+export const KICK_LIMIT_MS = 20_000;
+export type Kick = { at: number; runKey: string };
+
+// 지원 직후에 그린 화면인가: 지원 공고이고, 조사 줄이 아직 없고, 지원한 지 KICK_LIMIT_MS 안이다.
+// 이 기능 전에 지원했거나 오래전에 지원한 공고는 기다리지 않고 '조사하기'를 보인다. 기다리기 시작한 때(ms)를 돌려준다
+export function kickFromApply(p: { isApply: boolean; state: ResearchViewState; appliedAt: string | null }, now: Date): number | null {
+  if (!p.isApply || p.state !== "none" || !p.appliedAt) return null;
+  const at = Date.parse(p.appliedAt);
+  if (Number.isNaN(at)) return null;
+  const age = now.getTime() - at;
+  return age >= 0 && age < KICK_LIMIT_MS ? at : null;
+}
+
+// 아직 기다리는 중인가: 맡긴 뒤 새 조사가 잡히지 않았고(runKey 그대로, 조사 중 아님) KICK_LIMIT_MS가 지나지 않았다
+export function waitingForStart(kick: Kick | null, runKey: string, state: ResearchViewState, now: number): boolean {
+  return kick !== null && kick.runKey === runKey && state !== "running" && now - kick.at < KICK_LIMIT_MS;
+}

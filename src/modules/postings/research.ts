@@ -24,6 +24,9 @@ export const hostOf = (url: string): string => {
   }
 };
 
+// 화면이 링크로 이어도 되는 주소(http·https)인가. 그 밖의 주소(javascript: 등)는 조사 결과에 남기지 않는다
+export const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url);
+
 // 채용 공고에 흔히 나오지만 회사 홈페이지는 아닌 사이트. 도메인과 그 하위 도메인
 const JOB_SITES = [
   "saramin.co.kr",
@@ -104,7 +107,7 @@ export function cleanResearch(
     const text = cut(raw.talent.text, RESEARCH_LIMITS.talent);
     const title = titles.get(normUrl(raw.talent.url));
     const host = hostOf(raw.talent.url);
-    if (text && title !== undefined && (!opts.domain || onDomain(host, opts.domain))) {
+    if (text && title !== undefined && isWebUrl(raw.talent.url) && (!opts.domain || onDomain(host, opts.domain))) {
       talent = { id: randomUUID(), text, url: raw.talent.url, title, verdict: null };
     }
   }
@@ -116,7 +119,7 @@ export function cleanResearch(
     const summary = cut(item.summary, RESEARCH_LIMITS.summary);
     const key = normUrl(item.url);
     const title = titles.get(key);
-    if (!summary || title === undefined || seenUrl.has(key) || seenSummary.has(summary)) continue;
+    if (!summary || title === undefined || !isWebUrl(item.url) || seenUrl.has(key) || seenSummary.has(summary)) continue;
     seenUrl.add(key);
     seenSummary.add(summary);
     news.push({

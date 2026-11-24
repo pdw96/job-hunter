@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Research } from "@/modules/postings/research-repo";
-import { researchView } from "./research-view";
+import { KICK_LIMIT_MS, kickFromApply, researchView, waitingForStart } from "./research-view";
 
 const NOW = new Date("2026-11-24T03:00:00Z");
 const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000);
@@ -81,4 +81,26 @@ test("조사 전이면 다시 조사 단추가 '조사하기'", () => {
     rerunLabel: "조사하기",
     editable: false,
   });
+});
+
+test("지원한 지 20초 안이고 조사 줄이 없을 때만 조사 시작을 기다린다", () => {
+  const justNow = new Date(NOW.getTime() - 3_000).toISOString();
+  expect(kickFromApply({ isApply: true, state: "none", appliedAt: justNow }, NOW)).toBe(NOW.getTime() - 3_000);
+  // 예전에 지원한 공고(이 기능 전에 지원했거나 오래전에 지원)는 기다리지 않고 '조사하기'를 보인다
+  const old = new Date(NOW.getTime() - KICK_LIMIT_MS - 1).toISOString();
+  expect(kickFromApply({ isApply: true, state: "none", appliedAt: old }, NOW)).toBeNull();
+  expect(kickFromApply({ isApply: true, state: "none", appliedAt: null }, NOW)).toBeNull();
+  expect(kickFromApply({ isApply: true, state: "done", appliedAt: justNow }, NOW)).toBeNull();
+  expect(kickFromApply({ isApply: false, state: "none", appliedAt: justNow }, NOW)).toBeNull();
+});
+
+test("기다림은 새 조사가 잡히거나 20초가 지나면 끝난다", () => {
+  const at = NOW.getTime();
+  const kick = { at, runKey: "none" };
+  expect(waitingForStart(kick, "none", "none", at + 1_000)).toBe(true);
+  expect(waitingForStart(kick, "none", "none", at + KICK_LIMIT_MS)).toBe(false);
+  // 새 조사가 잡혀 시작 시각이 바뀌었으면 조사 중 화면이 맡는다
+  expect(waitingForStart(kick, "2026-11-24T03:00:01.000Z", "running", at + 1_000)).toBe(false);
+  expect(waitingForStart({ at, runKey: "2026-11-24T02:00:00.000Z" }, "2026-11-24T02:00:00.000Z", "done", at + 1_000)).toBe(true);
+  expect(waitingForStart(null, "none", "none", at)).toBe(false);
 });
