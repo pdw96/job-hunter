@@ -214,3 +214,17 @@ test("회사 조사 흉내는 출처 두 개와 그 주소를 쓴 인재상·소
   expect(result.value.news).toEqual([expect.objectContaining({ url: "https://news.example.com/a1", date: "2026-11-24" })]);
   expect(result.value.dropped).toBe(0);
 }, DB_TEST_TIMEOUT);
+
+test("회사 조사 흉내는 [홈페이지]가 있으면 그 도메인의 인재상 주소를 출처와 함께 돌려준다", async () => {
+  const { createTestDb } = await import("@/db/test-db");
+  const { user } = await import("@/modules/auth/schema");
+  const { researchText } = await import("@/modules/postings/research-run");
+  const db = await createTestDb();
+  await db.insert(user).values({ id: "u1", name: "A", email: "u1@example.com" });
+  const result = await researchText(db, ai, "u1", { company: "가나다", title: "백엔드", domain: "gana.co.kr", wantTalent: true, today: "2026-11-24" });
+  if (!result.ok) throw new Error(result.reason);
+  // 인재상은 홈페이지 도메인 밖이면 버려지므로, 흉내도 그 도메인의 주소를 써야 화면에 인재상이 보인다
+  expect(result.value.talent).toMatchObject({ url: "https://www.gana.co.kr/careers", title: "인재상 | 가나다" });
+  expect(result.value.news).toEqual([expect.objectContaining({ url: "https://news.example.com/a1" })]);
+  expect(result.value.dropped).toBe(0);
+}, DB_TEST_TIMEOUT);

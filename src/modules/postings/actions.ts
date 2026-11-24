@@ -16,6 +16,7 @@ import { type PostingErrors, validatePosting } from "./input";
 import { POSTING_LIMITS } from "./options";
 import { transcribePosting, validateTiles } from "./read-image";
 import { createPosting, deletePosting, findSimilar, setExcludeOverride, setStatus, updatePosting } from "./repo";
+import { scheduleResearch } from "./research-schedule";
 import { todayInKorea } from "./today";
 
 // 모든 액션은 requireUser()로 얻은 userId만 쓴다. 저장 뒤에는 브라우저가 기억한 예전 화면을 버리게 한다.
@@ -168,6 +169,8 @@ export async function applyToPostingAction(id: string): Promise<SimpleResult> {
   }
   // 문항 채우기가 안 돼도 지원은 성공이다(공고 화면에서 다시 읽기로 채울 수 있다)
   await seedQuestionsFromPosting(db, user.id, id).catch(() => undefined);
+  // 회사 조사는 그 회사의 조사 줄이 아예 없을 때만 응답 뒤에 돌린다(실패했거나 오래된 조사는 자동으로 다시 돌리지 않는다)
+  scheduleResearch(user.id, id, { onlyIfMissing: true });
   refresh(id);
   return { ok: true };
 }
