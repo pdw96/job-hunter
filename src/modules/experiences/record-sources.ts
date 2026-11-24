@@ -385,14 +385,21 @@ export async function listRecordCareerSources(db: Db, userId: string, trackId: s
     const v = fact.value;
     const items: { item: CareerItemSource; start: string | null; createdAt: Date }[] = [];
 
+    // 항목의 버전은 항목 자신과, 경력 칸 중 그 항목이 보이거나 AI에 보내는 것만으로 만든다(sceneFields·headsOf의 버전과 다르다).
+    // 담당 업무처럼 회사 머리에만 쓰는 칸을 고쳐도 항목이 "다시 써야 함"이 되지 않게 한다. 회사 머리는 경력의 contentVersion을 쓴다
+    // 사례 항목: 소속(회사 · 부서)과 역할(직급), 사례 기간이 비어 경력 기간을 빌려 쓰면 그 기간
+    // 프로젝트 항목: 소속(회사 이름)
+
     // 경력 바로 아래 장면(이미 확인됨·장면 범위 제외 아님으로 걸렀다)
     for (const { row, scope: sceneScope } of scenesByHead.get(fact.id) ?? []) {
       const scope = narrowerScope(jobScope, sceneScope);
       if (scope === "exclude") continue;
       const fields = sceneFields(row, head);
+      const borrowedPeriod = row.startMonth === null ? [v.startMonth ?? "", v.endMonth ?? "", v.isOngoing ? 1 : 0] : [];
       items.push({
         item: {
           ...fields,
+          contentVersion: versionHash([row.id, row.contentVersion, fact.id, v.company, v.department ?? "", v.title ?? "", ...borrowedPeriod]),
           itemKind: "scene",
           bannedPhrases: unique([...row.bannedPhrases, ...head.bannedPhrases]),
           metrics: sceneMetrics(row),
@@ -404,7 +411,7 @@ export async function listRecordCareerSources(db: Db, userId: string, trackId: s
       });
     }
 
-    // 소속이 이 경력인 프로젝트. 경력이 확인됐으므로 headsOf가 소속 (id, 버전, 확인)을 versionParts에 넣었다
+    // 소속이 이 경력인 프로젝트(소속 경력은 위에서 확인됨으로 걸렀다)
     for (const project of projectsByJob.get(fact.id) ?? []) {
       const scope = narrowerScope(jobScope, scopeIn(project.trackScopes, trackId));
       const projectHead = heads.get(project.id);
@@ -426,7 +433,7 @@ export async function listRecordCareerSources(db: Db, userId: string, trackId: s
           result: null,
           notDone: bundle.notDone,
           bannedPhrases: unique([...projectHead.bannedPhrases, ...bundle.bannedPhrases, ...head.bannedPhrases]),
-          contentVersion: versionHash([...projectHead.versionParts, ...bundle.versionParts]),
+          contentVersion: versionHash([project.id, project.contentVersion, fact.id, v.company, ...bundle.versionParts]),
           metrics: bundle.metrics,
           tools: project.value.tools,
           scope,
