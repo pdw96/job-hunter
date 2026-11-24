@@ -88,3 +88,12 @@ export const RESUME_SECTIONS: { kind: Kind; label: string }[] = [
   { kind: "other", label: "기타" },
   { kind: "gap", label: "공백기" },
 ];
+
+// 경력기술서의 한도. 줄 수·글자 수·강조 수는 RESUME_LIMITS를 쓴다
+export const CAREER_LIMITS = {
+  items: 30, // 공통본에 넣는 항목
+  fullDone: 4, // 자세히 항목의 한 일 줄 수
+  summaryDone: 2, // 요약 항목의 한 일 줄 수
+  fullResults: 3, // 자세히 항목의 성과 줄 수
+  summaryResults: 1, // 요약 항목의 성과 줄 수
+} as const;

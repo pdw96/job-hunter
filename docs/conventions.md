@@ -18,7 +18,7 @@
 | `tracks` | 트랙, 설문 규칙, 희망 조건과 채점 배점 | `tracks_tracks`, `tracks_jobs` |
 | `experiences` | 경험 기록: 이력 사실(학력·교육 과정·경력·공백·자격·프로젝트·활동)과 사례(장면), 사례의 검증 규칙(루브릭과 검증 상태), 트랙별 사용 범위, AI 판정, 사례 인터뷰, 가져오기와 주장별 확인, 옛 기록을 새 구조로 옮기기, 자소서·이력서·채점·제출에 주는 원천(`sources.ts`). 옛 기록 표는 옮기기가 읽기만 한다(5-4부터 쓰지 않음) | 이력 사실 `experiences_education`, `experiences_courses`, `experiences_jobs`, `experiences_gaps`, `experiences_credentials`, `experiences_projects`, `experiences_activities` / 사례 `experiences_scenes` / 주장 `experiences_record_claims` / 옮기기 `experiences_moves` / 사례 인터뷰 `experiences_interviews` / 옛 기록(읽기만) `experiences_experiences`, `experiences_track_scopes`, `experiences_claims` |
 | `postings` | 채용 공고, 공고에서 값 뽑기(붙여 넣기·주소·그림), 제외 조건, 요구 사항과 점수, 회사 조사(인재상·소식, 사용자·회사 단위) | `postings_postings`, `postings_research` |
-| `applications` | 자기소개서 문항, 고른 경험, 쓴 답, 지원자의 답(묻기), 이력서 공통본·맞춤본, 제출본 | `applications_questions`, `applications_answers`, `applications_resumes`, `applications_submissions` |
+| `applications` | 자기소개서 문항, 고른 경험, 쓴 답, 지원자의 답(묻기), 이력서·경력기술서 공통본·맞춤본, 제출본 | `applications_questions`, `applications_answers`, `applications_resumes`, `applications_careers`, `applications_submissions` |
 | `ai` | Claude API 호출, 사용량 기록과 월 한도, 보내기 전 연락처 가리기 | `ai_usage` |
 
 ## AI 사용 규칙

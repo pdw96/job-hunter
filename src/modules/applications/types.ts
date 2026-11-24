@@ -52,6 +52,24 @@ export type ResumeContent = { entries: ResumeEntry[]; commonVersion: number | nu
 export type EmphasisPick = SourceRef & { why: string };
 export type ResumeSelection = { picks: EmphasisPick[]; noMatch: boolean; selectedAt: string };
 
+// 경력기술서. 회사(경력) 아래에 항목(사례·프로젝트)이 있다
+export type CareerItemHeading = { name: string; role: string | null; period: string; tools: string[] };
+// experienceId: 사례 id 또는 프로젝트 id
+export type CareerItem = SourceRef & {
+  kind: "scene" | "project";
+  heading: CareerItemHeading;
+  detail: ResumeDetail;
+  emphasized: boolean;
+  done: ResumeLine[];
+  results: ResumeLine[];
+  writtenAt: string;
+};
+export type CareerCompanyHeading = { company: string; department: string | null; title: string | null; period: string; duties: string[] };
+// experienceId: 경력 id
+export type CareerCompany = SourceRef & { heading: CareerCompanyHeading; items: CareerItem[] };
+export type CareerContent = { companies: CareerCompany[]; commonVersion: number | null }; // 맞춤본을 만들 때의 공통본 version. 공통본은 null
+export type CareerSelection = ResumeSelection; // picks의 experienceId는 항목 id
+
 // 제출본. 제출하는 순간의 공고, 이력서, 답을 통째로 얼린 복사본이다
 export type SubmittedPosting = { company: string; title: string; url: string | null; deadline: string | null; isRolling: boolean; rawText: string; companyNote: string | null };
 export type SubmittedParagraph = { text: string; sources: { experienceId: string; name: string }[]; edited: boolean };
