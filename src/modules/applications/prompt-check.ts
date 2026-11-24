@@ -5,6 +5,7 @@ import type { MotiveHook } from "@/modules/experiences/motive-hooks";
 import type { CheckRow } from "@/modules/experiences/prompt-check";
 import type { WritingSource } from "@/modules/experiences/writing";
 import { FULL_POSTING } from "@/modules/postings/prompt-check";
+import { type CompanyFact, factNumbers } from "@/modules/postings/research";
 import type { Answer } from "./answers-repo";
 import { ANSWER_TOPIC_LABELS, QUESTION_KIND_LABELS } from "./options";
 import { cut } from "./text";
@@ -15,7 +16,8 @@ import type { Draft } from "./types";
 import { writeText } from "./write";
 
 // 준비한 자소서 문항 예시를 실제 AI에 돌려, 맞는 경험을 고르고 기록에 없는 것을 쓰지 않는지,
-// 답만으로 쓸 때 답을 근거로 삼고 경력을 지어내지 않는지, 묻기가 기록과 맞는 연결고리로 묻는지 본다(관리자 전용, 호출 4번)
+// 답만으로 쓸 때 답을 근거로 삼고 경력을 지어내지 않는지, 묻기가 기록과 맞는 연결고리로 묻는지,
+// 회사 정보를 답과 이어진 회사 이야기로만 쓰는지 본다(관리자 전용, 호출 5번)
 
 const SAMPLE = "자소서 고르기·쓰기";
 const PROMPT = "지원 동기와 직무 역량을 경험을 들어 적어 주세요 (500자 이내)";
@@ -71,6 +73,27 @@ const ANSWER: Answer = {
   companyKey: "가나다테크",
   createdAt: new Date(0),
 };
+
+// 회사 정보 예시: 지원자가 체크한 회사 소식 하나(쓰기·묻기)와 맞다고 한 인재상 하나(쓰기). 답으로 쓰기 예시에 더해 쓴다
+const COMPANY_SAMPLE = "자소서 회사 정보로 쓰기";
+const COMPANY_FACT: CompanyFact = {
+  id: "sample-fact-pay",
+  kind: "news",
+  text: "3분기 간편결제 거래액이 전년보다 40% 늘었다",
+  url: "https://news.example.com/pay",
+  title: "가나다테크 3분기 실적",
+  date: null,
+};
+const TALENT_FACT: CompanyFact = {
+  id: "sample-fact-talent",
+  kind: "talent",
+  text: "끝까지 책임지는 사람",
+  url: "https://www.ganada-tech.example/careers",
+  title: "가나다테크 인재상",
+  date: null,
+};
+// 인재상을 지원자가 이미 그런 사람이라고 쓴 말("책임지는 사람입니다", "책임감이 강합니다" 등)
+const TALENT_CLAIM = /책임(?:지는|감\s*있는|감이\s*강한)\s*사람입니다|책임감이\s*(?:강|있)습니다/;
 
 // 묻기 예시: 공고(Java·Kotlin 백엔드)와 이어지는 교육과, 이어지지 않는 바리스타 사례
 const ASK_SAMPLE = "자소서 묻기";
@@ -144,7 +167,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       db,
       ai,
       userId,
-      { prompt: PROMPT, charLimit: CHAR_LIMIT, countSpaces: true, postingText, sources: [KOTLIN], kinds: ["experience"], answers: [], unanswered: [] },
+      { prompt: PROMPT, charLimit: CHAR_LIMIT, countSpaces: true, postingText, sources: [KOTLIN], kinds: ["experience"], answers: [], unanswered: [], companyFacts: [] },
       now,
     );
     if (!result.ok) return failed(writeChecks, result.reason);
@@ -175,7 +198,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       db,
       ai,
       userId,
-      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER], unanswered: [] },
+      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER], unanswered: [], companyFacts: [] },
       now,
     );
     if (!result.ok) return answerChecks.map((check) => answerRow(check, "AI 호출 성공", `실패: ${result.reason}`, false));
@@ -194,6 +217,45 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     ];
   };
 
+  const companyChecks = [
+    "C1을 단 문단이 있다",
+    "그 문단에 A1도 있다",
+    "40%는 C1을 단 문단에만 있다",
+    "지원자가 거래액을 늘린 것처럼 쓰지 않는다",
+    "기록에 없는 숫자가 없다(회사 정보 숫자 허용)",
+    "인재상을 지원자의 자질로 쓰지 않는다",
+  ];
+  // 답으로 쓰기 예시에 회사 소식(C1)과 인재상(C2)을 더해 쓴다. 회사 정보는 답과 이어진 문단에서 회사 이야기로만 써야 한다
+  const companyWrite = async (): Promise<CheckRow[]> => {
+    const companyRow = (check: string, expected: string, actual: string, pass: boolean): CheckRow => ({ sample: COMPANY_SAMPLE, check, expected, actual, pass });
+    const result = await writeText(
+      db,
+      ai,
+      userId,
+      { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, postingText, sources: [], kinds: ["motive"], answers: [ANSWER], unanswered: [], companyFacts: [COMPANY_FACT, TALENT_FACT] },
+      now,
+    );
+    if (!result.ok) return companyChecks.map((check) => companyRow(check, "AI 호출 성공", `실패: ${result.reason}`, false));
+    const draft: Draft = { questionVersion: 0, basedOn: [], ...result.value, answers: [ANSWER.id], companyFacts: [COMPANY_FACT, TALENT_FACT], writtenAt: now.toISOString() };
+    const tagged = draft.paragraphs.filter((p) => (p.company ?? []).includes(COMPANY_FACT.id));
+    const withoutAnswer = tagged.filter((p) => !(p.answers ?? []).includes(ANSWER.id)).length;
+    const strayForty = draft.paragraphs.filter((p) => !tagged.includes(p) && numbersIn(p.text).includes("40")).length;
+    const text = answerText(draft);
+    const claimed = ["늘렸", "기여했"].filter((word) => text.includes(word));
+    const selfClaim = text.match(TALENT_CLAIM)?.[0] ?? null;
+    const check = checkDraft(draft, { prompt: ANSWER_PROMPT, charLimit: ANSWER_LIMIT, countSpaces: true, version: 0 }, [], { answers: [ANSWER] });
+    const factNums = new Set(factNumbers(COMPANY_FACT));
+    const ungrounded = [...new Set(check.paragraphs.flatMap((p) => p.ungrounded))].filter((n) => !factNums.has(n));
+    return [
+      companyRow(companyChecks[0], "있음", tagged.length > 0 ? `${tagged.length}개` : "없음", tagged.length > 0),
+      companyRow(companyChecks[1], "모두 A1 있음", tagged.length === 0 ? "C1을 단 문단 없음" : withoutAnswer === 0 ? "모두 A1 있음" : `A1이 없는 문단 ${withoutAnswer}개`, tagged.length > 0 && withoutAnswer === 0),
+      companyRow(companyChecks[2], "C1 문단에만", strayForty === 0 ? "C1 문단에만" : `C1이 없는 문단 ${strayForty}개`, strayForty === 0),
+      companyRow(companyChecks[3], "없음", claimed.join(", ") || "없음", claimed.length === 0),
+      companyRow(companyChecks[4], "없음", ungrounded.join(", ") || "없음", ungrounded.length === 0),
+      companyRow(companyChecks[5], "없음", selfClaim ?? "없음", selfClaim === null),
+    ];
+  };
+
   const askChecks = [
     "질문 2~3개",
     "질문마다 선택지 3~5개",
@@ -201,6 +263,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     "연결고리에 Kotlin 교육이 나온다",
     "바리스타를 연결고리로 쓰지 않는다",
     "선택지에 공고·기록에 없는 숫자가 없다",
+    "연결고리 중 하나에 간편결제가 나온다",
   ];
   // 코드가 다듬기 전의 AI 답으로 지시를 따랐는지 본다
   const ask = async (): Promise<CheckRow[]> => {
@@ -210,7 +273,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       db,
       ai,
       userId,
-      { prompt: ASK_PROMPT, company: "(주)가나다테크", title: "백엔드 개발자", postingText, topics: ["motive"], hooks: ASK_HOOKS },
+      { prompt: ASK_PROMPT, company: "(주)가나다테크", title: "백엔드 개발자", postingText, topics: ["motive"], hooks: ASK_HOOKS, companyFacts: [COMPANY_FACT] },
       now,
       { onRaw: (value) => (raw = value) },
     );
@@ -220,7 +283,7 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
     const topics = items.map((x) => x.topic);
     const links = items.map((x) => x.link).filter((link) => link.trim() !== "");
     const cafe = links.filter((link) => ["바리스타", "카페"].some((word) => link.includes(word)));
-    const known = new Set([ASK_PROMPT, postingText, ...ASK_HOOKS.map((h) => h.detail)].flatMap(numbersIn));
+    const known = new Set([...[ASK_PROMPT, postingText, ...ASK_HOOKS.map((h) => h.detail)].flatMap(numbersIn), ...factNumbers(COMPANY_FACT)]);
     const invented = [...new Set(items.flatMap((x) => x.options.flatMap(numbersIn)).filter((n) => !known.has(n)))];
     return [
       askRow(askChecks[0], "2~3개", `${items.length}개`, items.length >= 2 && items.length <= 3),
@@ -229,8 +292,9 @@ export async function runApplicationCheck(db: Db, ai: AiClient, userId: string, 
       askRow(askChecks[3], "Kotlin", links.join(" / ") || "없음", links.some((link) => link.includes("Kotlin"))),
       askRow(askChecks[4], "없음", cafe.join(" / ") || "없음", cafe.length === 0),
       askRow(askChecks[5], "없음", invented.join(", ") || "없음", invented.length === 0),
+      askRow(askChecks[6], "간편결제", links.join(" / ") || "없음", links.some((link) => link.includes("간편결제"))),
     ];
   };
 
-  return (await Promise.all([select(), write(), answerWrite(), ask()])).flat();
+  return (await Promise.all([select(), write(), answerWrite(), ask(), companyWrite()])).flat();
 }

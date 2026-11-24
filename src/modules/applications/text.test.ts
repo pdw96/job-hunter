@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { aliasKey, answerAlias, resolveAlias } from "./text";
+import { aliasKey, answerAlias, companyAlias, describeCompanyFact, resolveAlias } from "./text";
 
 test.each([
   ["E1", "E1"],
@@ -56,4 +56,25 @@ test.each([
 
 test.each(["", "A", "E1", "AE1", "A1a", "답 A1", "Plan A1"])("answerAlias(%j)는 null", (raw) => {
   expect(answerAlias(raw)).toBeNull();
+});
+
+test.each([
+  ["C1", 1],
+  [" c2 ", 2],
+  ["[C3]", 3],
+  ["C1 (인재상)", 1],
+  ["C12:", 12],
+])("companyAlias(%j) = %j", (raw, expected) => {
+  expect(companyAlias(raw)).toBe(expected);
+});
+
+test.each(["", "C", "C0", "E1", "A1", "AC1", "C1a", "회사 C1"])("companyAlias(%j)는 null", (raw) => {
+  expect(companyAlias(raw)).toBeNull();
+});
+
+test("describeCompanyFact: 인재상과 소식을 출처 호스트와 함께 한 줄로 적는다", () => {
+  const base = { id: "f", url: "https://www.ganada.example/careers", title: "제목" };
+  expect(describeCompanyFact({ ...base, kind: "talent", text: "끝까지 책임지는 사람", date: null })).toBe("인재상: 끝까지 책임지는 사람 (출처: ganada.example)");
+  expect(describeCompanyFact({ ...base, kind: "news", text: "새 센터를 연다", date: "2026-10-15" })).toBe("소식(2026-10-15): 새 센터를 연다 (출처: ganada.example)");
+  expect(describeCompanyFact({ ...base, kind: "news", text: "새 센터를 연다", date: null })).toBe("소식(날짜 모름): 새 센터를 연다 (출처: ganada.example)");
 });

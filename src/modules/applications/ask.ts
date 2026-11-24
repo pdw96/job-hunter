@@ -5,6 +5,7 @@ import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listMotiveHooks, type MotiveHook } from "@/modules/experiences/motive-hooks";
 import { companyKey } from "@/modules/postings/company";
 import { getPosting } from "@/modules/postings/repo";
+import type { CompanyFact } from "@/modules/postings/research";
 import { koreaDate } from "@/modules/postings/today";
 import { type Answer, createAnswer, listAnswersByIds, listReusable, reusableFor } from "./answers-repo";
 import { ANSWER_TOPIC_LABELS, ANSWER_TOPICS, type AnswerTopic, APPLICATION_LIMITS, COMPANY_TOPICS } from "./options";
@@ -12,11 +13,13 @@ import { ASK_SYSTEM } from "./prompts";
 import { attachAnswerIn, getQuestion, guardedWrite, replaceAsksIn, saveAsks } from "./repo";
 import { postingTextOf } from "./select";
 import { editBlock } from "./submission-repo";
-import { cut } from "./text";
+import { cut, describeCompanyFact } from "./text";
 import type { AskItem, Asks, PreviousAnswer } from "./types";
+import { usableCompanyFacts } from "./write";
 
 // 묻기: 동기·포부·성장과정처럼 기록에 없는 재료를, 쓰기 전에 고를 수 있는 질문으로 묻고 고른 답을 저장한다.
-// 질문을 만들 때 AI는 공고와 확인된 기록(질문 거리로만)을 맞대 연결고리를 찾는다. 지난 답은 같은 주제 질문의 선택지 끝에 붙인다.
+// 질문을 만들 때 AI는 공고와 확인된 기록(질문 거리로만)을 맞대 연결고리를 찾는다. 지원동기·입사 후 포부를 물을 때는
+// 지원자가 확인한 회사 정보도 연결고리 거리로 보낸다. 지난 답은 같은 주제 질문의 선택지 끝에 붙인다.
 // 저장하는 답 글은 서버가 저장해 둔 질문의 선택지에서만 만든다(화면이 보낸 글을 쓰지 않는다)
 
 const askSchema = z.object({
@@ -37,7 +40,16 @@ const picksSchema = z
   )
   .max(APPLICATION_LIMITS.asks + ANSWER_TOPICS.length); // AI 질문 3개 + 주제마다 지난 답만 담은 질문
 
-export type AskInput = { prompt: string; company: string; title: string; postingText: string; topics: AnswerTopic[]; hooks: MotiveHook[] };
+// companyFacts: 지원자가 확인한 회사 정보. 지원동기·입사 후 포부를 묻지 않으면 빈 배열
+export type AskInput = {
+  prompt: string;
+  company: string;
+  title: string;
+  postingText: string;
+  topics: AnswerTopic[];
+  hooks: MotiveHook[];
+  companyFacts: CompanyFact[];
+};
 
 const MAX_LINK = 200;
 const PREVIOUS_ONLY = "지난번 답을 다시 쓸까요?";
@@ -62,6 +74,7 @@ function buildMessage(input: AskInput): string {
     ["지원 직무", input.title],
     ["공고", input.postingText],
     ["내 기록", input.hooks.length > 0 ? input.hooks.map(describeHook).join("\n") : "없음"],
+    ["회사 정보", input.companyFacts.length > 0 ? input.companyFacts.map((f) => `- ${describeCompanyFact(f)}`).join("\n") : "없음"],
   ];
   return sections.map(([label, value]) => `[${label}]\n${value}`).join("\n\n");
 }
@@ -143,15 +156,26 @@ export async function makeAsks(
   if (wanted.length === 0) return { ok: false, reason: "not_needed" };
 
   const key = companyKey(posting.company);
-  const [hooks, reusable] = await Promise.all([
+  // 회사 정보는 지원동기·입사 후 포부를 물을 때만 보낸다
+  const wantsCompany = wanted.some((t) => COMPANY_TOPICS.includes(t));
+  const [hooks, reusable, companyFacts] = await Promise.all([
     listMotiveHooks(db, userId, posting.trackId),
     listReusable(db, userId, wanted, key, question.answerIds, APPLICATION_LIMITS.askPrevious),
+    wantsCompany ? usableCompanyFacts(db, userId, posting.company) : Promise.resolve([]),
   ]);
   const made = await askText(
     db,
     ai,
     userId,
-    { prompt: question.prompt, company: posting.company, title: posting.title, postingText: postingTextOf(posting), topics: wanted, hooks },
+    {
+      prompt: question.prompt,
+      company: posting.company,
+      title: posting.title,
+      postingText: postingTextOf(posting),
+      topics: wanted,
+      hooks,
+      companyFacts,
+    },
     now,
     { keep: [...reusable.keys()] },
   );

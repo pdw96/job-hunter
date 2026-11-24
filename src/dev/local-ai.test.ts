@@ -191,15 +191,19 @@ test("쓰기 흉내는 [내 답]이 있으면 A1을 근거로 한 첫 문단을 
     companyKey: "가나다",
     createdAt: new Date(),
   };
-  const base = { prompt: "지원 동기", charLimit: 300, countSpaces: true, postingText: "공고" };
+  const base = { prompt: "지원 동기", charLimit: 300, countSpaces: true, postingText: "공고", companyFacts: [] };
   const onlyAnswer = await writeText(db, ai, "u1", { ...base, sources: [], kinds: ["motive"], answers: [answer], unanswered: [] });
-  expect(onlyAnswer.ok && onlyAnswer.value.paragraphs).toEqual([{ text: answer.answer, sources: [], answers: ["a1"], edited: false }]);
+  expect(onlyAnswer.ok && onlyAnswer.value.paragraphs).toEqual([{ text: answer.answer, sources: [], answers: ["a1"], company: [], edited: false }]);
   const both = await writeText(db, ai, "u1", { ...base, sources: [SAMPLE_SOURCES[0]], kinds: ["experience", "motive"], answers: [answer], unanswered: [] });
   expect(both.ok && both.value.paragraphs.map((p) => [p.sources, p.answers])).toEqual([
     [[], ["a1"]],
     [[SAMPLE_SOURCES[0].id], []],
     [[SAMPLE_SOURCES[0].id], []],
   ]);
+  // 회사 정보가 있으면 첫 문단에 C1을 단다
+  const fact = { id: "f1", kind: "news" as const, text: "간편결제 거래액이 늘었다", url: "https://news.example.com/a", title: "기사", date: null };
+  const withFact = await writeText(db, ai, "u1", { ...base, sources: [SAMPLE_SOURCES[0]], kinds: ["experience", "motive"], answers: [answer], unanswered: [], companyFacts: [fact] });
+  expect(withFact.ok && withFact.value.paragraphs.map((p) => p.company)).toEqual([["f1"], [], []]);
 }, DB_TEST_TIMEOUT);
 
 test("회사 조사 흉내는 출처 두 개와 그 주소를 쓴 인재상·소식 하나를 돌려준다", async () => {
@@ -228,3 +232,22 @@ test("회사 조사 흉내는 [홈페이지]가 있으면 그 도메인의 인�
   expect(result.value.news).toEqual([expect.objectContaining({ url: "https://news.example.com/a1" })]);
   expect(result.value.dropped).toBe(0);
 }, DB_TEST_TIMEOUT);
+
+test("고치기 흉내는 [회사 정보]가 있으면 C1을 근거에 남긴다", async () => {
+  const revise = async (sections: string[]) => {
+    const result = await ai.complete({
+      purpose: "application_revise",
+      system: "",
+      messages: [{ role: "user", text: sections.join("\n\n") }],
+      schema: z.object({ text: z.string(), sources: z.array(z.string()) }),
+      effort: "low",
+      maxTokens: 8000,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    return result.value;
+  };
+  const answer = "[내 답]\nA1\n- 답: 많은 사람이 쓰는 서비스를 만들고 싶다";
+  const fact = "[회사 정보]\nC1 - 소식(날짜 모름): 간편결제 거래액이 늘었다 (출처: news.example.com)";
+  expect(await revise(["[경험 기록]\n없음", answer, fact, "[고칠 문단]\n첫 문단"])).toEqual({ text: "첫 문단 (고침)", sources: ["A1", "C1"] });
+  expect(await revise(["[경험 기록]\n없음", answer, "[회사 정보]\n없음", "[고칠 문단]\n첫 문단"])).toEqual({ text: "첫 문단 (고침)", sources: ["A1"] });
+});

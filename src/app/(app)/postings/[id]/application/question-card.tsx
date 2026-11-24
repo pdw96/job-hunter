@@ -44,6 +44,7 @@ export type SelectionView = {
 
 export type QuestionView = {
   id: string;
+  postingId: string;
   number: number;
   prompt: string;
   charLimit: number | null;
@@ -52,6 +53,7 @@ export type QuestionView = {
   topics: AnswerTopic[]; // 물을 수 있는 주제(경험형만이면 빈 배열)
   answers: AnswerView[]; // 붙인 답
   asks: Asks | null; // 받아 둔 질문
+  companyFactCount: number | null; // 쓰기에 함께 보낼 회사 정보(공고 화면에서 맞음·체크한 것) 개수. 동기포부형이 아니면 null
   selection: SelectionView | null;
   draft: DraftData | null;
 };
@@ -219,6 +221,30 @@ function Picker({
       {writeButton}
       <ErrorLine message={message} />
     </div>
+  );
+}
+
+// 동기포부형 문항에 함께 쓸 회사 정보를 알리는 한 줄. 고르기는 공고 화면의 회사 조사에서 한다
+function CompanyLine({ postingId, count }: { postingId: string; count: number }) {
+  const href = `/postings/${postingId}`;
+  return (
+    <p className="text-sm text-foreground/70">
+      {count > 0 ? (
+        <>
+          회사 정보 {count}개를 함께 씁니다 ·{" "}
+          <Link href={href} className="underline">
+            공고 화면에서 고르기
+          </Link>
+        </>
+      ) : (
+        <>
+          <Link href={href} className="underline">
+            공고 화면
+          </Link>
+          에서 회사 조사를 확인하면 지원동기에 쓸 수 있습니다
+        </>
+      )}
+    </p>
   );
 }
 
@@ -427,6 +453,8 @@ export function QuestionCard({
       )}
 
       <KindChips question={question} canAct={canAct} />
+
+      {canAct && question.companyFactCount !== null && <CompanyLine postingId={question.postingId} count={question.companyFactCount} />}
 
       {canAct && wants && (
         <div className="space-y-3">

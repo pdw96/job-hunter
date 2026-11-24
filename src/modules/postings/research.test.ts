@@ -239,6 +239,12 @@ test("factNumbers: 사실 글의 숫자를 돌려준다", () => {
   expect(factNumbers(fact)).toContain("31");
 });
 
+test("factNumbers: 소식 날짜는 연·월·일로 나눠 더한다", () => {
+  const fact = { id: "n1", kind: "news" as const, text: "거래액 40% 늘어", url: "https://a.example/1", title: "t", date: "2026-10-05" };
+  expect(factNumbers(fact)).toEqual(["40", "2026", "10", "5"]);
+  expect(factNumbers({ ...fact, date: null })).toEqual(["40"]);
+});
+
 test("hostOf: www.를 떼고, 잘못된 주소면 그대로", () => {
   expect(hostOf("https://www.Gana.com/a")).toBe("gana.com");
   expect(hostOf("not a url")).toBe("not a url");

@@ -11,7 +11,7 @@ import { ErrorLine, useRun } from "./use-run";
 export type DraftData = {
   draft: Draft;
   check: DraftCheck;
-  names: Record<string, string>; // 경험 id → 이름, 답 id → "내 답: 주제". 지금 쓸 수 없는 경험은 들어 있지 않다
+  names: Record<string, string>; // 경험 id → 이름, 답 id → "내 답: 주제", 회사 정보 id → "회사 정보: 호스트". 지금 쓸 수 없는 경험은 들어 있지 않다
   limit: number | null;
   countSpaces: boolean;
 };
@@ -23,12 +23,13 @@ const PRESETS = [
   { id: "natural", label: "더 자연스럽게" },
 ] as const;
 
-function problems(check: ParagraphCheck): string[] {
+// withCompany: 회사 정보를 단 문단. 바뀜의 까닭이 회사 정보(다시 조사, 체크 풀기)일 수도 있어 함께 알린다
+function problems(check: ParagraphCheck, withCompany: boolean): string[] {
   const lines: string[] = [];
   if (check.banned.length > 0) lines.push(`쓰면 안 되는 표현: ${check.banned.join(", ")}`);
   if (check.ungrounded.length > 0) lines.push(`기록에 없는 숫자: ${check.ungrounded.join(", ")}`);
   if (check.noSource) lines.push("근거 경험이 없습니다");
-  if (check.staleSource) lines.push("근거 경험의 기록이 바뀌었습니다");
+  if (check.staleSource) lines.push(withCompany ? "근거(경험·답·회사 정보)가 바뀌었습니다" : "근거 경험의 기록이 바뀌었습니다");
   if (check.structureChanged) lines.push("기록 구조가 바뀌어 다시 만들어야 합니다");
   return lines;
 }
@@ -51,11 +52,18 @@ function ParagraphView({
   const [note, setNote] = useState("");
   const { message, pending, run } = useRun();
   const check = data.check.paragraphs[index];
-  const lines = problems(check);
+  const factIds = paragraph.company ?? [];
+  const lines = problems(check, factIds.length > 0);
 
-  const names = [
-    ...paragraph.sources.map((id) => data.names[id] ?? "(지금 쓸 수 없는 경험)"),
-    ...(paragraph.answers ?? []).map((id) => data.names[id] ?? "(지금 없는 답)"),
+  // 근거 이름. 회사 정보는 링크로 잇지 않고 출처 제목을 title로 둔다(쓸 때의 복사본에서 찾는다)
+  const names: { key: string; name: string; title?: string }[] = [
+    ...paragraph.sources.map((id) => ({ key: `e-${id}`, name: data.names[id] ?? "(지금 쓸 수 없는 경험)" })),
+    ...(paragraph.answers ?? []).map((id) => ({ key: `a-${id}`, name: data.names[id] ?? "(지금 없는 답)" })),
+    ...factIds.map((id) => ({
+      key: `c-${id}`,
+      name: data.names[id] ?? "(지운 회사 정보)",
+      title: data.draft.companyFacts?.find((fact) => fact.id === id)?.title,
+    })),
   ];
 
   return (
@@ -88,7 +96,21 @@ function ParagraphView({
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{paragraph.text}</p>
       )}
 
-      <p className="text-xs text-foreground/60">{paragraph.edited ? "직접 수정" : names.length > 0 ? `근거: ${names.join(", ")}` : ""}</p>
+      <p className="text-xs text-foreground/60">
+        {paragraph.edited
+          ? "직접 수정"
+          : names.length > 0 && (
+              <>
+                근거:{" "}
+                {names.map((item, i) => (
+                  <span key={`${item.key}-${i}`} title={item.title}>
+                    {i > 0 && ", "}
+                    {item.name}
+                  </span>
+                ))}
+              </>
+            )}
+      </p>
       {lines.map((line) => (
         <p key={line} className="text-xs text-red-600">
           {line}

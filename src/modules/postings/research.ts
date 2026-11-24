@@ -156,7 +156,8 @@ export function companyFacts(r: { talent: Talent | null; news: NewsItem[] }): Co
   return facts;
 }
 
-export const factNumbers = (fact: CompanyFact): string[] => numbersIn(fact.text);
+// 회사 정보 글과 날짜의 숫자. 날짜(YYYY-MM-DD)는 연·월·일로 나눠 본다("2026년 10월"이 통과하게. 날짜도 AI에 보낸다)
+export const factNumbers = (fact: CompanyFact): string[] => numbersIn([fact.text, fact.date ?? ""].join(" "));
 
 // 화면이 보여 줄 조사 상태. running이 5분을 넘기면 멈춘 것(stuck)으로 본다
 export function researchState(

@@ -335,12 +335,14 @@ function applicationWrite(text: string) {
   // [내 답]이 있으면 첫 답의 글을 A1이 근거인 문단으로 앞에 둔다
   const answer = section(text, "내 답").split(/\n\n(?=A\d+\n)/)[0]?.match(/^- 답: (.*)$/m)?.[1] ?? "";
   if (answer) paragraphs.unshift({ text: answer, sources: ["A1"] });
+  // [회사 정보]가 있으면 첫 문단에 C1을 단다
+  if (section(text, "회사 정보") && paragraphs[0]) paragraphs[0].sources.push("C1");
   return { paragraphs, shortage: "" };
 }
 
-// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다. 근거는 경험이 있으면 E1, 답이 있으면 A1
+// 문단 고치기 흉내. 고칠 문단 끝에 "(고침)"을 붙인다. 근거는 경험이 있으면 E1, 답이 있으면 A1, 회사 정보가 있으면 C1(쓰기 흉내와 같게)
 function applicationRevise(text: string) {
-  const sources = [section(text, "경험 기록") ? "E1" : "", section(text, "내 답") ? "A1" : ""].filter(Boolean);
+  const sources = [section(text, "경험 기록") ? "E1" : "", section(text, "내 답") ? "A1" : "", section(text, "회사 정보") ? "C1" : ""].filter(Boolean);
   return { text: `${section(text, "고칠 문단")} (고침)`, sources };
 }
 
