@@ -14,15 +14,26 @@ export type SubmitPanelProps = {
   lastNumber: number; // 제출본이 없으면 0
   locked: boolean;
   isApply: boolean;
-  preview: { resumeFrom: "tailored" | "common" | null; questionCount: number; warnings: string[] } | null;
+  preview: { resumeFrom: "tailored" | "common" | null; careerFrom: "tailored" | "common" | null; questionCount: number; warnings: string[] } | null;
   // 고른 서류. 고르지 않은 서류는 확인 창에서 말하지 않는다
   withResume?: boolean;
   withLetter?: boolean;
+  withCareer?: boolean;
   submissions: { number: number; dateLabel: string; shortLabel: string }[];
 };
 
 // 공고 화면의 제출함 / 새 버전 만들기. 누르면 그 자리에 확인 상자를 띄운다
-export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, submissions, withResume = true, withLetter = true }: SubmitPanelProps) {
+export function SubmitPanel({
+  postingId,
+  lastNumber,
+  locked,
+  isApply,
+  preview,
+  submissions,
+  withResume = true,
+  withLetter = true,
+  withCareer = false,
+}: SubmitPanelProps) {
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -47,9 +58,15 @@ export function SubmitPanel({ postingId, lastNumber, locked, isApply, preview, s
 
   const last = submissions.at(-1);
   const resumeText = preview?.resumeFrom ? RESUME_LABELS[preview.resumeFrom] : "없음";
+  const careerText = preview?.careerFrom ? RESUME_LABELS[preview.careerFrom] : "없음";
 
-  // 끝말에 맞는 조사(을/를)를 붙인다: 원문만 있으면 "원문을", 서류가 이어지면 "이력서(…)를"·"문항 n개를"
-  const frozen = ["지금의 공고 원문", withResume && `이력서(${resumeText})`, withLetter && `자소서 문항 ${preview?.questionCount ?? 0}개`].filter(
+  // 끝말에 맞는 조사(을/를)를 붙인다: 원문만 있으면 "원문을", 서류가 이어지면 "이력서(…)를"·"경력기술서(…)를"·"문항 n개를"
+  const frozen = [
+    "지금의 공고 원문",
+    withResume && `이력서(${resumeText})`,
+    withCareer && `경력기술서(${careerText})`,
+    withLetter && `자소서 문항 ${preview?.questionCount ?? 0}개`,
+  ].filter(
     (item): item is string => Boolean(item),
   );
   const frozenText = `${frozen.join(", ")}${frozen.length === 1 ? "을" : "를"}`;

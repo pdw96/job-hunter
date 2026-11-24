@@ -2,16 +2,23 @@
 
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
-import { buildTailoredAction, selectEmphasisAction } from "@/modules/applications/resume-actions";
-import { RESUME_LIMITS } from "@/modules/applications/options";
 import { ErrorLine, useRun } from "../application/use-run";
 
-// 맞춤본에서 강조할 경험 고르기. AI가 고른 경험(기본 켬)과 나머지 쓸 수 있는 경험(기본 끔)을 체크해 맞춤본을 만든다
+// 맞춤본에서 강조할 경험(이력서)·항목(경력기술서) 고르기. AI가 고른 것(기본 켬)과 나머지 쓸 수 있는 것(기본 끔)을 체크해 맞춤본을 만든다.
+// 고르기·만들기 액션은 페이지(서버 컴포넌트)가 넘긴다
 
 // href: 그 기록을 여는 화면. 모르는 기록(옛 기록 등)이면 null이고 이름만 보인다
 export type PickView = { experienceId: string; name: string | null; href: string | null; why: string }; // name이 null이면 지금 쓸 수 없는 경험
-export type OtherView = { experienceId: string; name: string; href: string | null; summary: boolean; fact: boolean }; // fact: 코드가 쓰는 이력 사실(올려도 줄은 그대로)
+export type OtherView = { experienceId: string; name: string; href: string | null; summary: boolean; fact: boolean }; // fact: 코드가 쓰는 이력 사실(올려도 줄은 그대로). 경력기술서에서는 늘 false
 export type EmphasisSelectionView = { picks: PickView[]; noMatch: boolean; selectedAt: string };
+
+type Result = { ok: true } | { ok: false; message: string };
+export type EmphasisActions = {
+  select: (postingId: string) => Promise<Result>;
+  build: (postingId: string, ids: string[], version: number | null) => Promise<Result>;
+  noun: "경험" | "항목"; // 고르는 것의 이름. 둘 다 받침이 있어 "을"을 붙인다
+  limit: number; // 강조할 수 있는 수
+};
 
 const small = "text-sm underline disabled:opacity-50";
 const primary = "rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50";
@@ -20,6 +27,7 @@ const WAIT = "1분쯤 걸릴 수 있습니다";
 function Choice({
   href,
   name,
+  noun,
   checked,
   disabled,
   onChange,
@@ -27,6 +35,7 @@ function Choice({
 }: {
   href: string | null;
   name: string | null;
+  noun: string;
   checked: boolean;
   disabled: boolean;
   onChange: (checked: boolean) => void;
@@ -39,12 +48,12 @@ function Choice({
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        aria-label={name ?? "지금 쓸 수 없는 경험"}
+        aria-label={name ?? `지금 쓸 수 없는 ${noun}`}
         className="mt-1"
       />
       <span className="min-w-0 space-y-1 text-sm">
         {name === null ? (
-          <span className="font-medium text-foreground/60">(지금 쓸 수 없는 경험)</span>
+          <span className="font-medium text-foreground/60">(지금 쓸 수 없는 {noun})</span>
         ) : href ? (
           <Link href={href} className="font-medium underline">
             {name}
@@ -65,7 +74,10 @@ function Checklist({
   others,
   tailoredVersion,
   hasTailored,
-}: {
+  build: buildAction,
+  noun,
+  limit,
+}: Omit<EmphasisActions, "select"> & {
   postingId: string;
   selection: EmphasisSelectionView | null;
   others: OtherView[];
@@ -75,18 +87,18 @@ function Checklist({
   const picks = selection?.picks ?? [];
   const [checked, setChecked] = useState<string[]>(picks.filter((p) => p.name !== null).map((p) => p.experienceId));
   const { message, pending, run } = useRun();
-  const full = checked.length >= RESUME_LIMITS.emphasis;
+  const full = checked.length >= limit;
   const toggle = (id: string, on: boolean) => setChecked(on ? [...checked, id] : checked.filter((value) => value !== id));
 
   function build() {
     if (hasTailored && !confirm("지금 맞춤본을 덮어씁니다. 만들까요?")) return;
-    run(() => buildTailoredAction(postingId, checked, tailoredVersion));
+    run(() => buildAction(postingId, checked, tailoredVersion));
   }
 
   return (
     <div className="space-y-3">
       {selection?.noMatch && (
-        <p className="rounded-lg bg-foreground/5 p-3 text-sm">공고에 맞춰 강조할 경험을 찾지 못했습니다. 직접 고르거나 그대로 만들 수 있습니다</p>
+        <p className="rounded-lg bg-foreground/5 p-3 text-sm">공고에 맞춰 강조할 {noun}을 찾지 못했습니다. 직접 고르거나 그대로 만들 수 있습니다</p>
       )}
       {picks.length > 0 && (
         <ul className="divide-y divide-foreground/10 border-y border-foreground/10">
@@ -95,6 +107,7 @@ function Checklist({
               key={pick.experienceId}
               href={pick.href}
               name={pick.name}
+              noun={noun}
               checked={checked.includes(pick.experienceId)}
               disabled={pick.name === null || (full && !checked.includes(pick.experienceId))}
               onChange={(on) => toggle(pick.experienceId, on)}
@@ -106,13 +119,16 @@ function Checklist({
       )}
       {others.length > 0 && (
         <details className="text-sm" open={selection?.noMatch ?? false}>
-          <summary className="cursor-pointer text-foreground/70">다른 경험 {others.length}개</summary>
+          <summary className="cursor-pointer text-foreground/70">
+            다른 {noun} {others.length}개
+          </summary>
           <ul className="divide-y divide-foreground/10">
             {others.map((other) => (
               <Choice
                 key={other.experienceId}
                 href={other.href}
                 name={other.name}
+                noun={noun}
                 checked={checked.includes(other.experienceId)}
                 disabled={full && !checked.includes(other.experienceId)}
                 onChange={(on) => toggle(other.experienceId, on)}
@@ -127,10 +143,10 @@ function Checklist({
           </ul>
         </details>
       )}
-      {full && <p className="text-xs text-foreground/60">{RESUME_LIMITS.emphasis}개까지 고를 수 있습니다</p>}
+      {full && <p className="text-xs text-foreground/60">{limit}개까지 고를 수 있습니다</p>}
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" disabled={pending} onClick={build} className={primary}>
-          {pending ? "만드는 중…" : checked.length > 0 ? "이 경험을 강조해 맞춤본 만들기" : "공통본 그대로 맞춤본 만들기"}
+          {pending ? "만드는 중…" : checked.length > 0 ? `이 ${noun}을 강조해 맞춤본 만들기` : "공통본 그대로 맞춤본 만들기"}
         </button>
         {pending && checked.length > 0 && (
           <span role="status" className="text-sm text-foreground/60">
@@ -149,7 +165,11 @@ export function EmphasisPicker({
   others,
   tailoredVersion,
   hasTailored,
-}: {
+  select: selectAction,
+  build,
+  noun,
+  limit,
+}: EmphasisActions & {
   postingId: string;
   selection: EmphasisSelectionView | null;
   others: OtherView[];
@@ -159,15 +179,15 @@ export function EmphasisPicker({
   const select = useRun();
 
   return (
-    <section className="space-y-3 rounded-lg border border-foreground/20 p-4" aria-label="강조할 경험">
+    <section className="space-y-3 rounded-lg border border-foreground/20 p-4" aria-label={`강조할 ${noun}`}>
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={select.pending}
-          onClick={() => select.run(() => selectEmphasisAction(postingId))}
+          onClick={() => select.run(() => selectAction(postingId))}
           className={selection ? small : primary}
         >
-          {select.pending ? "고르는 중…" : selection ? "다시 고르기" : "강조할 경험 고르기"}
+          {select.pending ? "고르는 중…" : selection ? "다시 고르기" : `강조할 ${noun} 고르기`}
         </button>
         {select.pending && (
           <span role="status" className="text-sm text-foreground/60">
@@ -183,6 +203,9 @@ export function EmphasisPicker({
         others={others}
         tailoredVersion={tailoredVersion}
         hasTailored={hasTailored}
+        build={build}
+        noun={noun}
+        limit={limit}
       />
     </section>
   );

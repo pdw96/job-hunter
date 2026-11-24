@@ -6,6 +6,7 @@ import { countChars } from "@/modules/applications/check";
 import { dutiesLine, resumeText, sections } from "@/modules/applications/resume-entries";
 import { getSubmission } from "@/modules/applications/submission-repo";
 import { koreaDate } from "@/modules/postings/today";
+import { submittedCareerView } from "./career-view";
 import { CopyButton } from "./copy-button";
 
 // 제출본 화면. 제출하는 순간 얼린 복사본을 읽기만 한다
@@ -19,6 +20,8 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
   if (!submission) notFound();
 
   const { posting, resume, answers } = submission.content;
+  // 경력기술서 없이 냈거나 옛 제출본이면 null이고 구역을 그리지 않는다
+  const career = submittedCareerView(submission.content);
 
   return (
     <div className="space-y-6">
@@ -65,6 +68,57 @@ export default async function SubmissionPage({ params }: { params: Promise<{ id:
           <p className="text-sm text-foreground/70">이력서 없이 제출했습니다</p>
         )}
       </section>
+
+      {career && (
+        <section className="space-y-3" aria-label="경력기술서">
+          <h2 className="text-lg font-semibold">경력기술서 · {career.label}</h2>
+          <CopyButton text={career.copyText} />
+          {career.companies.map((company) => (
+            <div key={company.experienceId} className="space-y-1">
+              <h3 className="break-words font-semibold">
+                {[company.heading.company, company.heading.department, company.heading.title, company.heading.period].filter(Boolean).join(" · ")}
+              </h3>
+              {dutiesLine(company.heading.duties) && <p className="break-words text-sm text-foreground/80">{dutiesLine(company.heading.duties)}</p>}
+              {company.items.length > 0 && (
+                <ul className="divide-y divide-foreground/10 border-y border-foreground/10">
+                  {company.items.map((item) => (
+                    <li key={item.experienceId} className="space-y-2 py-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="min-w-0 break-words font-medium">
+                          {[item.heading.name, item.heading.role, item.heading.period].filter(Boolean).join(" · ")}
+                        </p>
+                        {item.detail === "summary" && <span className="rounded-full border border-foreground/20 px-2 py-0.5 text-xs">요약</span>}
+                        {item.emphasized && <span className="rounded-full bg-foreground px-2 py-0.5 text-xs text-background">강조</span>}
+                      </div>
+                      {item.heading.tools.length > 0 && <p className="break-words text-foreground/80">기술: {item.heading.tools.join(", ")}</p>}
+                      {(
+                        [
+                          ["한 일", item.done],
+                          ["성과", item.results],
+                        ] as const
+                      ).map(
+                        ([label, lines]) =>
+                          lines.length > 0 && (
+                            <div key={label} className="space-y-1">
+                              <p className="text-xs font-medium text-foreground/60">{label}</p>
+                              <ul className="list-disc space-y-1 pl-5 leading-relaxed">
+                                {lines.map((line, index) => (
+                                  <li key={index} className="break-words">
+                                    {line.text}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ),
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="space-y-4" aria-label="자기소개서">
         <h2 className="text-lg font-semibold">자기소개서</h2>

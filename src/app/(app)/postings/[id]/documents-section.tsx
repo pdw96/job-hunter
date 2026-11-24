@@ -62,6 +62,13 @@ export function DocumentsSection({ id, isApply, locked, found, chosen, userChose
         </Link>
       );
     }
+    if (kind === "career") {
+      return (
+        <Link href={`/postings/${id}/career`} className={linkClass}>
+          {locked ? "보기" : "경력기술서 맞춤본"}
+        </Link>
+      );
+    }
     if (DOCUMENT_WRITER[kind] === "ai") return <span className="text-sm text-foreground/60">준비 중</span>;
     return <span className="text-sm text-foreground/60">직접 준비</span>;
   };
