@@ -284,6 +284,9 @@ function MissingPanel({ data }: { data: CareerEditorData }) {
   const add = useRun();
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
   const chosen = data.missing.filter((entry) => !unchecked.has(entry.id));
+  // 30개가 차 있으면 다른 회사로 옮긴 항목만 넣을 수 있다(제 자리를 쓴다)
+  const locked = (entry: { moved: boolean }) => data.full && !entry.moved;
+  const addable = chosen.filter((entry) => !locked(entry));
 
   function toggle(id: string, checked: boolean) {
     setUnchecked((prev) => {
@@ -306,8 +309,8 @@ function MissingPanel({ data }: { data: CareerEditorData }) {
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
-                  checked={!unchecked.has(entry.id)}
-                  disabled={add.pending || data.full}
+                  checked={!locked(entry) && !unchecked.has(entry.id)}
+                  disabled={add.pending || locked(entry)}
                   onChange={(e) => toggle(entry.id, e.target.checked)}
                   className="mt-1"
                 />
@@ -317,16 +320,15 @@ function MissingPanel({ data }: { data: CareerEditorData }) {
           );
         })}
       </ul>
-      {data.full ? (
-        <p className="text-sm text-red-600">{FULL}</p>
-      ) : (
+      {data.full && data.missing.some((entry) => !entry.moved) && <p className="text-sm text-red-600">{FULL}</p>}
+      {(!data.full || data.missing.some((entry) => entry.moved)) && (
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={add.pending || chosen.length === 0}
+            disabled={add.pending || addable.length === 0}
             onClick={() =>
               add.run(
-                () => rewriteCareerItemsAction(data.careerId, chosen.map((entry) => entry.id), data.version),
+                () => rewriteCareerItemsAction(data.careerId, addable.map((entry) => entry.id), data.version),
                 () => setUnchecked(new Set()),
               )
             }

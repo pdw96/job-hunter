@@ -13,7 +13,7 @@ export type CareerEditorData = {
   careerId: string;
   version: number;
   companies: CareerCompanyView[];
-  missing: { id: string; name: string; companyId: string; companyName: string }[]; // 넣을 수 있는데 없는 회사(id=companyId=경력 id, name=회사 이름)와 항목
+  missing: { id: string; name: string; companyId: string; companyName: string; moved: boolean }[]; // 넣을 수 있는데 없는 회사(id=companyId=경력 id, name=회사 이름)와 항목. moved: 항목이 지금 다른 회사 아래에 있다(30개가 차도 제자리를 바꿔 넣을 수 있다)
   commonChanged: boolean;
   full: boolean; // 이미 항목이 한도(30개)까지 찼다
   copyText: string;
@@ -30,6 +30,7 @@ export function careerEditorData(
   if (!content) return null;
   // 검사 결과는 content.companies와, 회사마다 items와 같은 순서다
   const check = checkCareer(content, sources, currentCommonVersion);
+  const placedIn = new Map(content.companies.flatMap((company) => company.items.map((item) => [item.experienceId, company.experienceId] as const)));
   const companyNames = new Map(sources.map((source) => [source.id, source.company]));
   return {
     careerId: career.id,
@@ -46,7 +47,7 @@ export function careerEditorData(
         })),
       };
     }),
-    missing: check.missing.map((entry) => ({ id: entry.id, name: entry.name, companyId: entry.companyId, companyName: companyNames.get(entry.companyId) ?? "" })),
+    missing: check.missing.map((entry) => ({ id: entry.id, name: entry.name, companyId: entry.companyId, companyName: companyNames.get(entry.companyId) ?? "", moved: placedIn.has(entry.id) })),
     commonChanged: check.commonChanged,
     full: itemCount(content) >= CAREER_LIMITS.items,
     copyText: careerText(content),

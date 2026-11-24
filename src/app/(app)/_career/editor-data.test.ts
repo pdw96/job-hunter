@@ -95,10 +95,25 @@ describe("careerEditorData", () => {
     const content: CareerContent = { companies: [company("j1", [item("p1")])], commonVersion: null };
     const data = careerEditorData(career(content), sources, null, new Map())!;
     expect(data.missing).toEqual([
-      { id: "p2", name: "항목 p2", companyId: "j1", companyName: "j1사" },
-      { id: "j2", name: "j2사", companyId: "j2", companyName: "j2사" },
-      { id: "p3", name: "항목 p3", companyId: "j2", companyName: "j2사" },
+      { id: "p2", name: "항목 p2", companyId: "j1", companyName: "j1사", moved: false },
+      { id: "j2", name: "j2사", companyId: "j2", companyName: "j2사", moved: false },
+      { id: "p3", name: "항목 p3", companyId: "j2", companyName: "j2사", moved: false },
     ]);
+  });
+
+  it("다른 회사로 옮긴 항목은 missing에서 moved", () => {
+    // p1은 기록에서 j2로 옮겨졌지만 경력기술서에는 아직 j1 아래에 있다
+    const sources = [companySource("j1"), companySource("j2", [itemSource("p1")])];
+    const content: CareerContent = { companies: [company("j1", [item("p1")]), company("j2", [])], commonVersion: null };
+    const data = careerEditorData(career(content), sources, null, new Map())!;
+    expect(data.missing).toEqual([{ id: "p1", name: "항목 p1", companyId: "j2", companyName: "j2사", moved: true }]);
+  });
+
+  it("새 항목은 moved가 아니다", () => {
+    const sources = [companySource("j1", [itemSource("p1"), itemSource("p2")])];
+    const content: CareerContent = { companies: [company("j1", [item("p1")])], commonVersion: null };
+    const data = careerEditorData(career(content), sources, null, new Map())!;
+    expect(data.missing.map((entry) => entry.moved)).toEqual([false]);
   });
 
   it("30개면 full", () => {
