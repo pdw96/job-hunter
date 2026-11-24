@@ -175,7 +175,7 @@ function researchRows(value: ResearchValue, today: string, row: Row): PostingChe
     row("인재상을 찾았다", "있음", talent ? talent.text : "비어 있음", talent !== null),
     row("인재상 출처가 samsung.com이다", "samsung.com", host ?? "비어 있음", host !== null && (host === "samsung.com" || host.endsWith(".samsung.com"))),
     row("소식 1~8개", "1~8", String(news.length), news.length >= 1 && news.length <= 8),
-    row("버린 소식(검색 결과에 없는 주소)이 2개 이하", "2 이하", String(dropped), dropped <= 2),
+    row("검사로 버린 항목이 2개 이하", "2 이하", String(dropped), dropped <= 2),
     row("사건·사고 소식이 없다", "없음", show(incidents.map((n) => n.summary)), incidents.length === 0),
     row("날짜가 있으면 1년 안", `${from} 이후`, show(old.map((n) => `${n.date} ${n.summary}`)), old.length === 0),
   ];

@@ -112,6 +112,8 @@ export async function runResearch(
   postingId: string,
   opts: { onlyIfMissing: boolean },
   now: Date = new Date(),
+  // 끝난 때를 읽는 시계. 조사일(researchedAt)과 90일 기준은 끝난 때로 센다. 테스트가 바꿔 끼운다
+  finishedAt: () => Date = () => new Date(),
 ): Promise<{ started: boolean }> {
   const posting = await getPosting(db, userId, postingId);
   if (!posting) return { started: false };
@@ -132,13 +134,13 @@ export async function runResearch(
   try {
     const result = await researchText(db, ai, userId, input, now);
     if (result.ok) {
-      await finishResearch(db, userId, key, startedAt, { talent: result.value.talent, talentSkipped: !wantTalent, news: result.value.news }, now);
+      await finishResearch(db, userId, key, startedAt, { talent: result.value.talent, talentSkipped: !wantTalent, news: result.value.news }, finishedAt());
     } else {
-      await failResearch(db, userId, key, startedAt, result.reason, now);
+      await failResearch(db, userId, key, startedAt, result.reason, finishedAt());
     }
   } catch (error) {
     // 예상하지 못한 오류여도 5분 동안 조사 중으로 남지 않게 실패로 남기고, 부른 쪽이 기록하도록 다시 던진다
-    await failResearch(db, userId, key, startedAt, "unavailable", now);
+    await failResearch(db, userId, key, startedAt, "unavailable", finishedAt());
     throw error;
   }
   return { started: true };

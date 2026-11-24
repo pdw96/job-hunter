@@ -27,7 +27,7 @@ export const hostOf = (url: string): string => {
 // 화면이 링크로 이어도 되는 주소(http·https)인가. 그 밖의 주소(javascript: 등)는 조사 결과에 남기지 않는다
 export const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url);
 
-// 채용 공고에 흔히 나오지만 회사 홈페이지는 아닌 사이트. 도메인과 그 하위 도메인
+// 채용 공고에 흔히 나오지만 회사 홈페이지는 아닌 사이트(채용 사이트, 줄인 주소, SNS 등). 도메인과 그 하위 도메인
 const JOB_SITES = [
   "saramin.co.kr",
   "jobkorea.co.kr",
@@ -50,6 +50,15 @@ const JOB_SITES = [
   "google.com",
   "naver.com",
   "kakao.com",
+  // 줄인 주소, 영상, SNS, 포털
+  "bit.ly",
+  "youtu.be",
+  "youtube.com",
+  "instagram.com",
+  "facebook.com",
+  "x.com",
+  "twitter.com",
+  "daum.net",
 ];
 const onDomain = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`);
 

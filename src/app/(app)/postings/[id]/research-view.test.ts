@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { Research } from "@/modules/postings/research-repo";
-import { KICK_LIMIT_MS, kickFromApply, researchView, waitingForStart } from "./research-view";
+import { KICK_LIMIT_MS, kickFromApply, researchView, talentSkipNote, waitingForStart } from "./research-view";
 
 const NOW = new Date("2026-11-24T03:00:00Z");
 const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000);
@@ -51,7 +51,8 @@ test("한도 실패는 한도 문구", () => {
   expect(view).toMatchObject({
     state: "failed",
     failure: "이번 달 AI 사용 한도에 닿아 조사하지 못했습니다",
-    pasteLink: false,
+    // 한도에 닿아도 인재상은 붙여 넣어 쓸 수 있다
+    pasteLink: true,
     canRerun: true,
   });
 });
@@ -103,4 +104,12 @@ test("기다림은 새 조사가 잡히거나 20초가 지나면 끝난다", () 
   expect(waitingForStart(kick, "2026-11-24T03:00:01.000Z", "running", at + 1_000)).toBe(false);
   expect(waitingForStart({ at, runKey: "2026-11-24T02:00:00.000Z" }, "2026-11-24T02:00:00.000Z", "done", at + 1_000)).toBe(true);
   expect(waitingForStart(null, "none", "none", at)).toBe(false);
+});
+
+test("인재상 생략은 조사 줄이 아니라 이 공고를 보고 문구를 고른다", () => {
+  // 같은 회사의 다른 공고(인재상 글이 있던 공고)로 조사해 생략했어도, 이 공고에 인재상이 없으면 그렇게 알린다
+  expect(talentSkipNote({ rowSkipped: true, postingWantsTalent: false, isApply: true })).toBe("공고의 인재상을 씁니다");
+  expect(talentSkipNote({ rowSkipped: true, postingWantsTalent: true, isApply: true })).toBe("이 공고에는 인재상이 없습니다. 다시 조사하면 인재상도 찾습니다");
+  expect(talentSkipNote({ rowSkipped: true, postingWantsTalent: true, isApply: false })).toBe("인재상은 찾지 않았습니다");
+  expect(talentSkipNote({ rowSkipped: false, postingWantsTalent: false, isApply: true })).toBeNull();
 });

@@ -98,7 +98,9 @@ beforeEach(async () => {
 test("도메인이 없으면 AI 한 번, 검색 5번까지", async () => {
   const id = await addPosting();
   const ai = createFakeAi([bothAnswer]);
-  expect(await runResearch(db, ai, "u1", id, { onlyIfMissing: true }, now)).toEqual({ started: true });
+  // 조사일은 시작한 때가 아니라 끝난 때다
+  const finishedAt = new Date(now.getTime() + 70_000);
+  expect(await runResearch(db, ai, "u1", id, { onlyIfMissing: true }, now, () => finishedAt)).toEqual({ started: true });
 
   expect(ai.requests).toHaveLength(1);
   expect(ai.requests[0].purpose).toBe("company_research");
@@ -108,7 +110,8 @@ test("도메인이 없으면 AI 한 번, 검색 5번까지", async () => {
 
   const row = await getResearch(db, "u1", key);
   expect(row).toMatchObject({ status: "done", failure: null, talentSkipped: false, company: "가나다 주식회사" });
-  expect(row?.researchedAt).toEqual(now);
+  expect(row?.researchedAt).toEqual(finishedAt);
+  expect(row?.startedAt).toEqual(now);
   expect(row?.talent).toMatchObject({ text: "끝까지 파고드는 사람", url: TALENT_URL, title: "인재상", verdict: null });
   expect(row?.news).toEqual([
     expect.objectContaining({ summary: "가나다가 새 결제 서비스를 내놓았다", date: "2026-10-01", url: NEWS_URL, checked: false }),

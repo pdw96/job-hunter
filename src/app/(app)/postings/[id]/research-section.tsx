@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { rerunResearchAction, setNewsCheckedAction, setTalentVerdictAction } from "@/modules/postings/research-actions";
 import { isWebUrl } from "@/modules/postings/research";
-import { KICK_LIMIT_MS, type Kick, type ResearchView, waitingForStart } from "./research-view";
+import { KICK_LIMIT_MS, type Kick, type ResearchView, talentSkipNote, waitingForStart } from "./research-view";
 
 type Result = { ok: true } | { ok: false; message: string };
 
@@ -27,12 +27,13 @@ export type ResearchSectionProps = {
   kickAt: number | null; // 지원 직후에 그린 화면이면 지원한 때(ms, kickFromApply). 아니면 null
   lastDate: string | null; // 마지막으로 끝난 조사의 날짜
   talent: { id: string; text: string; url: string; host: string; title: string; verdict: "yes" | "no" | null } | null;
-  talentSkipped: boolean;
+  talentSkipped: boolean; // 조사 줄의 값(그 조사를 돌린 공고에 인재상 글이 있었다)
+  postingWantsTalent: boolean; // 이 공고에는 인재상 글이 없다(wantsTalent)
   news: { id: string; summary: string; url: string; host: string; title: string; date: string | null; checked: boolean }[];
 };
 
 // 공고 화면의 회사 조사. 인재상은 맞음·아님, 소식은 체크로 고르고, 누르면 바로 저장한다
-export function ResearchSection({ postingId, company, isApply, view, runKey, kickAt, lastDate, talent, talentSkipped, news }: ResearchSectionProps) {
+export function ResearchSection({ postingId, company, isApply, view, runKey, kickAt, lastDate, talent, talentSkipped, postingWantsTalent, news }: ResearchSectionProps) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -83,6 +84,7 @@ export function ResearchSection({ postingId, company, isApply, view, runKey, kic
   const canPick = isApply && view.editable && !pending && !kicked;
   const hasResult = lastDate !== null;
   const showRerun = isApply && view.canRerun && !kicked;
+  const skipNote = talentSkipNote({ rowSkipped: talentSkipped, postingWantsTalent, isApply });
   const status = kicked ? "조사를 시작합니다…" : (view.staleNote ?? view.headline);
 
   return (
@@ -124,8 +126,8 @@ export function ResearchSection({ postingId, company, isApply, view, runKey, kic
 
           <div className="space-y-1">
             <h3 className="text-sm font-medium">인재상</h3>
-            {talentSkipped ? (
-              <p className="text-sm text-foreground/70">공고의 인재상을 씁니다</p>
+            {skipNote ? (
+              <p className="text-sm text-foreground/70">{skipNote}</p>
             ) : talent ? (
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <div className="min-w-0 space-y-0.5">

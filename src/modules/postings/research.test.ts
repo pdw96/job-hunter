@@ -28,6 +28,21 @@ test("homepageDomain: 채용 사이트와 그 하위 도메인은 건너뛴다",
   expect(homepageDomain(text, null)).toBe("gana.com");
 });
 
+test("homepageDomain: 줄인 주소·영상·SNS·포털과 그 하위 도메인은 건너뛴다", () => {
+  const text = [
+    "https://bit.ly/abc",
+    "https://youtu.be/x",
+    "https://m.youtube.com/watch",
+    "https://www.instagram.com/gana",
+    "https://facebook.com/gana",
+    "https://x.com/gana",
+    "https://twitter.com/gana",
+    "https://cafe.daum.net/gana",
+    "회사 https://www.gana.com",
+  ].join(" ");
+  expect(homepageDomain(text, null)).toBe("gana.com");
+});
+
 test("homepageDomain: 공고 주소의 호스트는 건너뛴다", () => {
   const text = "https://jobs.other.com/1 https://www.gana.com";
   expect(homepageDomain(text, "https://jobs.other.com/posting/9")).toBe("gana.com");

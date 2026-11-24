@@ -13,7 +13,7 @@ import { submitPreview } from "@/modules/applications/submit";
 import { companyKey } from "@/modules/postings/company";
 import { chosenDocuments } from "@/modules/postings/documents";
 import { getPosting } from "@/modules/postings/repo";
-import { hostOf } from "@/modules/postings/research";
+import { hostOf, wantsTalent } from "@/modules/postings/research";
 import { getResearch } from "@/modules/postings/research-repo";
 import { fieldStale, scorePosting, usableOf } from "@/modules/postings/score";
 import { koreaDate, koreaMonthDay, todayInKorea } from "@/modules/postings/today";
@@ -140,6 +140,7 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
           lastDate={research?.researchedAt ? koreaDate(research.researchedAt) : null}
           talent={research?.talent ? { ...research.talent, host: hostOf(research.talent.url) } : null}
           talentSkipped={research?.talentSkipped ?? false}
+          postingWantsTalent={wantsTalent(posting)}
           news={(research?.news ?? []).map((item) => ({ ...item, host: hostOf(item.url) }))}
         />
       )}
