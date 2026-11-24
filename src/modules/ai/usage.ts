@@ -31,6 +31,7 @@ export async function recordUsage(
     purpose: entry.purpose,
     model: entry.model,
     ...entry.usage,
+    webSearchRequests: entry.usage.webSearchRequests ?? 0,
     costMicroUsd: costMicroUsd(entry.model, entry.usage),
     createdAt: entry.at,
   });

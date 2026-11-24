@@ -7,11 +7,13 @@ import { checkBudget, recordUsage } from "./usage";
 // Claude API를 부르는 곳은 AiClient 구현 하나뿐이다. 다른 모듈은 이 인터페이스를 인자로 받는다.
 // 테스트와 로컬 미리보기는 정해진 답을 돌려주는 가짜 구현을 쓴다.
 
-export type AiPurpose = "judge" | "interview" | "extract" | "import" | "posting" | "posting_image" | "posting_match" | "application_select" | "application_write" | "application_revise" | "application_ask" | "resume_write" | "resume_emphasis" | "import_records" | "extract_scene" | "migrate";
+export type AiPurpose = "judge" | "interview" | "extract" | "import" | "posting" | "posting_image" | "posting_match" | "application_select" | "application_write" | "application_revise" | "application_ask" | "resume_write" | "resume_emphasis" | "import_records" | "extract_scene" | "migrate" | "company_research";
 export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export type AiImage = { mediaType: (typeof IMAGE_TYPES)[number]; data: string }; // data는 base64
 // images는 글과 함께 보여 줄 그림(사용자 메시지에만 쓴다)
 export type AiMessage = { role: "user" | "assistant"; text: string; images?: AiImage[] };
+// 웹 검색 결과로 받은 페이지 하나(pageAge는 검색 엔진이 알려 준 페이지 나이, 모르면 null)
+export type WebSource = { url: string; title: string; pageAge: string | null };
 
 export type AiRequest<T> = {
   purpose: AiPurpose;
@@ -23,6 +25,8 @@ export type AiRequest<T> = {
   // 답 모양을 API의 문법으로 강제하지 않고 지시에 적어 받는다(코드가 같은 스키마로 검사한다).
   // 모양이 커서 API가 "compiled grammar is too large"로 거절하는 요청에만 쓴다(loose-json.ts)
   loose?: boolean;
+  // 있으면 Claude의 웹 검색 서버 도구를 붙인다. 검색 결과에 인용이 붙어 오므로 늘 loose로 보낸다
+  webSearch?: { maxUses: number; allowedDomains?: string[] };
 };
 
 // refused 모델이 요청을 거절 / truncated 답이 잘림 / invalid 답이 스키마에 안 맞음 / unavailable 서비스 오류
@@ -31,6 +35,8 @@ export type AiFailure = "refused" | "truncated" | "invalid" | "unavailable";
 export type AiResult<T> = ({ ok: true; value: T } | { ok: false; reason: AiFailure }) & {
   usage?: TokenUsage; // 실패해도 토큰을 썼으면 온다
   model?: string;
+  // 웹 검색을 쓴 요청에서만 온다(성공·실패 모두). 이번 호출의 검색 결과 주소(같은 주소는 한 번)
+  sources?: WebSource[];
 };
 
 export interface AiClient {

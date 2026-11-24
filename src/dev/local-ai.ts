@@ -1,5 +1,5 @@
 // 로컬 미리보기 전용 가짜 AI. 실제 API를 부르지 않고, 받은 글을 보고 그럴듯한 정해진 답을 돌려준다.
-import type { AiClient, AiRequest, AiResult } from "@/modules/ai/client";
+import type { AiClient, AiRequest, AiResult, WebSource } from "@/modules/ai/client";
 import { FAKE_MODEL, FAKE_USAGE } from "@/modules/ai/fake-client";
 
 if (process.env.VERCEL) throw new Error("로컬 미리보기는 배포 환경에서 쓸 수 없습니다");
@@ -388,10 +388,36 @@ function resumeEmphasis(text: string) {
   return { picks: /^E1$/m.test(section(text, "경험 기록")) ? [{ exp: "E1", why: "공고의 담당 업무와 겹칩니다" }] : [] };
 }
 
+// 회사 조사 흉내. 검색 결과(출처) 두 개와 그 주소를 쓴 인재상·소식 하나. 소식 날짜는 [오늘]로 둔다
+// 인재상은 홈페이지 도메인 밖이면 버려지므로, [홈페이지]가 있으면 그 도메인의 주소를 출처로 쓴다
+function researchSources(text: string): WebSource[] {
+  const domain = section(text, "홈페이지");
+  const company = section(text, "회사") || "예시 회사";
+  return [
+    { url: `https://www.${domain || "example.com"}/careers`, title: `인재상 | ${company}`, pageAge: null },
+    { url: "https://news.example.com/a1", title: `${company}, 새 서비스 출시`, pageAge: null },
+  ];
+}
+function companyResearch(text: string, sources: WebSource[]) {
+  return {
+    talent: { text: "고객을 먼저 생각하고 끝까지 해내는 사람", url: sources[0].url },
+    news: [{ summary: "예시 회사가 새 서비스를 내놓았다고 밝혔다.", date: section(text, "오늘") || null, url: sources[1].url }],
+  };
+}
+// 공고 화면에서 "조사 중"을 볼 수 있게 조사는 더 오래 걸리는 척한다(테스트에서는 기다리지 않는다)
+const RESEARCH_WAIT_MS = process.env.NODE_ENV === "test" ? 0 : 8000;
+
 export const ai: AiClient = {
   async complete<T>(request: AiRequest<T>): Promise<AiResult<T>> {
     await new Promise((resolve) => setTimeout(resolve, 400)); // 기다리는 화면을 볼 수 있게
     const text = request.messages.map((message) => message.text).join("\n");
+    if (request.purpose === "company_research") {
+      await new Promise((resolve) => setTimeout(resolve, RESEARCH_WAIT_MS));
+      const sources = researchSources(text);
+      const parsed = request.schema.safeParse(companyResearch(text, sources));
+      const meta = { usage: { ...FAKE_USAGE, webSearchRequests: 2 }, model: FAKE_MODEL, sources };
+      return parsed.success ? { ok: true, value: parsed.data, ...meta } : { ok: false, reason: "invalid", ...meta };
+    }
     const answer =
       request.purpose === "judge"
         ? judge(text)

@@ -1,10 +1,14 @@
 import type { Db } from "@/db/types";
-import type { AiClient } from "@/modules/ai/client";
+import type { AiClient, AiRequest } from "@/modules/ai/client";
 import type { EvidenceCandidate } from "@/modules/experiences/evidence";
 import { analyzeText, type TextAnalysis } from "./analyze";
 import { type ExtractedPosting, extractPosting } from "./extract";
+import { hostOf } from "./research";
+import { researchText, type ResearchInput, type ResearchValue } from "./research-run";
+import { todayInKorea } from "./today";
 
-// 준비한 공고 예시를 실제 AI에 돌려, 값을 맞게 뽑고 없는 값은 비워 두는지, 요구 사항에 맞는 경험만 근거로 짚는지 본다(관리자 전용, 호출 5번)
+// 준비한 공고 예시를 실제 AI에 돌려, 값을 맞게 뽑고 없는 값은 비워 두는지, 요구 사항에 맞는 경험만 근거로 짚는지,
+// 회사 조사가 회사 홈페이지의 인재상과 출처가 있는 최근 소식만 가져오는지 본다(관리자 전용, 호출 7번. 회사 조사는 실제 웹 검색이라 검색 5번 요금이 든다)
 
 export type PostingCheckRow = { sample: string; check: string; expected: string; actual: string; pass: boolean };
 
@@ -151,6 +155,34 @@ function matchRows(value: TextAnalysis, row: Row): PostingCheckRow[] {
   ];
 }
 
+// 회사 조사 예시. 홈페이지 도메인이 있고 인재상을 찾으므로 AI를 두 번 부른다(인재상은 samsung.com으로 좁힌다)
+export const RESEARCH_SAMPLE = { name: "회사 조사", company: "삼성전자", title: "SW 개발 신입", domain: "samsung.com", wantTalent: true };
+// 지원동기에 쓰지 않을 사건·사고 소식의 낱말
+const INCIDENT = /사고|소송|논란|압수수색|벌금|사망|화재|리콜|구속/;
+
+const yearBefore = (today: string) => {
+  const [y, m, d] = today.split("-");
+  return `${Number(y) - 1}-${m}-${d}`;
+};
+
+function researchRows(value: ResearchValue, today: string, row: Row): PostingCheckRow[] {
+  const { talent, news, dropped } = value;
+  const host = talent ? hostOf(talent.url) : null;
+  const incidents = news.filter((n) => INCIDENT.test(n.summary));
+  const from = yearBefore(today);
+  const old = news.filter((n) => n.date !== null && n.date < from);
+  return [
+    row("인재상을 찾았다", "있음", talent ? talent.text : "비어 있음", talent !== null),
+    row("인재상 출처가 samsung.com이다", "samsung.com", host ?? "비어 있음", host !== null && (host === "samsung.com" || host.endsWith(".samsung.com"))),
+    row("소식 1~8개", "1~8", String(news.length), news.length >= 1 && news.length <= 8),
+    row("검사로 버린 항목이 2개 이하", "2 이하", String(dropped), dropped <= 2),
+    row("사건·사고 소식이 없다", "없음", show(incidents.map((n) => n.summary)), incidents.length === 0),
+    row("날짜가 있으면 1년 안", `${from} 이후`, show(old.map((n) => `${n.date} ${n.summary}`)), old.length === 0),
+  ];
+}
+
+const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
 type Row = (check: string, expected: string, actual: string, pass: boolean) => PostingCheckRow;
 const show = (value: unknown) => (value === null || value === "" ? "비어 있음" : Array.isArray(value) ? value.join(", ") || "비어 있음" : String(value));
 
@@ -218,5 +250,30 @@ export async function runPostingCheck(db: Db, ai: AiClient, userId: string, now:
     );
     return result.ok ? matchRows(result.value, row) : [row("AI 호출", "성공", `실패: ${result.reason}`, false)];
   };
-  return (await Promise.all([run(FULL_POSTING, fullRows), run(SPARSE_POSTING, sparseRows), run(DOCS_POSTING, docsRows), run(CHROME_ONLY, chromeRows), match()])).flat();
+  const research = async () => {
+    const row: Row = (check, expected, actual, pass) => ({ sample: RESEARCH_SAMPLE.name, check, expected, actual, pass });
+    // 진단용으로 호출마다 AI가 보낸 답(검사 전)과 검색 결과 주소를 모은다(AI 호출을 더하지 않는다)
+    const raws: { find: string; answer: unknown; sources: string[] }[] = [];
+    const watching: AiClient = {
+      async complete<T>(request: AiRequest<T>) {
+        const result = await ai.complete(request);
+        raws.push({
+          find: request.messages[0].text.match(/\[찾을 것\]\n(.*)/)?.[1] ?? "",
+          answer: result.ok ? result.value : result.reason,
+          sources: (result.sources ?? []).map((s) => s.url),
+        });
+        return result;
+      },
+    };
+    const today = todayInKorea(now);
+    const input: ResearchInput = { company: RESEARCH_SAMPLE.company, title: RESEARCH_SAMPLE.title, domain: RESEARCH_SAMPLE.domain, wantTalent: RESEARCH_SAMPLE.wantTalent, today };
+    const result = await researchText(db, watching, userId, input, now);
+    const rows = result.ok ? researchRows(result.value, today, row) : [row("AI 호출", "성공", `실패: ${result.reason}`, false)];
+    // 실패한 줄이 있을 때만 진단용 줄을 남긴다. 보이기만 하는 것이라 늘 통과한다
+    if (rows.every((r) => r.pass)) return rows;
+    return [...rows, row("AI가 보낸 답(진단용)", "-", raws.length === 0 ? "AI 호출 실패" : cut(JSON.stringify(raws), 1500), true)];
+  };
+  return (
+    await Promise.all([run(FULL_POSTING, fullRows), run(SPARSE_POSTING, sparseRows), run(DOCS_POSTING, docsRows), run(CHROME_ONLY, chromeRows), match(), research()])
+  ).flat();
 }

@@ -10,8 +10,11 @@ import { listQuestions } from "@/modules/applications/repo";
 import { getTailoredResume } from "@/modules/applications/resume-repo";
 import { isLocked, listSubmissions } from "@/modules/applications/submission-repo";
 import { submitPreview } from "@/modules/applications/submit";
+import { companyKey } from "@/modules/postings/company";
 import { chosenDocuments } from "@/modules/postings/documents";
 import { getPosting } from "@/modules/postings/repo";
+import { hostOf, wantsTalent } from "@/modules/postings/research";
+import { getResearch } from "@/modules/postings/research-repo";
 import { fieldStale, scorePosting, usableOf } from "@/modules/postings/score";
 import { koreaDate, koreaMonthDay, todayInKorea } from "@/modules/postings/today";
 import { REGIONS } from "@/modules/tracks/options";
@@ -19,8 +22,13 @@ import { getTrack } from "@/modules/tracks/repo";
 import { deadlineLabel } from "../deadline";
 import { PostingActions } from "../posting-actions";
 import { DocumentsSection } from "./documents-section";
+import { ResearchSection } from "./research-section";
+import { kickFromApply, researchView } from "./research-view";
 import { ScoreSection } from "./score-section";
 import { SubmitPanel } from "./submit-panel";
+
+// 지원(회사 조사를 응답 뒤에 돌린다)과 다시 조사가 이 페이지의 서버 액션이다. after()는 이 시간 안에서 돈다
+export const maxDuration = 300;
 
 const regionLabel = (id: string) => REGIONS.find((region) => region.id === id)?.label ?? id;
 
@@ -32,12 +40,14 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
   if (!posting) notFound();
 
   const today = todayInKorea();
-  const [track, candidates, questions, tailored, submissions] = await Promise.all([
+  const key = companyKey(posting.company);
+  const [track, candidates, questions, tailored, submissions, research] = await Promise.all([
     getTrack(db, user.id, posting.trackId),
     listEvidenceCandidates(db, user.id, posting.trackId),
     listQuestions(db, user.id, posting.id),
     getTailoredResume(db, user.id, posting.id),
     listSubmissions(db, user.id, posting.id),
+    key ? getResearch(db, user.id, key) : Promise.resolve(null),
   ]);
   const hrefs = await recordHrefs(db, user.id, candidates.map((c) => c.id));
   const latest = submissions.at(-1) ?? null;
@@ -50,6 +60,12 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
     track && posting.analysis
       ? scorePosting({ posting, track, analysis: posting.analysis, usable: usableOf(candidates) })
       : null;
+
+  const isApply = posting.status === "apply";
+  // 회사 조사는 회사 단위다. 지원 공고에서는 늘 보이고, 아니면 같은 회사의 조사가 있을 때 읽기로만 보인다
+  const showResearch = key !== "" && (isApply || research !== null);
+  const now = new Date();
+  const view = researchView(research, now);
 
   const facts: [string, string][] = [
     ["트랙", track?.name ?? ""],
@@ -112,6 +128,22 @@ export default async function PostingPage({ params }: { params: Promise<{ id: st
         userChose={(posting.chosenDocuments?.length ?? 0) > 0}
         questionCount={questions.length}
       />
+
+      {showResearch && (
+        <ResearchSection
+          postingId={posting.id}
+          company={research?.company ?? posting.company}
+          isApply={isApply}
+          view={view}
+          runKey={research ? research.startedAt.toISOString() : "none"}
+          kickAt={kickFromApply({ isApply, state: view.state, appliedAt: posting.appliedScore?.appliedAt ?? null }, now)}
+          lastDate={research?.researchedAt ? koreaDate(research.researchedAt) : null}
+          talent={research?.talent ? { ...research.talent, host: hostOf(research.talent.url) } : null}
+          talentSkipped={research?.talentSkipped ?? false}
+          postingWantsTalent={wantsTalent(posting)}
+          news={(research?.news ?? []).map((item) => ({ ...item, host: hostOf(item.url) }))}
+        />
+      )}
 
       {posting.status !== "apply" && (questions.length > 0 || tailored?.content) && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">

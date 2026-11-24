@@ -4,6 +4,7 @@ import type { Db } from "@/db/types";
 import { createFakeAi } from "@/modules/ai/fake-client";
 import { user } from "@/modules/auth/schema";
 import { runPostingCheck } from "./prompt-check";
+import { todayInKorea } from "./today";
 
 let db: Db;
 
@@ -62,11 +63,27 @@ const match = {
     { kind: "preferred", text: "주문·결제 서비스 API 개발 및 운영", quote: "주문·결제 서비스 API 개발 및 운영", evidence: [] },
   ],
 };
+// 회사 조사 예시의 맞는 답. 인재상은 samsung.com에서, 소식은 검색 결과에 있는 주소로 1년 안의 것
+const today = todayInKorea(new Date());
+const TALENT_URL = "https://www.samsung.com/sec/about-us/careers/";
+const NEWS_URL = "https://news.example.com/s1";
+const webAnswer = (answer: unknown, urls: string[]) => ({ web: { answer, sources: urls.map((url) => ({ url, title: "제목", pageAge: null })), searches: 2 } });
+const talentResearch = webAnswer({ talent: { text: "열정과 몰입으로 미래에 도전하는 인재", url: TALENT_URL }, news: [] }, [TALENT_URL]);
+const newsResearch = webAnswer({ talent: null, news: [{ summary: "삼성전자가 새 반도체 생산 라인을 가동했다", date: today, url: NEWS_URL }] }, [NEWS_URL]);
+type Request = { purpose: string; messages: { text: string }[]; webSearch?: { allowedDomains?: string[] } };
 // 어느 예시의 요청인지 보고 답한다(요청 순서가 정해져 있지 않다)
-const answering = (fullAnswer: unknown, sparseAnswer: unknown, chromeAnswer: unknown = chrome, matchAnswer: unknown = match, docsAnswer: unknown = docs) =>
+const answering = (
+  fullAnswer: unknown,
+  sparseAnswer: unknown,
+  chromeAnswer: unknown = chrome,
+  matchAnswer: unknown = match,
+  docsAnswer: unknown = docs,
+  research: { talent: unknown; news: unknown } = { talent: talentResearch, news: newsResearch },
+) =>
   createFakeAi(
-    Array.from({ length: 5 }, () => (request: { messages: { text: string }[] }) => {
+    Array.from({ length: 7 }, () => (request: Request) => {
       const text = request.messages[0].text;
+      if (request.purpose === "company_research") return request.webSearch?.allowedDomains ? research.talent : research.news;
       return text.includes("[경험 기록]")
         ? matchAnswer
         : text.includes("마바사소프트") ? docsAnswer
@@ -82,7 +99,7 @@ beforeEach(async () => {
 
 test("값을 맞게 뽑고 없는 값을 비워 두면 모두 통과한다", async () => {
   const rows = await runPostingCheck(db, answering(full, sparse), "admin");
-  expect(rows).toHaveLength(34);
+  expect(rows).toHaveLength(40);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
 });
 
@@ -219,5 +236,78 @@ test("서류와 문항을 지어내거나 놓치면 잡아낸다", async () => {
     "제출 서류는 이력서와 포트폴리오",
     "서류 종류에 이력서·자기소개서·포트폴리오",
     "둘째 문항은 공백 제외",
+  ]);
+});
+
+const researchChecks = [
+  "인재상을 찾았다",
+  "인재상 출처가 samsung.com이다",
+  "소식 1~8개",
+  "검사로 버린 항목이 2개 이하",
+  "사건·사고 소식이 없다",
+  "날짜가 있으면 1년 안",
+];
+
+test("회사 조사 예시는 삼성전자를 두 번 나눠 조사하고 여섯 줄로 나온다", async () => {
+  const ai = answering(full, sparse);
+  const rows = await runPostingCheck(db, ai, "admin");
+  expect(rows.filter((row) => row.sample === "회사 조사").map((row) => row.check)).toEqual(researchChecks);
+
+  const research = ai.requests.filter((request) => request.purpose === "company_research");
+  expect(research).toHaveLength(2);
+  for (const request of research) {
+    expect(request.messages[0].text).toContain("[회사]\n삼성전자");
+    expect(request.messages[0].text).toContain("[지원 직무]\nSW 개발 신입");
+    expect(request.messages[0].text).toContain("[홈페이지]\nsamsung.com");
+  }
+  expect(research.map((request) => request.webSearch)).toEqual(
+    expect.arrayContaining([{ maxUses: 2, allowedDomains: ["samsung.com"] }, { maxUses: 3 }]),
+  );
+});
+
+test("인재상을 못 찾거나 지어낸 주소·사건·오래된 소식이 있으면 잡아내고 진단용 줄을 남긴다", async () => {
+  const [y, m, d] = today.split("-");
+  const old = `${Number(y) - 2}-${m}-${d}`;
+  const made = (n: number) => ({ summary: `지어낸 소식 ${n}`, date: null, url: `https://made-up.example.com/${n}` });
+  const badNews = webAnswer(
+    {
+      talent: null,
+      news: [
+        { summary: "삼성전자 공장에서 화재가 났다", date: today, url: NEWS_URL },
+        { summary: "삼성전자가 새 제품을 내놓았다", date: old, url: "https://news.example.com/s2" },
+        made(1),
+        made(2),
+        made(3),
+      ],
+    },
+    [NEWS_URL, "https://news.example.com/s2"],
+  );
+  const noTalent = webAnswer({ talent: null, news: [] }, [TALENT_URL]);
+  const rows = await runPostingCheck(db, answering(full, sparse, chrome, match, docs, { talent: noTalent, news: badNews }), "admin");
+  const research = rows.filter((row) => row.sample === "회사 조사");
+  expect(research.filter((row) => !row.pass).map((row) => row.check)).toEqual([
+    "인재상을 찾았다",
+    "인재상 출처가 samsung.com이다",
+    "검사로 버린 항목이 2개 이하",
+    "사건·사고 소식이 없다",
+    "날짜가 있으면 1년 안",
+  ]);
+  const diag = research.find((row) => row.check === "AI가 보낸 답(진단용)");
+  expect(diag?.pass).toBe(true);
+  expect(diag?.actual).toContain("made-up.example.com");
+});
+
+test("맞는 답이면 회사 조사에 진단용 줄을 남기지 않는다", async () => {
+  const rows = await runPostingCheck(db, answering(full, sparse), "admin");
+  expect(rows.some((row) => row.check === "AI가 보낸 답(진단용)")).toBe(false);
+});
+
+test("조사 호출이 모두 실패하면 실패 줄과 진단용 줄이 나온다", async () => {
+  const fail = { fail: "unavailable" };
+  const rows = await runPostingCheck(db, answering(full, sparse, chrome, match, docs, { talent: fail, news: fail }), "admin");
+  const research = rows.filter((row) => row.sample === "회사 조사");
+  expect(research.map((row) => [row.check, row.actual, row.pass])).toEqual([
+    ["AI 호출", "실패: unavailable", false],
+    ["AI가 보낸 답(진단용)", expect.stringContaining("unavailable"), true],
   ]);
 });
