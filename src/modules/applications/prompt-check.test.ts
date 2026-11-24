@@ -31,7 +31,7 @@ const ask = {
     },
     {
       topic: "motive",
-      link: "",
+      link: "회사 소식 3분기 간편결제 거래액 40% 증가 ↔ 많은 사람이 매일 쓰는 서비스를 만들고 싶은 마음",
       question: "공고에서 가장 끌린 점은 무엇인가요?",
       options: ["대용량 트래픽을 다뤄 보고 싶다", "많은 사람이 매일 쓰는 주문·결제 서비스라서", "아직 잘 모르겠다"],
     },
@@ -43,25 +43,45 @@ const answerWrite = {
   shortage: "",
 };
 
-// 답으로 쓰기 요청은 [내 답]에 A1이 있는 쓰기 요청이다
-const isAnswerWrite = (request: { purpose: string; messages: { text: string }[] }) =>
-  request.purpose === "application_write" && request.messages[0].text.includes("[내 답]\nA1");
+const companyWrite = {
+  paragraphs: [
+    { text: "주문·결제처럼 많은 사람이 매일 쓰는 서비스를 안정적으로 만드는 일을 하고 싶어 지원했습니다.", sources: ["A1"] },
+    { text: "3분기 간편결제 거래액이 전년보다 40% 늘어난 귀사에서 늘어나는 결제를 안정적으로 처리하는 일을 하고 싶습니다.", sources: ["A1", "C1"] },
+  ],
+  shortage: "",
+};
 
-const answering = (selectAnswer: unknown = select, writeAnswer: unknown = write, askAnswer: unknown = ask, answerWriteAnswer: unknown = answerWrite) =>
+type Request = { purpose: string; messages: { text: string }[] };
+// 회사 정보로 쓰기 요청은 [회사 정보]에 C1이 있는 쓰기 요청이다
+const isCompanyWrite = (request: Request) => request.purpose === "application_write" && request.messages[0].text.includes("[회사 정보]\nC1");
+// 답으로 쓰기 요청은 [내 답]에 A1이 있고 회사 정보가 없는 쓰기 요청이다
+const isAnswerWrite = (request: Request) =>
+  request.purpose === "application_write" && request.messages[0].text.includes("[내 답]\nA1") && !isCompanyWrite(request);
+
+const answering = (
+  selectAnswer: unknown = select,
+  writeAnswer: unknown = write,
+  askAnswer: unknown = ask,
+  answerWriteAnswer: unknown = answerWrite,
+  companyWriteAnswer: unknown = companyWrite,
+) =>
   createFakeAi(
-    Array.from({ length: 4 }, () => (request: { purpose: string; messages: { text: string }[] }) =>
+    Array.from({ length: 5 }, () => (request: Request) =>
       request.purpose === "application_select"
         ? selectAnswer
         : request.purpose === "application_ask"
           ? askAnswer
-          : isAnswerWrite(request)
-            ? answerWriteAnswer
-            : writeAnswer,
+          : isCompanyWrite(request)
+            ? companyWriteAnswer
+            : isAnswerWrite(request)
+              ? answerWriteAnswer
+              : writeAnswer,
     ),
   );
-const ASK_ROWS = 6;
+const ASK_ROWS = 7;
 const ANSWER_ROWS = 4;
-const ROWS = 12 + ANSWER_ROWS + ASK_ROWS;
+const COMPANY_ROWS = 5;
+const ROWS = 12 + ANSWER_ROWS + ASK_ROWS + COMPANY_ROWS;
 
 beforeEach(async () => {
   delete process.env.AI_MONTHLY_LIMIT_USD;
@@ -74,7 +94,7 @@ test("맞는 답이면 모든 줄이 통과한다", async () => {
   const rows = await runApplicationCheck(db, ai, "admin");
   expect(rows).toHaveLength(ROWS);
   expect(rows.filter((row) => !row.pass)).toEqual([]);
-  expect(ai.requests).toHaveLength(4);
+  expect(ai.requests).toHaveLength(5);
 });
 
 test("쓰기에는 ①의 내용만 보내고 ②와 내부 id는 보내지 않는다", async () => {
@@ -207,7 +227,7 @@ test("묻기에는 확인된 교육과 바리스타 사례를 [내 기록]으로
 test("질문이 하나뿐이고 선택지가 둘이면 그 두 줄이 실패한다", async () => {
   const bad = { items: [{ ...ask.items[0], options: ask.items[0].options.slice(0, 2) }] };
   const rows = await runApplicationCheck(db, answering(select, write, bad), "admin");
-  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["질문 2~3개", "질문마다 선택지 3~5개"]);
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["질문 2~3개", "질문마다 선택지 3~5개", "연결고리 중 하나에 간편결제가 나온다"]);
 });
 
 test("지원동기가 아닌 주제가 있으면 그 줄이 실패한다", async () => {
@@ -279,4 +299,67 @@ test("답으로 쓰기 호출이 실패하면 그 4줄만 실패로 나온다", 
   const bad = rows.filter((row) => !row.pass);
   expect(bad).toHaveLength(ANSWER_ROWS);
   expect(bad.every((row) => row.actual === "실패: invalid" && row.sample === "자소서 답으로 쓰기")).toBe(true);
+});
+
+test("묻기에는 회사 정보를 보내고, 연결고리에 간편결제가 없으면 그 줄만 실패한다", async () => {
+  const ai = answering();
+  await runApplicationCheck(db, ai, "admin");
+  const text = ai.requests.find((r) => r.purpose === "application_ask")?.messages[0].text ?? "";
+  expect(text).toContain("[회사 정보]\n- 소식(날짜 모름): 3분기 간편결제 거래액이 전년보다 40% 늘었다 (출처: news.example.com)");
+
+  const bad = { items: [ask.items[0], { ...ask.items[1], link: "" }] };
+  const rows = await runApplicationCheck(db, answering(select, write, bad), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["연결고리 중 하나에 간편결제가 나온다"]);
+});
+
+// 회사 정보로 쓰기
+
+const companyRows = <T extends { sample: string }>(rows: T[]) => rows.filter((row) => row.sample === "자소서 회사 정보로 쓰기");
+
+test("회사 정보로 쓰기에는 [회사 정보]의 C1과 [내 답]의 A1을 보낸다", async () => {
+  const ai = answering();
+  const rows = await runApplicationCheck(db, ai, "admin");
+  expect(companyRows(rows).map((row) => row.check)).toEqual([
+    "C1을 단 문단이 있다",
+    "그 문단에 A1도 있다",
+    "40%는 C1을 단 문단에만 있다",
+    "지원자가 거래액을 늘린 것처럼 쓰지 않는다",
+    "기록에 없는 숫자가 없다(회사 정보 숫자 허용)",
+  ]);
+  const text = ai.requests.find(isCompanyWrite)?.messages[0].text ?? "";
+  expect(text).toContain("[회사 정보]\nC1 - 소식(날짜 모름): 3분기 간편결제 거래액이 전년보다 40% 늘었다 (출처: news.example.com)");
+  expect(text).toContain("[내 답]\nA1");
+  expect(text).not.toContain("sample-");
+});
+
+test("C1을 단 문단이 없으면 앞의 두 줄이 실패한다", async () => {
+  const bad = { paragraphs: [companyWrite.paragraphs[0]], shortage: "" };
+  const rows = await runApplicationCheck(db, answering(select, write, ask, answerWrite, bad), "admin");
+  expect(rows.filter((row) => !row.pass).map((row) => row.check)).toEqual(["C1을 단 문단이 있다", "그 문단에 A1도 있다"]);
+});
+
+test("회사 정보만으로 된 문단, C1이 없는 문단의 40%, 지원자가 늘린 것처럼 쓴 글, 지어낸 숫자는 각 줄이 실패한다", async () => {
+  const bad = {
+    paragraphs: [
+      { text: "제가 간편결제 거래액을 40% 늘렸습니다.", sources: ["A1"] },
+      { text: "귀사의 간편결제는 500억 원 규모로 자랐습니다.", sources: ["C1"] },
+    ],
+    shortage: "",
+  };
+  const rows = await runApplicationCheck(db, answering(select, write, ask, answerWrite, bad), "admin");
+  const failedRows = rows.filter((row) => !row.pass);
+  expect(failedRows.map((row) => row.check)).toEqual([
+    "그 문단에 A1도 있다",
+    "40%는 C1을 단 문단에만 있다",
+    "지원자가 거래액을 늘린 것처럼 쓰지 않는다",
+    "기록에 없는 숫자가 없다(회사 정보 숫자 허용)",
+  ]);
+  expect(failedRows.at(-1)?.actual).toBe("500");
+});
+
+test("회사 정보로 쓰기 호출이 실패하면 그 5줄만 실패로 나온다", async () => {
+  const rows = await runApplicationCheck(db, answering(select, write, ask, answerWrite, { fail: "invalid" }), "admin");
+  const bad = rows.filter((row) => !row.pass);
+  expect(bad).toHaveLength(COMPANY_ROWS);
+  expect(bad.every((row) => row.actual === "실패: invalid" && row.sample === "자소서 회사 정보로 쓰기")).toBe(true);
 });

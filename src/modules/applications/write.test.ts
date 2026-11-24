@@ -10,7 +10,9 @@ import { confirmExperience, createExperience, setTrackScope, unconfirmExperience
 import { experiences } from "@/modules/experiences/schema";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { validatePosting } from "@/modules/postings/input";
+import { companyKey } from "@/modules/postings/company";
 import { applyToPosting, createPosting, getPosting, saveAnalysis, setStatus, updatePosting } from "@/modules/postings/repo";
+import { claimResearch, finishResearch, setNewsChecked, setTalentVerdict } from "@/modules/postings/research-repo";
 
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
@@ -231,8 +233,8 @@ test("글자 수 기준과 제한 없음이 글에 적힌다", async () => {
   await addExperience();
   const sources = await listWritingSources(db, "u1", trackId);
   const ai = createFakeAi([writeReply(), writeReply()]);
-  await writeText(db, ai, "u1", { prompt: "문항", charLimit: 300, countSpaces: false, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [] }, now);
-  await writeText(db, ai, "u1", { prompt: "문항", charLimit: null, countSpaces: true, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [] }, now);
+  await writeText(db, ai, "u1", { prompt: "문항", charLimit: 300, countSpaces: false, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [], companyFacts: [] }, now);
+  await writeText(db, ai, "u1", { prompt: "문항", charLimit: null, countSpaces: true, postingText: "공고", sources, kinds: ["experience"], answers: [], unanswered: [], companyFacts: [] }, now);
   expect(ai.requests[0].messages[0].text).toContain("[글자 수]\n300자 이내(공백 제외)");
   expect(ai.requests[1].messages[0].text).toContain("[글자 수]\n제한 없음");
 });
@@ -243,11 +245,12 @@ test("쓴 답이 저장된다: 문단의 근거는 실제 id, 기반 경험과 �
     questionVersion: 0,
     basedOn: [{ experienceId: expId, contentVersion: 0 }],
     paragraphs: [
-      { text: "결제 승인 API를 Java로 다시 설계했습니다.", sources: [expId], answers: [], edited: false },
-      { text: "그 결과 장애가 줄었습니다.", sources: [expId], answers: [], edited: false },
+      { text: "결제 승인 API를 Java로 다시 설계했습니다.", sources: [expId], answers: [], company: [], edited: false },
+      { text: "그 결과 장애가 줄었습니다.", sources: [expId], answers: [], company: [], edited: false },
     ],
     shortage: "",
     answers: [],
+    companyFacts: [],
     writtenAt: now.toISOString(),
   });
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(draft);
@@ -463,7 +466,7 @@ test("부분 수정은 그 문단만 바꾸고 다른 문단은 그대로이며,
   expect(result.ok).toBe(true);
   if (!result.ok) return;
   expect(result.value.paragraphs[0]).toEqual(draft.paragraphs[0]);
-  expect(result.value.paragraphs[1]).toEqual({ text: "더 짧게 고친 문단입니다.", sources: [expId], answers: [], edited: false });
+  expect(result.value.paragraphs[1]).toEqual({ text: "더 짧게 고친 문단입니다.", sources: [expId], answers: [], company: [], edited: false });
   expect(result.value.basedOn).toEqual(draft.basedOn);
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(result.value);
   const request = ai.requests[0];
@@ -536,7 +539,7 @@ test("부분 수정의 답도 같은 검사를 거친다: 없는 별명은 버�
   const bad = await reviseParagraph(db, createFakeAi([{ text: "  ", sources: ["E1"] }]), "u1", questionId, 0, { preset: "shorter", note: "" }, draft, now);
   expect(bad).toEqual({ ok: false, reason: "invalid" });
   const ok = await reviseParagraph(db, createFakeAi([{ text: "고쳤다", sources: ["E8"] }]), "u1", questionId, 0, { preset: "shorter", note: "" }, draft, now);
-  expect(ok.ok && ok.value.paragraphs[0]).toEqual({ text: "고쳤다", sources: [], answers: [], edited: false });
+  expect(ok.ok && ok.value.paragraphs[0]).toEqual({ text: "고쳤다", sources: [], answers: [], company: [], edited: false });
 });
 
 test("직접 고친 문단은 edited가 되고 sources는 남는다. 다른 문단은 그대로", async () => {
@@ -545,7 +548,7 @@ test("직접 고친 문단은 edited가 되고 sources는 남는다. 다른 문�
   expect(result.ok).toBe(true);
   if (!result.ok) return;
   expect(result.value.paragraphs).toEqual([
-    { text: "내가 쓴 글", sources: [expId], answers: [], edited: true },
+    { text: "내가 쓴 글", sources: [expId], answers: [], company: [], edited: true },
     draft.paragraphs[1],
   ]);
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(result.value);
@@ -789,9 +792,10 @@ test("자기소개형만인 문항은 고르기 없이 답만으로 쓴다", asy
     value: {
       questionVersion: 0,
       basedOn: [],
-      paragraphs: [{ text: "주문 서비스를 안정적으로 만들고 싶습니다 0", sources: [], answers: answerIds, edited: false }],
+      paragraphs: [{ text: "주문 서비스를 안정적으로 만들고 싶습니다 0", sources: [], answers: answerIds, company: [], edited: false }],
       shortage: "",
       answers: answerIds,
+      companyFacts: [],
       writtenAt: now.toISOString(),
     },
   });
@@ -894,7 +898,7 @@ test("부분 수정은 답을 함께 보내고, 그 답이 없으면 stale", asy
   const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1"] }, reviseReply]);
 
   const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
-  expect(revised.ok && revised.value.paragraphs[0]).toEqual({ text: "고친 문단입니다.", sources: [], answers: answerIds, edited: false });
+  expect(revised.ok && revised.value.paragraphs[0]).toEqual({ text: "고친 문단입니다.", sources: [], answers: answerIds, company: [], edited: false });
   const sent = ai.requests[0].messages[0].text;
   expect(sent).toContain("[내 답]\nA1\n");
   expect(sent).toContain("하루 30만 명이 쓰는 주문 서비스를 안정적으로 만들고 싶다");
@@ -1050,4 +1054,125 @@ test("부분 수정하는 사이 유형을 바꾸면 저장하지 않는다(chan
   ]);
   expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "changed" });
   expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(first.value);
+});
+
+// 회사 정보
+
+const TALENT = { id: "fact-talent-id", text: "끝까지 책임지는 사람을 찾습니다", url: "https://www.ganada.example/careers", title: "인재상", verdict: null };
+const NEWS = [
+  { id: "fact-news-id", summary: "3분기 간편결제 거래액이 전년보다 40% 늘었다", date: "2026-10-15", url: "https://news.example.com/a", title: "기사 1", checked: false },
+  { id: "fact-later-id", summary: "새 물류 센터를 연다", date: null, url: "https://news.example.com/b", title: "기사 2", checked: false },
+];
+const TALENT_LINE = "- 인재상: 끝까지 책임지는 사람을 찾습니다 (출처: ganada.example)";
+const NEWS_LINE = "- 소식(2026-10-15): 3분기 간편결제 거래액이 전년보다 40% 늘었다 (출처: news.example.com)";
+const LATER_LINE = "- 소식(날짜 모름): 새 물류 센터를 연다 (출처: news.example.com)";
+const KEY = companyKey(raw.company);
+
+// 공고 회사의 조사를 끝내고 인재상은 맞음, 첫 소식만 체크해 둔다
+async function addResearch() {
+  const startedAt = await claimResearch(db, "u1", KEY, raw.company, now, { onlyIfMissing: true });
+  if (!startedAt) throw new Error("조사를 잡지 못함");
+  expect(await finishResearch(db, "u1", KEY, startedAt, { talent: TALENT, talentSkipped: false, news: NEWS }, now)).toBe(true);
+  expect((await setTalentVerdict(db, "u1", KEY, TALENT.id, "yes")).ok).toBe(true);
+  expect((await setNewsChecked(db, "u1", KEY, NEWS[0].id, true)).ok).toBe(true);
+}
+
+const talentFact = { id: TALENT.id, kind: "talent", text: TALENT.text, url: TALENT.url, title: TALENT.title, date: null };
+const newsFact = { id: NEWS[0].id, kind: "news", text: NEWS[0].summary, url: NEWS[0].url, title: NEWS[0].title, date: NEWS[0].date };
+
+test("동기포부형 문항에는 확인한 회사 정보를 C 별명으로 보낸다", async () => {
+  await addResearch();
+  const { questionId } = await answered(["motive"]);
+  const ai = createFakeAi([answerReply()]);
+  expect((await approveAndWrite(db, ai, "u1", questionId, [], now)).ok).toBe(true);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain(`[회사 정보]\nC1 ${TALENT_LINE}\nC2 ${NEWS_LINE}\n\n`);
+  expect(sent).not.toContain("새 물류 센터");
+  for (const secret of [TALENT.id, NEWS[0].id, NEWS[1].id]) expect(sent).not.toContain(secret);
+
+  // 아님으로 바꾼 인재상은 보내지 않고, 날짜 없는 소식은 날짜 모름이다. 경험형·동기포부형 문항도 보낸다
+  expect((await setTalentVerdict(db, "u1", KEY, TALENT.id, "no")).ok).toBe(true);
+  expect((await setNewsChecked(db, "u1", KEY, NEWS[1].id, true)).ok).toBe(true);
+  const mixed = await answered(["experience", "motive"], 1, true);
+  const mixedAi = createFakeAi([answerReply()]);
+  expect((await approveAndWrite(db, mixedAi, "u1", mixed.questionId, [mixed.expId], now)).ok).toBe(true);
+  const mixedSent = mixedAi.requests[0].messages[0].text;
+  expect(mixedSent).toContain(`[회사 정보]\nC1 ${NEWS_LINE}\nC2 ${LATER_LINE}\n\n`);
+  expect(mixedSent).not.toContain(TALENT.text);
+});
+
+test("경험형만인 문항에는 회사 정보를 보내지 않는다", async () => {
+  await addResearch();
+  const { expId, questionId } = await ready();
+  const ai = createFakeAi([writeReply()]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [expId], now);
+  expect(result.ok && result.value.companyFacts).toEqual([]);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain("[회사 정보]\n없음");
+  expect(sent).not.toContain("간편결제");
+});
+
+test("C 별명을 회사 정보 id로 바꾸고 없는 별명은 버린다", async () => {
+  await addResearch();
+  const { questionId, answerIds } = await answered(["motive"]);
+  const ai = createFakeAi([answerReply([["A1", "C2", "C9", "C0", "c1", "C2"], ["A1"]])]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(result.ok && result.value.paragraphs.map((p) => [p.sources, p.answers, p.company])).toEqual([
+    [[], answerIds, [NEWS[0].id, TALENT.id]],
+    [[], answerIds, []],
+  ]);
+});
+
+test("보낸 회사 정보를 답에 복사해 둔다", async () => {
+  await addResearch();
+  const { questionId } = await answered(["motive"]);
+  const result = await approveAndWrite(db, createFakeAi([answerReply([["A1", "C1"]])]), "u1", questionId, [], now);
+  expect(result.ok && result.value.companyFacts).toEqual([talentFact, newsFact]);
+  expect((await getQuestion(db, "u1", questionId))?.draft).toEqual(result.ok && result.value);
+});
+
+test("조사가 없으면 회사 정보 없음으로 쓴다", async () => {
+  const { questionId } = await answered(["motive"]);
+  const ai = createFakeAi([answerReply([["A1", "C1"]])]);
+  const result = await approveAndWrite(db, ai, "u1", questionId, [], now);
+  expect(ai.requests[0].messages[0].text).toContain("[회사 정보]\n없음");
+  expect(result.ok && result.value.companyFacts).toEqual([]);
+  expect(result.ok && result.value.paragraphs[0].company).toEqual([]);
+});
+
+test("고치기는 쓸 수 없게 된 회사 정보가 있으면 stale이고 AI를 부르지 않는다", async () => {
+  await addResearch();
+  const { questionId } = await answered(["motive"]);
+  const first = await approveAndWrite(db, createFakeAi([answerReply([["A1", "C2"]])]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  expect((await setNewsChecked(db, "u1", KEY, NEWS[0].id, false)).ok).toBe(true);
+  const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1"] }]);
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "stale" });
+  expect(ai.requests).toHaveLength(0);
+
+  // 다시 조사해 id가 바뀌어도 stale이다
+  expect((await setNewsChecked(db, "u1", KEY, NEWS[0].id, true)).ok).toBe(true);
+  const later = new Date(now.getTime() + 60 * 60_000);
+  const startedAt = await claimResearch(db, "u1", KEY, raw.company, later, { onlyIfMissing: false });
+  if (!startedAt) throw new Error("조사를 잡지 못함");
+  const renewed = { talent: { ...TALENT, id: "new-talent", verdict: "yes" as const }, talentSkipped: false, news: [{ ...NEWS[0], id: "new-news", checked: true }] };
+  expect(await finishResearch(db, "u1", KEY, startedAt, renewed, later)).toBe(true);
+  expect(await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now)).toEqual({ ok: false, reason: "stale" });
+  expect(ai.requests).toHaveLength(0);
+});
+
+test("고치기는 복사본을 다시 보낸다", async () => {
+  await addResearch();
+  const { questionId, answerIds } = await answered(["motive"]);
+  const first = await approveAndWrite(db, createFakeAi([answerReply()]), "u1", questionId, [], now);
+  if (!first.ok) throw new Error(first.reason);
+  // 쓴 뒤 더 체크한 소식은 고치기에 보내지 않는다
+  expect((await setNewsChecked(db, "u1", KEY, NEWS[1].id, true)).ok).toBe(true);
+  const ai = createFakeAi([{ text: "고친 문단입니다.", sources: ["A1", "C1"] }]);
+  const revised = await reviseParagraph(db, ai, "u1", questionId, 0, { preset: "shorter", note: "" }, first.value, now);
+  const sent = ai.requests[0].messages[0].text;
+  expect(sent).toContain(`[회사 정보]\nC1 ${TALENT_LINE}\nC2 ${NEWS_LINE}\n\n`);
+  expect(sent).not.toContain("새 물류 센터");
+  expect(revised.ok && revised.value.paragraphs[0]).toEqual({ text: "고친 문단입니다.", sources: [], answers: answerIds, company: [TALENT.id], edited: false });
+  expect(revised.ok && revised.value.companyFacts).toEqual([talentFact, newsFact]);
 });

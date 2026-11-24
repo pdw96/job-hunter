@@ -9,7 +9,9 @@ import { createFact } from "@/modules/experiences/facts-repo";
 import type { CourseInput } from "@/modules/experiences/record-input";
 import type { AppliedScore, PostingAnalysis } from "@/modules/postings/analysis";
 import { validatePosting } from "@/modules/postings/input";
+import { companyKey } from "@/modules/postings/company";
 import { applyToPosting, createPosting, getPosting, saveAnalysis, updatePosting } from "@/modules/postings/repo";
+import { claimResearch, finishResearch, setNewsChecked, setTalentVerdict } from "@/modules/postings/research-repo";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { createAnswer, listAnswersByIds } from "./answers-repo";
@@ -194,7 +196,7 @@ test("link는 200자로 자른다", async () => {
     db,
     fakeAi([item({ link: "가".repeat(250), question: "  물음  " })]),
     "u1",
-    { prompt: "지원 동기", company: "가나다", title: "개발자", postingText: "공고", topics: ["motive"], hooks: [] },
+    { prompt: "지원 동기", company: "가나다", title: "개발자", postingText: "공고", topics: ["motive"], hooks: [], companyFacts: [] },
     now,
   );
   if (!result.ok) throw new Error(result.reason);
@@ -560,4 +562,51 @@ test("연결고리가 있는 질문의 답은 연결고리를 질문 글에 함�
   await answerAsks(db, "u1", plain.id, [{ id: plainAsks.items[0].id, options: [0], previous: [], note: "" }], now);
   const [plainAnswer] = await listAnswersByIds(db, "u1", (await getQuestion(db, "u1", plain.id))?.answerIds ?? []);
   expect(plainAnswer.question).toBe("이 직무를 고른 이유는 무엇인가요?");
+});
+
+// 회사 정보
+
+// "(주)가나다테크"의 조사를 끝내고 인재상은 맞음, 첫 소식만 체크해 둔다
+async function addResearch() {
+  const key = companyKey("(주)가나다테크");
+  const startedAt = await claimResearch(db, "u1", key, "(주)가나다테크", now, { onlyIfMissing: true });
+  if (!startedAt) throw new Error("조사를 잡지 못함");
+  const talent = { id: "fact-talent-id", text: "끝까지 책임지는 사람을 찾습니다", url: "https://www.ganada.example/careers", title: "인재상", verdict: null };
+  const news = [
+    { id: "fact-news-id", summary: "3분기 간편결제 거래액이 전년보다 40% 늘었다", date: "2026-10-15", url: "https://news.example.com/a", title: "기사 1", checked: false },
+    { id: "fact-later-id", summary: "새 물류 센터를 연다", date: null, url: "https://news.example.com/b", title: "기사 2", checked: false },
+  ];
+  expect(await finishResearch(db, "u1", key, startedAt, { talent, talentSkipped: false, news }, now)).toBe(true);
+  expect((await setTalentVerdict(db, "u1", key, talent.id, "yes")).ok).toBe(true);
+  expect((await setNewsChecked(db, "u1", key, news[0].id, true)).ok).toBe(true);
+}
+
+test("지원동기 주제면 확인한 회사 정보를 보낸다", async () => {
+  await addResearch();
+  const { id } = await addQuestion(["motive"]);
+  const ai = fakeAi([item()]);
+  expect((await makeAsks(db, ai, "u1", id, ["motive"], now)).ok).toBe(true);
+  const text = ai.requests[0].messages[0].text;
+  expect(text).toContain(
+    "[회사 정보]\n- 인재상: 끝까지 책임지는 사람을 찾습니다 (출처: ganada.example)\n- 소식(2026-10-15): 3분기 간편결제 거래액이 전년보다 40% 늘었다 (출처: news.example.com)",
+  );
+  expect(text).not.toContain("새 물류 센터");
+  expect(text).not.toContain("fact-");
+
+  // 입사 후 포부만 물어도 보낸다
+  const aspiration = await addQuestion(["aspiration"]);
+  const aspirationAi = fakeAi([item({ topic: "aspiration" })]);
+  expect((await makeAsks(db, aspirationAi, "u1", aspiration.id, ["aspiration"], now)).ok).toBe(true);
+  expect(aspirationAi.requests[0].messages[0].text).toContain("간편결제");
+});
+
+test("성장과정만 물으면 보내지 않는다", async () => {
+  await addResearch();
+  const { id } = await addQuestion(["growth"]);
+  const ai = fakeAi([item({ topic: "growth" })]);
+  expect((await makeAsks(db, ai, "u1", id, ["growth"], now)).ok).toBe(true);
+  const text = ai.requests[0].messages[0].text;
+  expect(text).toContain("[회사 정보]\n없음");
+  expect(text).not.toContain("간편결제");
+  expect(text).not.toContain("끝까지 책임지는");
 });

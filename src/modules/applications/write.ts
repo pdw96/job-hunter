@@ -4,6 +4,8 @@ import { type AiClient, type AiFailure, runAi } from "@/modules/ai/client";
 import { listWritingSources, type WritingSource } from "@/modules/experiences/sources";
 import { companyKey } from "@/modules/postings/company";
 import { getPosting } from "@/modules/postings/repo";
+import { type CompanyFact, companyFacts } from "@/modules/postings/research";
+import { getResearch } from "@/modules/postings/research-repo";
 import { type Answer, listAnswersByIds } from "./answers-repo";
 import { answerUnused, unansweredKinds, unansweredTopics } from "./kinds";
 import { ANSWER_TOPIC_LABELS, type AnswerTopic, APPLICATION_LIMITS, type QuestionKind, QUESTION_KIND_LABELS } from "./options";
@@ -11,11 +13,12 @@ import { REVISE_SYSTEM, WRITE_SYSTEM } from "./prompts";
 import { approveSelection, createDraft, getQuestion, replaceDraft, saveDraft } from "./repo";
 import { describeSource, postingTextOf } from "./select";
 import { editBlock, withEditLock } from "./submission-repo";
-import { answerAlias, cut, resolveAlias } from "./text";
+import { answerAlias, companyAlias, cut, describeCompanyFact, resolveAlias } from "./text";
 import type { Draft, Paragraph, SourceRef } from "./types";
 
 // 승인한 경험과 지원자의 답(묻기)만으로 자소서 답을 쓰고, 문단 하나를 AI로 고치거나 직접 고친다.
-// AI에게는 실제 id 대신 경험은 E1, E2, 지원자의 답은 A1, A2 같은 별명만 보내고, 문단의 별명은 코드가 실제 id로 바꾼다.
+// AI에게는 실제 id 대신 경험은 E1, E2, 지원자의 답은 A1, A2, 회사 정보는 C1, C2 같은 별명만 보내고, 문단의 별명은 코드가 실제 id로 바꾼다.
+// 회사 정보(지원자가 맞다고 한 인재상, 체크한 소식)는 동기포부형 문항에만 보낸다.
 // 숫자·금지 표현은 저장 뒤 checkDraft가 표시한다(저장은 막지 않는다).
 
 export type WriteFailure =
@@ -42,6 +45,7 @@ export type WriteInput = {
   kinds: QuestionKind[];
   answers: Answer[]; // 문항에 붙인 지원자의 답. 이력 사실(학력·자격)은 보내지 않는다
   unanswered: AnswerTopic[]; // 문항의 주제 중 답이 없는 것. AI가 그 주제를 지어 쓰지 않게 알린다
+  companyFacts: CompanyFact[]; // 지원자가 확인한 회사 정보. 동기포부형이 아니면 빈 배열
 };
 
 const PRESET_TEXT: Record<RevisePreset, string> = {
@@ -71,6 +75,7 @@ function buildBase(input: WriteInput): [string, string][] {
     ["문항 유형", input.kinds.map((kind) => QUESTION_KIND_LABELS[kind]).join(", ")],
     ["글자 수", limitText(input.charLimit, input.countSpaces)],
     ["공고", input.postingText],
+    ["회사 정보", input.companyFacts.length > 0 ? input.companyFacts.map((f, i) => `C${i + 1} - ${describeCompanyFact(f)}`).join("\n") : "없음"],
     ["경험 기록", orNone(input.sources.map((s, i) => describeSource(`E${i + 1}`, s, true)))],
     ["내 답", orNone(input.answers.map((a, i) => describeAnswer(`A${i + 1}`, a)))],
     ["답이 없는 주제", input.unanswered.length > 0 ? input.unanswered.map((topic) => ANSWER_TOPIC_LABELS[topic]).join(", ") : "없음"],
@@ -79,7 +84,7 @@ function buildBase(input: WriteInput): [string, string][] {
 
 const render = (sections: [string, string][]) => sections.map(([label, value]) => `[${label}]\n${value}`).join("\n\n");
 
-// AI가 준 문단을 검사한다. A 별명은 보낸 답의 id로, 그 밖의 별명은 승인 경험의 id로 바꾸고,
+// AI가 준 문단을 검사한다. A 별명은 보낸 답의 id로, C 별명은 보낸 회사 정보의 id로, 그 밖의 별명은 승인 경험의 id로 바꾸고,
 // 없는 별명은 버리고(같은 별명은 한 번), 글은 다듬고 2000자로 자른다.
 // 근거가 없는 문단은 남긴다(checkDraft가 "근거 없음"으로 표시한다)
 function cleanParagraph(
@@ -87,9 +92,11 @@ function cleanParagraph(
   aliases: string[],
   sources: WritingSource[],
   answers: Answer[],
-): { text: string; sources: string[]; answers: string[] } {
+  facts: CompanyFact[],
+): { text: string; sources: string[]; answers: string[]; company: string[] } {
   const ids = new Set<string>();
   const answerIds = new Set<string>();
+  const factIds = new Set<string>();
   for (const alias of aliases) {
     const n = answerAlias(alias);
     const answer = n === null ? undefined : answers[n - 1];
@@ -97,10 +104,22 @@ function cleanParagraph(
       answerIds.add(answer.id);
       continue;
     }
+    const c = companyAlias(alias);
+    if (c !== null) {
+      const fact = facts[c - 1];
+      if (fact) factIds.add(fact.id);
+      continue;
+    }
     const s = resolveAlias(alias, sources);
     if (s) ids.add(s.id);
   }
-  return { text: cut(text.trim(), APPLICATION_LIMITS.paragraph), sources: [...ids], answers: [...answerIds] };
+  return { text: cut(text.trim(), APPLICATION_LIMITS.paragraph), sources: [...ids], answers: [...answerIds], company: [...factIds] };
+}
+
+// 지금 쓸 수 있는 회사 정보: 공고 회사의 조사에서 지원자가 맞다고 한 인재상과 체크한 소식. 조사가 없으면 빈 배열
+export async function usableCompanyFacts(db: Db, userId: string, company: string): Promise<CompanyFact[]> {
+  const research = await getResearch(db, userId, companyKey(company));
+  return research ? companyFacts(research) : [];
 }
 
 // 저장하지 않는다. 프롬프트 점검도 이것을 쓴다
@@ -128,7 +147,7 @@ export async function writeText(
   if (!result.ok) return { ok: false, reason: result.reason };
 
   const paragraphs: Paragraph[] = result.value.paragraphs
-    .map((p) => cleanParagraph(p.text, p.sources, input.sources, input.answers))
+    .map((p) => cleanParagraph(p.text, p.sources, input.sources, input.answers, input.companyFacts))
     .filter((p) => p.text !== "")
     .slice(0, APPLICATION_LIMITS.paragraphs)
     .map((p) => ({ ...p, edited: false }));
@@ -212,6 +231,8 @@ export async function approveAndWrite(
     }
   }
 
+  // 회사 정보는 동기포부형 문항에만 보낸다
+  const facts = kinds.includes("motive") ? await usableCompanyFacts(db, userId, posting.company) : [];
   const written = await writeText(
     db,
     ai,
@@ -225,6 +246,7 @@ export async function approveAndWrite(
       kinds,
       answers,
       unanswered: unansweredTopics(question.topics, answerTopics),
+      companyFacts: facts,
     },
     now,
   );
@@ -236,6 +258,7 @@ export async function approveAndWrite(
     basedOn: approved ?? [],
     ...written.value,
     answers: answers.map((a) => a.id),
+    companyFacts: facts,
     writtenAt: now.toISOString(),
   };
   const saved = await withEditLock(db, userId, posting.id, (tx) =>
@@ -291,6 +314,16 @@ export async function reviseParagraph(
   if (sent.length !== sentIds.length) return { ok: false, reason: "stale" };
   const answers = usableAnswers(sent, question.topics, posting.company); // 유형·회사가 바뀌어 쓸 수 없게 된 답은 다시 보내지 않는다
 
+  // 쓸 때 보낸 회사 정보가 하나라도 지금 쓸 수 없으면(체크를 풀었거나, 다시 조사했거나, 회사 이름을 바꿈) 막는다.
+  // 모두 있으면 지금 목록이 아닌 쓸 때의 복사본을 다시 보낸다. 유형에서 동기포부형을 뺐으면 보내지 않는다
+  const kinds = question.kinds ?? ["experience"];
+  const sentFacts = stored.companyFacts ?? [];
+  if (sentFacts.length > 0) {
+    const current = new Set((await usableCompanyFacts(db, userId, posting.company)).map((f) => f.id));
+    if (sentFacts.some((f) => !current.has(f.id))) return { ok: false, reason: "stale" };
+  }
+  const facts = kinds.includes("motive") ? sentFacts : [];
+
   const requestText = [request.preset ? PRESET_TEXT[request.preset] : "", note].filter(Boolean).join("\n");
   const sections = buildBase({
     prompt: question.prompt,
@@ -298,9 +331,10 @@ export async function reviseParagraph(
     countSpaces: question.countSpaces,
     postingText: postingTextOf(posting),
     sources,
-    kinds: question.kinds ?? ["experience"],
+    kinds,
     answers,
     unanswered: unansweredTopics(question.topics, answers.map((a) => a.topic)),
+    companyFacts: facts,
   });
   sections.push(
     ["지금 답", stored.paragraphs.map((p) => p.text).join("\n")],
@@ -323,7 +357,7 @@ export async function reviseParagraph(
   );
   if (!result.ok) return { ok: false, reason: result.reason };
 
-  const cleaned = cleanParagraph(result.value.text, result.value.sources, sources, answers);
+  const cleaned = cleanParagraph(result.value.text, result.value.sources, sources, answers, facts);
   if (cleaned.text === "") return { ok: false, reason: "invalid" };
   const next: Draft = {
     ...stored,

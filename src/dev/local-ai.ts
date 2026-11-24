@@ -335,6 +335,8 @@ function applicationWrite(text: string) {
   // [내 답]이 있으면 첫 답의 글을 A1이 근거인 문단으로 앞에 둔다
   const answer = section(text, "내 답").split(/\n\n(?=A\d+\n)/)[0]?.match(/^- 답: (.*)$/m)?.[1] ?? "";
   if (answer) paragraphs.unshift({ text: answer, sources: ["A1"] });
+  // [회사 정보]가 있으면 첫 문단에 C1을 단다
+  if (section(text, "회사 정보") && paragraphs[0]) paragraphs[0].sources.push("C1");
   return { paragraphs, shortage: "" };
 }
 

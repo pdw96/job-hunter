@@ -1,5 +1,6 @@
 // applications 모듈이 저장하는 JSON의 모양. 타입만 둔다
 import type { Kind } from "@/modules/experiences/options";
+import type { CompanyFact } from "@/modules/postings/research";
 import type { AnswerTopic } from "./options";
 
 // 근거로 삼은 경험과, 그때의 내용 버전
@@ -15,14 +16,16 @@ export type Selection = {
   approved: SourceRef[] | null;
   approvedAt: string | null;
 };
-// sources는 경험 id, answers는 근거로 삼은 지원자의 답(applications_answers) id. 옛 답에는 answers가 없다(빈 배열로 본다)
-export type Paragraph = { text: string; sources: string[]; answers?: string[]; edited: boolean };
+// sources는 경험 id, answers는 근거로 삼은 지원자의 답(applications_answers) id, company는 쓴 회사 정보(CompanyFact) id.
+// 옛 답에는 answers·company가 없다(빈 배열로 본다)
+export type Paragraph = { text: string; sources: string[]; answers?: string[]; company?: string[]; edited: boolean };
 export type Draft = {
   questionVersion: number;
   basedOn: SourceRef[];
   paragraphs: Paragraph[];
   shortage: string;
   answers?: string[]; // 쓸 때 AI에 보낸 답 id. 옛 답에는 없다
+  companyFacts?: CompanyFact[]; // 쓸 때 AI에 보낸 회사 정보의 복사본(고치기도 이것을 보낸다). 옛 답에는 없다
   writtenAt: string;
 };
 
