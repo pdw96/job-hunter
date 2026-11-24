@@ -14,6 +14,8 @@ const store = globalThis as { __localDb?: Promise<Db> };
 store.__localDb ??= (async () => {
   const created = await createTestDb();
   await created.insert(user).values({ id: LOCAL_USER.id, name: LOCAL_USER.name, email: LOCAL_USER.email });
+  // 기본은 빈 기록(처음 로그인한 사용자처럼 설문부터). LOCAL_SEED=career면 경력기술서를 볼 수 있는 기록을 넣는다
+  if (process.env.LOCAL_SEED === "career") await (await import("./local-seed")).seedCareer(created, LOCAL_USER.id);
   return created;
 })();
 

@@ -45,6 +45,9 @@ export default async function HomePage() {
               <Link href={`/tracks/${track.id}/resume`} className="underline">
                 이력서 공통본
               </Link>
+              <Link href={`/tracks/${track.id}/career`} className="underline">
+                경력기술서 공통본
+              </Link>
             </p>
           </li>
         ))}
