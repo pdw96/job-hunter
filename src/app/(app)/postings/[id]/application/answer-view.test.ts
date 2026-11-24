@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type { Answer } from "@/modules/applications/answers-repo";
 import type { AskItem } from "@/modules/applications/types";
-import { answerNames, answerViews, initialChecked, missingTopicsText, picksToSend, toggled, wantsExperience, writePlan } from "./answer-view";
+import { answerNames, answerViews, companyNames, initialChecked, missingTopicsText, picksToSend, toggled, wantsExperience, writePlan } from "./answer-view";
 
 const answer = (id: string, topic: Answer["topic"], text: string): Answer => ({
   id,
@@ -113,4 +113,12 @@ test("붙인 답이 없는 주제", () => {
   expect(missingTopicsText(["motive", "aspiration"], [answer("a1", "motive", "x")].map((a) => a.topic))).toBe("입사 후 포부에 아직 답이 없습니다");
   expect(missingTopicsText(["motive", "aspiration"], [])).toBe("지원동기, 입사 후 포부에 아직 답이 없습니다");
   expect(missingTopicsText(["motive"], ["motive"])).toBeNull();
+});
+
+test("companyNames: 회사 정보 id → 'www.'를 뗀 호스트로 만든 이름", () => {
+  const fact = (id: string, url: string) => ({ id, kind: "news" as const, text: "소식", url, title: "제목", date: null });
+  expect(companyNames([fact("c1", "https://www.Example.com/news/1"), fact("c2", "https://ir.ganada.co.kr/a")])).toEqual({
+    c1: "회사 정보: example.com",
+    c2: "회사 정보: ir.ganada.co.kr",
+  });
 });

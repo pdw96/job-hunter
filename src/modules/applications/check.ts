@@ -1,5 +1,6 @@
 import { numbersIn } from "@/modules/experiences/grounding";
 import type { WritingSource } from "@/modules/experiences/sources";
+import { factNumbers } from "@/modules/postings/research";
 import type { Answer } from "./answers-repo";
 import type { Question } from "./repo";
 import type { Draft } from "./types";
@@ -20,7 +21,8 @@ export function answerText(draft: Draft): string {
 export type ParagraphCheck = { banned: string[]; ungrounded: string[]; noSource: boolean; staleSource: boolean; structureChanged: boolean };
 // oldIds: 옛 표의 기록 id(oldRecordIds). 없으면 옛 기록 표시를 하지 않는다
 // answers: 지금 있는 지원자의 답(답에 쓰인 id로 읽은 것). 없으면 답 근거는 모두 없어진 것으로 본다
-export type CheckOptions = { oldIds?: Set<string>; answers?: Answer[] };
+// companyFactIds: 지금 쓸 수 있는 회사 정보 id(맞음 인재상·체크한 소식). 없으면 회사 정보 근거는 모두 쓸 수 없게 된 것으로 본다
+export type CheckOptions = { oldIds?: Set<string>; answers?: Answer[]; companyFactIds?: Set<string> };
 export type DraftCheck = {
   length: { count: number; limit: number | null; over: boolean };
   paragraphs: ParagraphCheck[];
@@ -57,6 +59,9 @@ export function checkDraft(
   // 쓸 때 보낸(draft.answers) 답 중 지금 있는 것만 근거로 친다. 옛 답에는 answers가 없다
   const sent = new Set(draft.answers ?? []);
   const answerById = new Map((options.answers ?? []).map((answer) => [answer.id, answer]));
+  // 회사 정보는 쓸 때 보낸 복사본(draft.companyFacts)의 글로 숫자를 본다. 옛 답에는 둘 다 없다
+  const companyIds = options.companyFactIds ?? new Set<string>();
+  const factById = new Map((draft.companyFacts ?? []).map((fact) => [fact.id, fact]));
 
   const bannedPhrases = draft.basedOn.flatMap((ref) => byId.get(ref.experienceId)?.bannedPhrases ?? []);
   const promptNumbers = numbersIn(question.prompt);
@@ -74,13 +79,17 @@ export function checkDraft(
     }
 
     const answerIds = paragraph.answers ?? [];
+    const factIds = paragraph.company ?? [];
+    // 다시 조사했거나 체크를 풀어 지금 쓸 수 없는 회사 정보를 가리키면 바뀜으로 본다
     const staleSource =
       paragraph.sources.some((id) => {
         const current = byId.get(id);
         if (!current) return true;
         const based = basedVersion.get(id);
         return based !== undefined && based !== current.contentVersion;
-      }) || answerIds.some((id) => !answerById.has(id));
+      }) ||
+      answerIds.some((id) => !answerById.has(id)) ||
+      factIds.some((id) => !companyIds.has(id));
     const groundingAnswers = answerIds.flatMap((id) => (sent.has(id) ? (answerById.get(id) ?? []) : []));
 
     if (paragraph.edited) return { banned, ungrounded: [], noSource: false, staleSource, structureChanged: false };
@@ -94,8 +103,14 @@ export function checkDraft(
       }),
       // 근거로 친 답 글의 숫자도 허용한다(공고 글의 숫자는 허용하지 않는다)
       ...groundingAnswers.flatMap((answer) => numbersIn(answer.answer)),
+      // 이 문단이 단 회사 정보의 숫자만 허용한다(복사본에 있는 것만)
+      ...factIds.flatMap((id) => {
+        const fact = factById.get(id);
+        return fact ? factNumbers(fact) : [];
+      }),
     ]);
     const ungrounded = [...new Set(numbersIn(paragraph.text).filter((n) => !known.has(n)))];
+    // 회사 정보는 지원자의 이야기가 아니므로 근거로 치지 않는다(회사 정보만 단 문단은 근거 없음)
     const noSource = !paragraph.sources.some((id) => approved.has(id)) && groundingAnswers.length === 0;
     return { banned, ungrounded, noSource, staleSource, structureChanged: false };
   });

@@ -22,6 +22,9 @@ import { freeze, reopenPosting, submitPosting, submitPreview } from "./submit";
 import { getSubmission, listSubmissions } from "./submission-repo";
 import type { Draft, ResumeContent, ResumeEntry, SubmittedResume } from "./types";
 import type { Posting } from "@/modules/postings/repo";
+import { companyKey } from "@/modules/postings/company";
+import type { CompanyFact } from "@/modules/postings/research";
+import { claimResearch, finishResearch, setNewsChecked } from "@/modules/postings/research-repo";
 
 // 이 파일의 예시는 대부분 옛 표(createExperience)로 원천을 만든다. 스위치(newRecordsOn)는 5-4부터 늘 켜져 있으므로
 // 원천 읽기(sources.ts)를 옛 표로 고정하고, 새 표를 쓰는 테스트에서만 켠다(자소서·이력서·채점 로직은 원천 모양만 본다)
@@ -455,4 +458,86 @@ test("submitPreview: 답이 근거인 문단과 답 글의 숫자는 표시로 �
   await setChosenDocuments(db, "u1", postingId, ["cover_letter"]);
   const posting = (await getPosting(db, "u1", postingId)) as Posting;
   expect((await submitPreview(db, "u1", posting)).warnings).toEqual([]);
+});
+
+// 회사 정보 근거
+
+const companyFact = (over: Partial<CompanyFact> = {}): CompanyFact => ({
+  id: "fact-1",
+  kind: "news",
+  text: "3분기 간편결제 거래액이 전년보다 40% 늘어",
+  url: "https://www.example.com/news/1",
+  title: "가나다 3분기 실적",
+  date: null,
+  ...over,
+});
+const questionWith = (draft: Draft, postingId: string) => ({
+  id: "q1", postingId, position: 0, version: 1, selection: null, kinds: null, topics: null, freeformItem: null, asks: null, answerIds: [], createdAt: now, updatedAt: now,
+  prompt: "지원 동기", charLimit: 500, countSpaces: true, draft,
+});
+
+test("freeze: 회사 정보 근거를 '회사 정보: 호스트'로 얼린다", async () => {
+  const postingId = await addPosting();
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  const draft: Draft = {
+    questionVersion: 1,
+    basedOn: [],
+    paragraphs: [{ text: "답", sources: ["e1"], answers: ["a1"], company: ["fact-1"], edited: false }],
+    shortage: "",
+    answers: ["a1"],
+    companyFacts: [companyFact()],
+    writtenAt: now.toISOString(),
+  };
+  const content = freeze(posting, [questionWith(draft, postingId)], null, new Map([["e1", "결제 개편"]]), new Map([["a1", "내 답: 지원동기"]]));
+  expect(content.answers[0].paragraphs[0].sources).toEqual([
+    { experienceId: "e1", name: "결제 개편" },
+    { experienceId: "a1", name: "내 답: 지원동기" },
+    { experienceId: "fact-1", name: "회사 정보: example.com" },
+  ]);
+});
+
+test("freeze: 답의 복사본에 없는 회사 정보는 '지운 회사 정보'로 얼린다", async () => {
+  const postingId = await addPosting();
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  const draft: Draft = {
+    questionVersion: 1,
+    basedOn: [],
+    paragraphs: [{ text: "답", sources: [], company: ["fact-1", "gone"], edited: false }],
+    shortage: "",
+    companyFacts: [companyFact()],
+    writtenAt: now.toISOString(),
+  };
+  const content = freeze(posting, [questionWith(draft, postingId)], null, new Map());
+  expect(content.answers[0].paragraphs[0].sources).toEqual([
+    { experienceId: "fact-1", name: "회사 정보: example.com" },
+    { experienceId: "gone", name: "지운 회사 정보" },
+  ]);
+});
+
+test("submitPreview: 쓸 수 없게 된 회사 정보를 단 문단은 표시로 세고, 지금 쓸 수 있으면 숫자도 세지 않는다", async () => {
+  const postingId = await addPosting();
+  const questionId = await addQuestion(postingId, "지원 동기");
+  const answerId = await addMotiveAnswer(postingId);
+  const key = companyKey(raw.company);
+  const startedAt = await claimResearch(db, "u1", key, raw.company, now, { onlyIfMissing: true });
+  if (!startedAt) throw new Error("조사를 잡지 못함");
+  const news = { id: "news-1", summary: "3분기 간편결제 거래액이 전년보다 40% 늘어", date: null, url: "https://www.example.com/news/1", title: "가나다 3분기 실적", checked: false };
+  expect(await finishResearch(db, "u1", key, startedAt, { talent: null, talentSkipped: true, news: [news] }, now)).toBe(true);
+  expect((await setNewsChecked(db, "u1", key, "news-1", true)).ok).toBe(true);
+  const draft: Draft = {
+    questionVersion: 0,
+    basedOn: [],
+    paragraphs: [{ text: "거래액이 40% 늘어난 주문 서비스를 만들고 싶습니다", sources: [], answers: [answerId], company: ["news-1"], edited: false }],
+    shortage: "",
+    answers: [answerId],
+    companyFacts: [companyFact({ id: "news-1" })],
+    writtenAt: now.toISOString(),
+  };
+  expect((await createDraft(db, "u1", questionId, draft)).ok).toBe(true);
+  await setChosenDocuments(db, "u1", postingId, ["cover_letter"]);
+  const posting = (await getPosting(db, "u1", postingId)) as Posting;
+  expect((await submitPreview(db, "u1", posting)).warnings).toEqual([]);
+
+  expect((await setNewsChecked(db, "u1", key, "news-1", false)).ok).toBe(true);
+  expect((await submitPreview(db, "u1", posting)).warnings).toEqual(["표시가 남은 문항: 1번"]);
 });

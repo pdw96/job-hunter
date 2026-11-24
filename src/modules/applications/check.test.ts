@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WritingSource } from "@/modules/experiences/writing";
+import type { CompanyFact } from "@/modules/postings/research";
 import type { Answer } from "./answers-repo";
 import { answerText, checkDraft, countChars } from "./check";
 import type { Draft, Paragraph } from "./types";
@@ -228,6 +229,66 @@ describe("답 근거", () => {
   it("옛 답(answers 칸 없음)은 지금과 같게 검사한다", () => {
     const d = draft([paragraph({ text: "응답 시간을 40% 개선했다" }), paragraph({ sources: [] })]);
     expect(checkDraft(d, question, [source()], { answers: [answer()] })).toEqual(checkDraft(d, question, [source()]));
+    expect(checkDraft(d, question, [source()]).paragraphs.map((p) => [p.ungrounded, p.noSource, p.staleSource])).toEqual([
+      [["40"], false, false],
+      [[], true, false],
+    ]);
+  });
+});
+
+describe("회사 정보 근거", () => {
+  const answer: Answer = {
+    id: "a1",
+    topic: "motive",
+    question: "왜 이 회사인가요?",
+    answer: "결제 서비스를 안정적으로 만들고 싶다",
+    postingId: null,
+    company: "가나다",
+    companyKey: "가나다",
+    createdAt: new Date("2026-11-18T00:00:00Z"),
+  };
+  const fact = (over: Partial<CompanyFact> = {}): CompanyFact => ({
+    id: "c1",
+    kind: "news",
+    text: "3분기 간편결제 거래액이 전년보다 40% 늘어",
+    url: "https://www.example.com/news/1",
+    title: "가나다 3분기 실적",
+    date: null,
+    ...over,
+  });
+  const motive = (paragraphs: Paragraph[], over: Partial<Draft> = {}) => draft(paragraphs, { basedOn: [], answers: ["a1"], companyFacts: [fact()], ...over });
+  const withCompany = (over: Partial<Paragraph> = {}) =>
+    paragraph({ text: "거래액이 40% 늘어난 결제 서비스를 안정적으로 만들고 싶습니다", sources: [], answers: ["a1"], company: ["c1"], ...over });
+  const options = { answers: [answer], companyFactIds: new Set(["c1"]) };
+
+  it("회사 정보 숫자는 그 정보를 단 문단에서만 허용", () => {
+    const d = motive([withCompany(), withCompany({ company: [] })]);
+    const out = checkDraft(d, question, [], options);
+    expect(out.paragraphs.map((p) => p.ungrounded)).toEqual([[], ["40"]]);
+  });
+
+  it("답의 복사본에 없는 회사 정보 id의 숫자는 허용하지 않는다", () => {
+    const d = motive([withCompany()], { companyFacts: [] });
+    expect(checkDraft(d, question, [], options).paragraphs[0].ungrounded).toEqual(["40"]);
+  });
+
+  it("쓸 수 없게 된 회사 정보는 staleSource", () => {
+    const d = motive([withCompany()]);
+    expect(checkDraft(d, question, [], { answers: [answer], companyFactIds: new Set() }).paragraphs[0].staleSource).toBe(true);
+    expect(checkDraft(d, question, [], { answers: [answer] }).paragraphs[0].staleSource).toBe(true);
+    expect(checkDraft(d, question, [], options).paragraphs[0].staleSource).toBe(false);
+    const edited = motive([withCompany({ edited: true })]);
+    expect(checkDraft(edited, question, [], { answers: [answer] }).paragraphs[0].staleSource).toBe(true);
+  });
+
+  it("회사 정보만 근거면 noSource", () => {
+    const d = motive([withCompany({ answers: [] })]);
+    expect(checkDraft(d, question, [], options).paragraphs[0]).toMatchObject({ noSource: true, ungrounded: [], staleSource: false });
+  });
+
+  it("옛 답(company·companyFacts 없음)은 그대로 검사된다", () => {
+    const d = draft([paragraph({ text: "응답 시간을 40% 개선했다" }), paragraph({ sources: [] })]);
+    expect(checkDraft(d, question, [source()], { companyFactIds: new Set(["c1"]) })).toEqual(checkDraft(d, question, [source()]));
     expect(checkDraft(d, question, [source()]).paragraphs.map((p) => [p.ungrounded, p.noSource, p.staleSource])).toEqual([
       [["40"], false, false],
       [[], true, false],

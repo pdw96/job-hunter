@@ -2,6 +2,7 @@ import type { Answer } from "@/modules/applications/answers-repo";
 import { answerUnused, unansweredKinds, unansweredTopics } from "@/modules/applications/kinds";
 import { ANSWER_TOPIC_LABELS, type AnswerTopic, type QuestionKind } from "@/modules/applications/options";
 import type { AskItem } from "@/modules/applications/types";
+import { type CompanyFact, hostOf } from "@/modules/postings/research";
 
 // 묻기 화면이 쓰는 순수 함수. 화면 모양(서버가 그려 카드에 넘기는 값)과 답 저장에 보낼 값을 만든다
 
@@ -77,4 +78,9 @@ export function writePlan(input: {
 export function missingTopicsText(topics: AnswerTopic[], answerTopics: AnswerTopic[]): string | null {
   const missing = unansweredTopics(topics, answerTopics);
   return missing.length > 0 ? `${missing.map((topic) => ANSWER_TOPIC_LABELS[topic]).join(", ")}에 아직 답이 없습니다` : null;
+}
+
+// 회사 정보 id → 근거에 보일 이름("회사 정보: example.com", www.를 뗀 출처 호스트)
+export function companyNames(facts: CompanyFact[]): Record<string, string> {
+  return Object.fromEntries(facts.map((fact) => [fact.id, `회사 정보: ${hostOf(fact.url)}`]));
 }

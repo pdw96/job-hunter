@@ -2,6 +2,7 @@ import type { Db } from "@/db/types";
 import { listResumeSources, listWritingSources, oldRecordIds, sourceNames } from "@/modules/experiences/sources";
 import { chosenDocuments } from "@/modules/postings/documents";
 import { getPosting, type Posting } from "@/modules/postings/repo";
+import { hostOf } from "@/modules/postings/research";
 import { type Answer, listAnswersByIds } from "./answers-repo";
 import { checkDraft } from "./check";
 import { ANSWER_TOPIC_LABELS } from "./options";
@@ -9,12 +10,20 @@ import { listQuestions, type Question } from "./repo";
 import { checkResume } from "./resume-check";
 import { getCommonResume, getTailoredResume } from "./resume-repo";
 import { insertSubmission, reopenSubmission, withPostingLock } from "./submission-repo";
-import type { SubmissionContent, SubmittedResume } from "./types";
+import type { Draft, SubmissionContent, SubmittedResume } from "./types";
+import { usableCompanyFacts } from "./write";
 
 // 제출본 얼리기. 공고의 원문, 이력서, 자소서 답을 그 순간의 복사본으로 저장한다. 연락처는 담지 않는다
 
 const DELETED = "지운 경험";
 const DELETED_ANSWER = "지운 답";
+const DELETED_FACT = "지운 회사 정보";
+
+// 회사 정보 근거의 이름. 답의 복사본(쓸 때 보낸 것)에서 찾고, 없으면 "지운 회사 정보"
+function factName(draft: Draft | null, id: string): string {
+  const fact = (draft?.companyFacts ?? []).find((f) => f.id === id);
+  return fact ? `회사 정보: ${hostOf(fact.url)}` : DELETED_FACT;
+}
 
 // 답에 쓰인 지원자의 답 id(쓸 때 보낸 것과 문단의 근거). 같은 id는 한 번
 function draftAnswerIds(questions: Question[]): string[] {
@@ -25,7 +34,7 @@ function draftAnswerIds(questions: Question[]): string[] {
 const answerLabel = (answer: Answer) => `내 답: ${ANSWER_TOPIC_LABELS[answer.topic]}`;
 
 // 순수 함수. names는 경험 id → 지금 이름(지운 경험은 없음 → "지운 경험"), answerNames는 답 id → "내 답: (주제)"(없으면 "지운 답").
-// 답 근거는 경험 근거 뒤에 같은 목록으로 얼린다
+// 답 근거와 회사 정보 근거("회사 정보: 호스트", 답의 복사본에서 찾는다)는 경험 근거 뒤에 같은 목록으로 얼린다
 // 고르지 않은 서류는 얼리지 않는다: 자기소개서를 고르지 않았으면 answers가 빈 배열, 이력서는 resume이 null(호출하는 쪽이 정한다)
 export function freeze(
   posting: Posting,
@@ -56,6 +65,7 @@ export function freeze(
           sources: [
             ...paragraph.sources.map((experienceId) => ({ experienceId, name: names.get(experienceId) ?? DELETED })),
             ...(paragraph.answers ?? []).map((answerId) => ({ experienceId: answerId, name: answerNames.get(answerId) ?? DELETED_ANSWER })),
+            ...(paragraph.company ?? []).map((factId) => ({ experienceId: factId, name: factName(question.draft, factId) })),
           ],
           edited: paragraph.edited,
         })),
@@ -125,13 +135,15 @@ export async function submitPreview(
   const chosen = chosenDocuments(posting);
   const withLetter = chosen.includes("cover_letter");
   const withResume = chosen.includes("resume");
-  const [questions, writingSources, resumeSources, picked, oldIds] = await Promise.all([
+  const [questions, writingSources, resumeSources, picked, oldIds, facts] = await Promise.all([
     withLetter ? listQuestions(db, userId, posting.id) : Promise.resolve([]),
     listWritingSources(db, userId, posting.trackId),
     listResumeSources(db, userId, posting.trackId),
     withResume ? pickResume(db, userId, posting) : Promise.resolve(null),
     oldRecordIds(db, userId),
+    withLetter ? usableCompanyFacts(db, userId, posting.company) : Promise.resolve([]),
   ]);
+  const companyFactIds = new Set(facts.map((fact) => fact.id));
   const ordered = [...questions].sort((a, b) => a.position - b.position);
   const answers = await listAnswersByIds(db, userId, draftAnswerIds(ordered));
   const warnings: string[] = [];
@@ -147,7 +159,7 @@ export async function submitPreview(
       empty.push(index + 1);
       return;
     }
-    const check = checkDraft(draft, question, writingSources, { oldIds, answers });
+    const check = checkDraft(draft, question, writingSources, { oldIds, answers, companyFactIds });
     if (check.length.over) over.push(index + 1);
     const flagged = (p: (typeof check.paragraphs)[number]) =>
       p.banned.length > 0 || p.ungrounded.length > 0 || p.noSource || p.staleSource || p.structureChanged;
