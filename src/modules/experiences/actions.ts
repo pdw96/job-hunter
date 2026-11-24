@@ -3,6 +3,7 @@
 import { db } from "@/db";
 import { requireAdmin, requireUser } from "@/lib/session";
 import { ai } from "@/modules/ai/provider";
+import { runCareerCheck } from "@/modules/applications/career-prompt-check";
 import { runApplicationCheck } from "@/modules/applications/prompt-check";
 import { runResumeCheck } from "@/modules/applications/resume-prompt-check";
 import { runPostingCheck } from "@/modules/postings/prompt-check";
@@ -68,17 +69,18 @@ export async function answerClaimAction(): Promise<SimpleResult> {
   return refuse();
 }
 
-// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 26번과 웹 검색 5번, 비용 발생)
+// 관리자 전용. 준비한 예시를 실제 AI에 돌려 프롬프트가 기대대로 동작하는지 본다(호출 27번과 웹 검색 5번, 비용 발생)
 export async function runPromptCheckAction(): Promise<
   { ok: true; rows: CheckRow[] } | { ok: false; message: string }
 > {
   const admin = await requireAdmin();
-  // 새 기록 구조(사례 판정·정리·가져오기·옮기기), 공고에서 값을 뽑는 프롬프트, 자소서 고르기·쓰기·답으로 쓰기·묻기, 이력서 쓰기·강조 고르기를 점검한다
-  const [recordRows, postingRows, applicationRows, resumeRows] = await Promise.all([
+  // 새 기록 구조(사례 판정·정리·가져오기·옮기기), 공고에서 값을 뽑는 프롬프트, 자소서 고르기·쓰기·답으로 쓰기·묻기, 이력서 쓰기·강조 고르기, 경력기술서 쓰기를 점검한다
+  const [recordRows, postingRows, applicationRows, resumeRows, careerRows] = await Promise.all([
     runRecordCheck(db, ai, admin.id),
     runPostingCheck(db, ai, admin.id),
     runApplicationCheck(db, ai, admin.id),
     runResumeCheck(db, ai, admin.id),
+    runCareerCheck(db, ai, admin.id),
   ]);
-  return { ok: true, rows: [...recordRows, ...postingRows, ...applicationRows, ...resumeRows] };
+  return { ok: true, rows: [...recordRows, ...postingRows, ...applicationRows, ...resumeRows, ...careerRows] };
 }

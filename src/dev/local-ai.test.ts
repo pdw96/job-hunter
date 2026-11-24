@@ -251,3 +251,18 @@ test("고치기 흉내는 [회사 정보]가 있으면 C1을 근거에 남긴다
   expect(await revise(["[경험 기록]\n없음", answer, fact, "[고칠 문단]\n첫 문단"])).toEqual({ text: "첫 문단 (고침)", sources: ["A1", "C1"] });
   expect(await revise(["[경험 기록]\n없음", answer, "[회사 정보]\n없음", "[고칠 문단]\n첫 문단"])).toEqual({ text: "첫 문단 (고침)", sources: ["A1"] });
 });
+
+test("경력기술서 쓰기 흉내는 받은 별명마다 한 일 한 줄을 쓰고 성과는 비운다", async () => {
+  const text = "[경력기술서 항목]\nE1\n- 이름: 결제 장애 대응\n- 분량: 자세히(한 일 2~4줄, 성과 0~3줄)\n\nE2\n- 이름: 사내 정산 도구\n- 분량: 요약(한 일 1~2줄, 성과 0~1줄)";
+  const schema = z.object({ items: z.array(z.object({ exp: z.string(), done: z.array(z.string()), results: z.array(z.string()) })) });
+  const result = await ai.complete({ purpose: "career_write", system: "", messages: [{ role: "user", text }], schema, effort: "medium", maxTokens: 16000 });
+  expect(result).toMatchObject({
+    ok: true,
+    value: {
+      items: [
+        { exp: "E1", done: ["(가짜) 한 일 줄"], results: [] },
+        { exp: "E2", done: ["(가짜) 한 일 줄"], results: [] },
+      ],
+    },
+  });
+});

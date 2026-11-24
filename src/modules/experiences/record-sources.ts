@@ -19,6 +19,7 @@ import type { ResumeSource, WritingSource } from "./writing";
 // - 자기소개서: 장면만. 장면이 확인됨이고 머리도 확인됨, 머리·장면 범위 중 좁은 것이 "사용"
 // - 이력서: 확인된 머리마다 하나(확인된 장면을 이어 붙임)와 확인된 이력 사실 하나씩
 // - 채점 근거: 확인됨·부분 확인 장면(머리 확인은 보지 않음)과 확인된 학력·교육 과정·자격·경력 머리
+// - 경력기술서: 확인된 경력마다 하나. 항목은 경력 바로 아래 확인된 장면과, 소속이 그 경력인 확인된 프로젝트(확인된 장면을 이어 붙임)
 // 증빙 메모와 연락처는 담지 않는다. 학교 소재지(location)도 담지 않는다(자사양식용으로 남겨 둠)
 
 type Period = { startMonth: string | null; endMonth: string | null; isOngoing: boolean };
@@ -176,6 +177,40 @@ function scenesWithHeads(sceneRows: SceneRow[], heads: Map<string, Head>) {
   });
 }
 
+// 머리마다 확인됨이고 그 트랙에서 제외하지 않은 장면과 그 범위(최근 순). 이력서 머리와 경력기술서 프로젝트 항목이 묶는 장면
+type Bundled = { row: SceneRow; scope: Scope };
+function confirmedScenesByHead(sceneRows: SceneRow[], heads: Map<string, Head>, trackId: string): Map<string, Bundled[]> {
+  const byHead = new Map<string, Bundled[]>();
+  const usable = scenesWithHeads(sceneRows, heads)
+    .filter(({ row }) => sceneStateOf(row) === "confirmed" && scopeIn(row.trackScopes, trackId) !== "exclude")
+    .map(({ row, head }) => ({ item: { row, head }, start: scenePeriod(row, head).startMonth, createdAt: row.createdAt }));
+  for (const { row, head } of byRecent(usable)) {
+    const list = byHead.get(head.id) ?? [];
+    list.push({ row, scope: scopeIn(row.trackScopes, trackId) });
+    byHead.set(head.id, list);
+  }
+  return byHead;
+}
+
+// 묶은 장면을 이어 붙인 글: "[제목] 상황: … / 한 일: … / 결과: …", 요약만이면 끝에 " (요약만)"
+function bundleScenes(included: Bundled[]) {
+  const chunks = included.map(({ row, scope }) => {
+    const body = joined([row.situation && `상황: ${row.situation}`, row.actions && `한 일: ${row.actions}`, row.result && `결과: ${row.result}`], " / ");
+    return `[${row.title}]${body ? ` ${body}` : ""}${scope === "summary" ? " (요약만)" : ""}`;
+  });
+  return {
+    actions: joined(chunks, "\n"),
+    notDone: joined(
+      included.map(({ row }) => (row.notDone ? `[${row.title}] ${row.notDone}` : null)),
+      "\n",
+    ),
+    bannedPhrases: included.flatMap(({ row }) => row.bannedPhrases),
+    metrics: included.flatMap(({ row }) => sceneMetrics(row)),
+    // 장면의 범위(사용·요약만)도 넣는다. 범위를 바꾸면 덩어리의 "(요약만)"이 바뀌므로 다시 써야 한다
+    versionParts: included.flatMap(({ row, scope }) => [row.id, row.contentVersion, scope]),
+  };
+}
+
 export async function listSceneWritingSources(db: Db, userId: string, trackId: string): Promise<WritingSource[]> {
   if (!(await ownsTrack(db, userId, trackId))) return [];
   const { sceneRows, heads } = await load(db, userId);
@@ -253,26 +288,13 @@ export async function listRecordResumeSources(db: Db, userId: string, trackId: s
   if (!(await ownsTrack(db, userId, trackId))) return [];
   const { facts, sceneRows, heads } = await load(db, userId);
 
-  // 머리마다 확인됨이고 그 트랙에서 제외하지 않은 장면(최근 순)
-  const scenesByHead = new Map<string, { row: SceneRow; scope: Scope }[]>();
-  const usable = scenesWithHeads(sceneRows, heads)
-    .filter(({ row }) => sceneStateOf(row) === "confirmed" && scopeIn(row.trackScopes, trackId) !== "exclude")
-    .map(({ row, head }) => ({ item: { row, head }, start: scenePeriod(row, head).startMonth, createdAt: row.createdAt }));
-  for (const { row, head } of byRecent(usable)) {
-    const list = scenesByHead.get(head.id) ?? [];
-    list.push({ row, scope: scopeIn(row.trackScopes, trackId) });
-    scenesByHead.set(head.id, list);
-  }
+  const scenesByHead = confirmedScenesByHead(sceneRows, heads, trackId);
 
   const items: { item: ResumeSource; start: string | null; createdAt: Date }[] = [];
   for (const head of heads.values()) {
     const scope = scopeIn(head.trackScopes, trackId);
     if (!head.isConfirmed || scope === "exclude") continue;
-    const included = scenesByHead.get(head.id) ?? [];
-    const chunks = included.map(({ row, scope: sceneScope }) => {
-      const body = joined([row.situation && `상황: ${row.situation}`, row.actions && `한 일: ${row.actions}`, row.result && `결과: ${row.result}`], " / ");
-      return `[${row.title}]${body ? ` ${body}` : ""}${sceneScope === "summary" ? " (요약만)" : ""}`;
-    });
+    const bundle = bundleScenes(scenesByHead.get(head.id) ?? []);
     const source: ResumeSource = {
       id: head.id,
       name: head.name,
@@ -283,16 +305,12 @@ export async function listRecordResumeSources(db: Db, userId: string, trackId: s
       endMonth: head.endMonth,
       isOngoing: head.isOngoing,
       situation: null,
-      actions: joined(chunks, "\n"),
+      actions: bundle.actions,
       result: null,
-      notDone: joined(
-        included.map(({ row }) => (row.notDone ? `[${row.title}] ${row.notDone}` : null)),
-        "\n",
-      ),
-      bannedPhrases: unique([...head.bannedPhrases, ...included.flatMap(({ row }) => row.bannedPhrases)]),
-      // 장면의 범위(사용·요약만)도 넣는다. 범위를 바꾸면 덩어리의 "(요약만)"이 바뀌므로 이력서 항목을 다시 써야 한다
-      contentVersion: versionHash([...head.versionParts, ...included.flatMap(({ row, scope: sceneScope }) => [row.id, row.contentVersion, sceneScope])]),
-      metrics: included.flatMap(({ row }) => sceneMetrics(row)),
+      notDone: bundle.notDone,
+      bannedPhrases: unique([...head.bannedPhrases, ...bundle.bannedPhrases]),
+      contentVersion: versionHash([...head.versionParts, ...bundle.versionParts]),
+      metrics: bundle.metrics,
       scope: scope === "summary" ? "summary" : "use",
       ...(head.duties ? { duties: head.duties } : {}),
     };
@@ -327,6 +345,123 @@ export async function listRecordResumeSources(db: Db, userId: string, trackId: s
     });
   }
   return byRecent(items);
+}
+
+// 경력기술서의 항목 하나. WritingSource 칸을 그대로 가져 describeSource·knownNumbers·emphasisText에 넘길 수 있다
+export type CareerItemSource = WritingSource & { itemKind: "scene" | "project"; tools: string[]; scope: "use" | "summary" };
+export type CareerSource = {
+  id: string; // 경력 id
+  company: string;
+  department: string | null;
+  title: string | null;
+  startMonth: string | null;
+  endMonth: string | null;
+  isOngoing: boolean;
+  duties: string[];
+  contentVersion: number; // 경력의 contentVersion(머리만)
+  scope: "use" | "summary";
+  items: CareerItemSource[]; // 최근 순
+};
+
+// 확인된 경력(제외 아님)마다 회사 하나. 항목은 ① 머리가 그 경력인 확인된 장면, ② 소속이 그 경력인 확인된 프로젝트.
+// 개인·학교·교육 과정 프로젝트와 활동은 넣지 않는다. 범위는 경력과 항목 중 좁은 것이고, 제외면 빠진다
+export async function listRecordCareerSources(db: Db, userId: string, trackId: string): Promise<CareerSource[]> {
+  if (!(await ownsTrack(db, userId, trackId))) return [];
+  const { facts, sceneRows, heads } = await load(db, userId);
+  const scenesByHead = confirmedScenesByHead(sceneRows, heads, trackId);
+  // 소속이 경력인 확인된 프로젝트를 경력 id로
+  const projectsByJob = new Map<string, Fact<"project">[]>();
+  for (const project of facts.project) {
+    const parent = project.value.parent;
+    if (!project.isConfirmed || parent?.kind !== "job") continue;
+    projectsByJob.set(parent.id, [...(projectsByJob.get(parent.id) ?? []), project]);
+  }
+
+  const careers: { item: CareerSource; start: string | null; createdAt: Date }[] = [];
+  for (const fact of facts.job) {
+    const jobScope = scopeIn(fact.trackScopes, trackId);
+    const head = heads.get(fact.id);
+    if (!fact.isConfirmed || jobScope === "exclude" || !head) continue;
+    const v = fact.value;
+    const items: { item: CareerItemSource; start: string | null; createdAt: Date }[] = [];
+
+    // 항목의 버전은 항목 자신과, 경력 칸 중 그 항목이 보이거나 AI에 보내는 것만으로 만든다(sceneFields·headsOf의 버전과 다르다).
+    // 담당 업무처럼 회사 머리에만 쓰는 칸을 고쳐도 항목이 "다시 써야 함"이 되지 않게 한다. 회사 머리는 경력의 contentVersion을 쓴다
+    // 사례 항목: 소속(회사 · 부서)과 역할(직급), 사례 기간이 비어 경력 기간을 빌려 쓰면 그 기간
+    // 프로젝트 항목: 소속(회사 이름)
+
+    // 경력 바로 아래 장면(이미 확인됨·장면 범위 제외 아님으로 걸렀다)
+    for (const { row, scope: sceneScope } of scenesByHead.get(fact.id) ?? []) {
+      const scope = narrowerScope(jobScope, sceneScope);
+      if (scope === "exclude") continue;
+      const fields = sceneFields(row, head);
+      const borrowedPeriod = row.startMonth === null ? [v.startMonth ?? "", v.endMonth ?? "", v.isOngoing ? 1 : 0] : [];
+      items.push({
+        item: {
+          ...fields,
+          contentVersion: versionHash([row.id, row.contentVersion, fact.id, v.company, v.department ?? "", v.title ?? "", ...borrowedPeriod]),
+          itemKind: "scene",
+          bannedPhrases: unique([...row.bannedPhrases, ...head.bannedPhrases]),
+          metrics: sceneMetrics(row),
+          tools: [],
+          scope,
+        },
+        start: fields.startMonth,
+        createdAt: row.createdAt,
+      });
+    }
+
+    // 소속이 이 경력인 프로젝트(소속 경력은 위에서 확인됨으로 걸렀다)
+    for (const project of projectsByJob.get(fact.id) ?? []) {
+      const scope = narrowerScope(jobScope, scopeIn(project.trackScopes, trackId));
+      const projectHead = heads.get(project.id);
+      if (scope === "exclude" || !projectHead) continue;
+      const bundle = bundleScenes(scenesByHead.get(project.id) ?? []);
+      items.push({
+        item: {
+          id: project.id,
+          itemKind: "project",
+          name: projectHead.name,
+          kind: projectHead.kind,
+          organization: v.company,
+          role: projectHead.role,
+          startMonth: projectHead.startMonth,
+          endMonth: projectHead.endMonth,
+          isOngoing: projectHead.isOngoing,
+          situation: project.value.summary,
+          actions: bundle.actions,
+          result: null,
+          notDone: bundle.notDone,
+          bannedPhrases: unique([...projectHead.bannedPhrases, ...bundle.bannedPhrases, ...head.bannedPhrases]),
+          contentVersion: versionHash([project.id, project.contentVersion, fact.id, v.company, ...bundle.versionParts]),
+          metrics: bundle.metrics,
+          tools: project.value.tools,
+          scope,
+        },
+        start: projectHead.startMonth,
+        createdAt: projectHead.createdAt,
+      });
+    }
+
+    careers.push({
+      item: {
+        id: fact.id,
+        company: v.company,
+        department: v.department,
+        title: v.title,
+        startMonth: v.startMonth,
+        endMonth: v.endMonth,
+        isOngoing: v.isOngoing,
+        duties: v.duties,
+        contentVersion: fact.contentVersion,
+        scope: jobScope === "summary" ? "summary" : "use",
+        items: byRecent(items),
+      },
+      start: v.startMonth,
+      createdAt: fact.createdAt,
+    });
+  }
+  return byRecent(careers);
 }
 
 export async function listRecordEvidence(db: Db, userId: string, trackId: string): Promise<EvidenceCandidate[]> {

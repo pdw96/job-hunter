@@ -385,6 +385,12 @@ function resumeWrite(text: string) {
   };
 }
 
+// 경력기술서 줄 쓰기 흉내. 받은 별명마다 한 일 한 줄, 성과는 비운다
+function careerWrite(text: string) {
+  const aliases = [...section(text, "경력기술서 항목").matchAll(/^(E\d+)$/gm)].map((match) => match[1]);
+  return { items: aliases.map((exp) => ({ exp, done: ["(가짜) 한 일 줄"], results: [] })) };
+}
+
 // 이력서 강조 고르기 흉내. 후보가 있으면 E1을 고른다
 function resumeEmphasis(text: string) {
   return { picks: /^E1$/m.test(section(text, "경험 기록")) ? [{ exp: "E1", why: "공고의 담당 업무와 겹칩니다" }] : [] };
@@ -449,8 +455,10 @@ export const ai: AiClient = {
                           ? applicationAsk(text)
                         : request.purpose === "resume_write"
                           ? resumeWrite(text)
-                          : request.purpose === "resume_emphasis"
+                          : request.purpose === "resume_emphasis" || request.purpose === "career_emphasis"
                             ? resumeEmphasis(text)
+                          : request.purpose === "career_write"
+                            ? careerWrite(text)
                             : extract(text);
     const parsed = request.schema.safeParse(answer);
     const meta = { usage: FAKE_USAGE, model: FAKE_MODEL };

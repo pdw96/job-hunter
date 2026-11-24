@@ -5,11 +5,11 @@ import type { Db } from "@/db/types";
 import { user } from "@/modules/auth/schema";
 import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
-import { confirmFact, createFact, setFactTrackScope, updateFact } from "./facts-repo";
+import { confirmFact, createFact, getFact, setFactTrackScope, updateFact } from "./facts-repo";
 import type { FactKind } from "./record-options";
 import type { EducationInput, FactInputs, JobInput, ProjectInput, SceneInput } from "./record-input";
-import { listRecordEvidence, listRecordResumeSources, listSceneWritingSources, recordNames } from "./record-sources";
-import { confirmScene, createScene, deleteScene, setSceneTrackScope } from "./scenes-repo";
+import { listRecordCareerSources, listRecordEvidence, listRecordResumeSources, listSceneWritingSources, recordNames } from "./record-sources";
+import { confirmScene, createScene, deleteScene, setSceneTrackScope, updateScene } from "./scenes-repo";
 import { scenes } from "./schema";
 
 let db: Db;
@@ -98,6 +98,10 @@ async function addScene(
 ) {
   const r = await createScene(db, userId, input);
   if (!r.ok) throw new Error(r.reason);
+  await judge(r.id, options, userId);
+  return r.id;
+}
+async function judge(id: string, options: { state?: "confirmed" | "partial" | "unconfirmed"; metrics?: "met" | "unmet" } = {}, userId = "u1") {
   const state = options.state ?? "confirmed";
   await db
     .update(scenes)
@@ -110,9 +114,8 @@ async function addScene(
         evidence: { status: "unjudged", note: null },
       },
     })
-    .where(eq(scenes.id, r.id));
-  if (state !== "unconfirmed") await confirmScene(db, userId, r.id);
-  return r.id;
+    .where(eq(scenes.id, id));
+  if (state !== "unconfirmed") await confirmScene(db, userId, id);
 }
 
 beforeEach(async () => {
@@ -384,4 +387,302 @@ test("recordNames는 장면 제목과 이력 사실 이름을 준다", async () 
   expect(names.get(jobId)).toBe("가나다 주식회사");
   expect(names.get(schoolId)).toBe("한국대학교");
   expect(names.get(gap)).toBe("공백 기간");
+});
+
+// 경력기술서 원천
+
+const careers = (trackId = t1, userId = "u1") => listRecordCareerSources(db, userId, trackId);
+
+test("확인된 경력마다 하나, 입사 월 최근 순", async () => {
+  const old = await fact("job", job);
+  const recent = await fact("job", { ...job, company: "라마바 주식회사", department: null, title: null, startMonth: "2024-09", endMonth: null, isOngoing: true, duties: [] });
+  const noStart = await fact("job", { ...job, company: "기간 없는 회사", startMonth: null, endMonth: null });
+  const list = await careers();
+  expect(list.map((c) => c.id)).toEqual([recent, old, noStart]);
+  const stored = await getFact(db, "u1", "job", old);
+  expect(list[1]).toEqual({
+    id: old,
+    company: "가나다 주식회사",
+    department: "개발팀",
+    title: "사원",
+    startMonth: "2022-03",
+    endMonth: "2024-08",
+    isOngoing: false,
+    duties: ["결제 서버 운영", "장애 대응"],
+    contentVersion: stored!.contentVersion,
+    scope: "use",
+    items: [],
+  });
+  expect(list[0]).toMatchObject({ department: null, title: null, endMonth: null, isOngoing: true, duties: [] });
+});
+
+test("미확인 경력과 트랙에서 제외한 경력은 넣지 않는다", async () => {
+  const kept = await fact("job", job);
+  const unconfirmed = await fact("job", { ...job, company: "미확인 회사" }, false);
+  await addScene(scene({ kind: "job", id: unconfirmed }));
+  const excluded = await fact("job", { ...job, company: "뺀 회사" });
+  await setFactTrackScope(db, "u1", "job", excluded, t1, "exclude");
+  expect((await careers()).map((c) => c.id)).toEqual([kept]);
+});
+
+test("경력 바로 아래 확인된 사례는 scene 항목이고 역할은 직급, 기간이 비면 경력 기간", async () => {
+  const jobId = await fact("job", job);
+  const dated = await addScene(scene({ kind: "job", id: jobId }, { judgment: "재시도보다 설계 변경" }));
+  const undated = await addScene(scene({ kind: "job", id: jobId }, { title: "온보딩 문서", startMonth: null, endMonth: null, metrics: [] }));
+  const [career] = await careers();
+  const byId = new Map(career.items.map((item) => [item.id, item]));
+  expect(byId.get(dated)).toEqual({
+    id: dated,
+    itemKind: "scene",
+    name: "결제 장애 대응",
+    kind: "job",
+    organization: "가나다 주식회사 · 개발팀",
+    role: "사원",
+    startMonth: "2023-03",
+    endMonth: "2023-11",
+    isOngoing: false,
+    situation: "결제 장애가 잦았다",
+    actions: "판단: 재시도보다 설계 변경\n승인 API를 다시 설계했다",
+    result: "장애가 줄었다",
+    notDone: null,
+    bannedPhrases: expect.arrayContaining(["혼자 구축", "주도"]),
+    metrics: [{ text: "월 장애 5건에서 1건", basis: "장애 보고서" }],
+    contentVersion: expect.any(Number),
+    tools: [],
+    scope: "use",
+  });
+  expect(byId.get(undated)).toMatchObject({ itemKind: "scene", name: "온보딩 문서", role: "사원", startMonth: "2022-03", endMonth: "2024-08" });
+});
+
+test("미확인·부분 확인 사례는 넣지 않는다", async () => {
+  const jobId = await fact("job", job);
+  await addScene(scene({ kind: "job", id: jobId }, { title: "미확인 일" }), { state: "unconfirmed" });
+  await addScene(scene({ kind: "job", id: jobId }, { title: "부분 확인 일" }), { state: "partial" });
+  const [career] = await careers();
+  expect(career.items).toEqual([]);
+});
+
+test("소속이 그 경력인 확인된 프로젝트는 project 항목이고 tools를 담는다", async () => {
+  const jobId = await fact("job", job);
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId }, tools: ["Java", "Spring"], summary: "정산 업무를 자동화한 사내 도구" });
+  await fact("project", { ...project, name: "미확인 프로젝트", parent: { kind: "job", id: jobId } }, false);
+  const [career] = await careers();
+  expect(career.items).toHaveLength(1);
+  expect(career.items[0]).toMatchObject({
+    id: projectId,
+    itemKind: "project",
+    kind: "project",
+    name: "사내 정산 도구",
+    organization: "가나다 주식회사",
+    role: "백엔드",
+    startMonth: "2023-01",
+    endMonth: "2023-06",
+    isOngoing: false,
+    tools: ["Java", "Spring"],
+    situation: "정산 업무를 자동화한 사내 도구",
+    actions: null,
+    result: null,
+    notDone: null,
+    metrics: [],
+    scope: "use",
+  });
+});
+
+test("항목은 사례와 프로젝트를 섞어 시작 월 최근 순이다", async () => {
+  const jobId = await fact("job", job);
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } }); // 2023-01
+  const recent = await addScene(scene({ kind: "job", id: jobId }, { title: "최근 일", startMonth: "2024-01", endMonth: "2024-02" }));
+  const old = await addScene(scene({ kind: "job", id: jobId }, { title: "옛 일", startMonth: "2022-04", endMonth: "2022-05" }));
+  const [career] = await careers();
+  expect(career.items.map((item) => item.id)).toEqual([recent, projectId, old]);
+});
+
+test("소속 경력이 미확인인 프로젝트는 넣지 않는다", async () => {
+  const unconfirmed = await fact("job", { ...job, company: "미확인 회사" }, false);
+  const other = await fact("job", { ...job, company: "라마바 주식회사" });
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: unconfirmed } });
+  await addScene(scene({ kind: "project", id: projectId }));
+  const list = await careers();
+  expect(list.map((c) => c.id)).toEqual([other]);
+  expect(list[0].items).toEqual([]);
+  expect(JSON.stringify(list)).not.toContain("미확인 회사");
+
+  // 소속을 확인된 다른 경력으로 바꾸면 그 경력 아래 항목이 된다
+  await updateFact(db, "u1", "project", projectId, { ...project, parent: { kind: "job", id: other } });
+  await confirmFact(db, "u1", "project", projectId);
+  const [moved] = await careers();
+  expect(moved.items.map((item) => item.id)).toEqual([projectId]);
+  expect(moved.items[0].organization).toBe("라마바 주식회사");
+});
+
+test("개인·학교·교육 과정 프로젝트와 활동은 넣지 않는다", async () => {
+  const jobId = await fact("job", job);
+  const schoolId = await fact("education", school);
+  const courseId = await fact("course", { name: "웹 개발 과정", institution: "한국교육원", startMonth: "2021-03", endMonth: "2021-08", hours: 600, learned: null });
+  const solo = await fact("project", { ...project, name: "개인 블로그" });
+  await fact("project", { ...project, name: "졸업 작품", parent: { kind: "education", id: schoolId } });
+  await fact("project", { ...project, name: "과정 프로젝트", parent: { kind: "course", id: courseId } });
+  const activity = await fact("activity", { name: "개발 동아리", organization: "한국대학교", startMonth: "2019-03", endMonth: "2019-12", isOngoing: false, role: "회장" });
+  await addScene(scene({ kind: "project", id: solo }, { title: "블로그 글" }));
+  await addScene(scene({ kind: "activity", id: activity }, { title: "동아리 행사" }));
+  const list = await careers();
+  expect(list.map((c) => c.id)).toEqual([jobId]);
+  expect(list[0].items).toEqual([]);
+});
+
+test("프로젝트 항목은 확인된 사례를 이어 붙이고, 요약만 사례에는 (요약만)을 붙이고 제외 사례는 뺀다", async () => {
+  const jobId = await fact("job", job);
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } });
+  const head = { kind: "project" as const, id: projectId };
+  await addScene(scene(head, { notDone: "결제사 협상은 하지 않았다" }));
+  const summary = await addScene(scene(head, { title: "배포 자동화", situation: null, result: null, metrics: [{ text: "배포 30분에서 5분", basis: "배포 기록" }], startMonth: "2023-02", endMonth: "2023-02" }));
+  await setSceneTrackScope(db, "u1", summary, t1, "summary");
+  const excluded = await addScene(scene(head, { title: "뺀 일", metrics: [{ text: "뺀 수치", basis: "x" }] }));
+  await setSceneTrackScope(db, "u1", excluded, t1, "exclude");
+  await addScene(scene(head, { title: "미확인 일" }), { state: "unconfirmed" });
+  await addScene(scene(head, { title: "부분 확인 일" }), { state: "partial" });
+
+  const [career] = await careers();
+  const [item] = career.items;
+  expect(item.id).toBe(projectId);
+  expect(item.actions).toBe(
+    "[결제 장애 대응] 상황: 결제 장애가 잦았다 / 한 일: 승인 API를 다시 설계했다 / 결과: 장애가 줄었다\n[배포 자동화] 한 일: 승인 API를 다시 설계했다 (요약만)",
+  );
+  expect(item.notDone).toBe("[결제 장애 대응] 결제사 협상은 하지 않았다");
+  expect(item.metrics).toEqual([
+    { text: "월 장애 5건에서 1건", basis: "장애 보고서" },
+    { text: "배포 30분에서 5분", basis: "배포 기록" },
+  ]);
+  expect(item.scope).toBe("use");
+});
+
+test("범위는 경력과 항목 중 좁은 것: 경력이 요약만이면 항목도 summary, 항목이 제외면 빠진다", async () => {
+  const jobId = await fact("job", job);
+  const sceneId = await addScene(scene({ kind: "job", id: jobId }));
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } });
+  const scopes = async () => {
+    const [career] = await careers();
+    return { career: career.scope, items: Object.fromEntries(career.items.map((item) => [item.id, item.scope])) };
+  };
+  expect(await scopes()).toEqual({ career: "use", items: { [sceneId]: "use", [projectId]: "use" } });
+
+  await setSceneTrackScope(db, "u1", sceneId, t1, "summary");
+  expect(await scopes()).toEqual({ career: "use", items: { [sceneId]: "summary", [projectId]: "use" } });
+
+  await setSceneTrackScope(db, "u1", sceneId, t1, "use");
+  await setFactTrackScope(db, "u1", "job", jobId, t1, "summary");
+  expect(await scopes()).toEqual({ career: "summary", items: { [sceneId]: "summary", [projectId]: "summary" } });
+
+  await setSceneTrackScope(db, "u1", sceneId, t1, "exclude");
+  await setFactTrackScope(db, "u1", "project", projectId, t1, "exclude");
+  expect(await scopes()).toEqual({ career: "summary", items: {} });
+});
+
+test("프로젝트 아래 사례를 고치면 프로젝트 항목의 contentVersion이 바뀐다", async () => {
+  const jobId = await fact("job", job);
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } });
+  const input = scene({ kind: "project", id: projectId });
+  const sceneId = await addScene(input);
+  const [before] = (await careers())[0].items;
+
+  await updateScene(db, "u1", sceneId, { ...input, result: "장애가 크게 줄었다" });
+  await judge(sceneId);
+  const [after] = (await careers())[0].items;
+  expect(after.id).toBe(projectId);
+  expect(after.actions).toContain("결과: 장애가 크게 줄었다");
+  expect(after.contentVersion).not.toBe(before.contentVersion);
+
+  await setSceneTrackScope(db, "u1", sceneId, t1, "summary");
+  const [summarized] = (await careers())[0].items;
+  expect(summarized.contentVersion).not.toBe(after.contentVersion);
+});
+
+// 경력과 그 아래 사례·프로젝트 하나씩을 만들고, 경력을 고친 뒤 버전을 비교한다
+async function careerVersionsAfterJobEdit(edit: Partial<JobInput>) {
+  const jobId = await fact("job", job);
+  const sceneId = await addScene(scene({ kind: "job", id: jobId }));
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } });
+  await addScene(scene({ kind: "project", id: projectId }, { title: "정산 배치 개선" }));
+  const versions = async () => {
+    const [career] = await careers();
+    const byId = new Map(career.items.map((item) => [item.id, item.contentVersion]));
+    return { company: career.contentVersion, scene: byId.get(sceneId), project: byId.get(projectId) };
+  };
+  const before = await versions();
+  await updateFact(db, "u1", "job", jobId, { ...job, ...edit });
+  await confirmFact(db, "u1", "job", jobId);
+  return { before, after: await versions() };
+}
+
+test("경력의 담당 업무를 고쳐도 항목의 contentVersion은 그대로", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ duties: ["결제 서버 운영", "장애 대응", "정산 배치 운영"], bannedPhrases: ["주도", "전담"] });
+  expect(after.company).not.toBe(before.company);
+  expect(after.scene).toBe(before.scene);
+  expect(after.project).toBe(before.project);
+});
+
+test("경력의 직급을 고치면 사례 항목의 contentVersion이 바뀐다", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ title: "선임" });
+  expect(after.scene).not.toBe(before.scene);
+  expect(after.project).toBe(before.project);
+});
+
+test("경력의 부서를 고치면 사례 항목의 contentVersion이 바뀐다", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ department: "플랫폼팀" });
+  expect(after.scene).not.toBe(before.scene);
+  expect(after.project).toBe(before.project);
+});
+
+test("회사 이름을 고치면 프로젝트 항목의 contentVersion이 바뀐다", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ company: "라마바 주식회사" });
+  expect(after.project).not.toBe(before.project);
+  expect(after.scene).not.toBe(before.scene);
+});
+
+test("기간이 빈 사례 항목은 경력 기간을 고치면 contentVersion이 바뀌고, 기간이 있는 사례는 그대로", async () => {
+  const jobId = await fact("job", job);
+  const dated = await addScene(scene({ kind: "job", id: jobId }));
+  const undated = await addScene(scene({ kind: "job", id: jobId }, { title: "온보딩 문서", startMonth: null, endMonth: null }));
+  const versions = async () => new Map((await careers())[0].items.map((item) => [item.id, item.contentVersion]));
+  const before = await versions();
+  await updateFact(db, "u1", "job", jobId, { ...job, endMonth: "2024-10" });
+  await confirmFact(db, "u1", "job", jobId);
+  const after = await versions();
+  expect(after.get(undated)).not.toBe(before.get(undated));
+  expect(after.get(dated)).toBe(before.get(dated));
+});
+
+test("금지 표현은 항목과 경력의 합", async () => {
+  const jobId = await fact("job", job); // 주도
+  const sceneId = await addScene(scene({ kind: "job", id: jobId })); // 혼자 구축
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId }, bannedPhrases: ["전담"] });
+  await addScene(scene({ kind: "project", id: projectId }, { bannedPhrases: ["최초", "주도"] }));
+  const byId = new Map((await careers())[0].items.map((item) => [item.id, item]));
+  expect([...byId.get(sceneId)!.bannedPhrases].sort()).toEqual(["주도", "혼자 구축"].sort());
+  expect([...byId.get(projectId)!.bannedPhrases].sort()).toEqual(["전담", "최초", "주도"].sort());
+});
+
+test("수치는 rubric이 met인 것만", async () => {
+  const jobId = await fact("job", job);
+  const sceneId = await addScene(scene({ kind: "job", id: jobId }), { metrics: "unmet" });
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } });
+  await addScene(scene({ kind: "project", id: projectId }));
+  await addScene(scene({ kind: "project", id: projectId }, { title: "미충족 수치", metrics: [{ text: "근거 없는 수치", basis: "없음" }] }), { metrics: "unmet" });
+  const byId = new Map((await careers())[0].items.map((item) => [item.id, item]));
+  expect(byId.get(sceneId)!.metrics).toEqual([]);
+  expect(byId.get(projectId)!.metrics).toEqual([{ text: "월 장애 5건에서 1건", basis: "장애 보고서" }]);
+});
+
+test("남의 트랙이면 빈 배열", async () => {
+  const jobId = await fact("job", job);
+  await addScene(scene({ kind: "job", id: jobId }));
+  expect(await careers(t2)).toEqual([]);
+});
+
+test("다른 사용자의 경력은 나오지 않는다", async () => {
+  const jobId = await fact("job", job, true, "u2");
+  await addScene(scene({ kind: "job", id: jobId }), {}, "u2");
+  await fact("project", { ...project, parent: { kind: "job", id: jobId } }, true, "u2");
+  expect(await careers()).toEqual([]);
+  expect((await careers(t2, "u2")).map((c) => c.id)).toEqual([jobId]);
 });

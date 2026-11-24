@@ -4,9 +4,9 @@ import { user } from "../auth/schema";
 import { postings } from "../postings/schema";
 import { tracks } from "../tracks/schema";
 import type { AnswerTopic, QuestionKind } from "./options";
-import type { Asks, Draft, ResumeContent, ResumeSelection, Selection, SubmissionContent } from "./types";
+import type { Asks, CareerContent, CareerSelection, Draft, ResumeContent, ResumeSelection, Selection, SubmissionContent } from "./types";
 
-// applications 모듈: 공고별 자기소개서 문항, 고른 경험, 쓴 답, 지원자의 답(묻기), 이력서 공통본·맞춤본, 제출본
+// applications 모듈: 공고별 자기소개서 문항, 고른 경험, 쓴 답, 지원자의 답(묻기), 이력서·경력기술서 공통본·맞춤본, 제출본
 
 export const questions = pgTable(
   "applications_questions",
@@ -77,6 +77,30 @@ export const resumes = pgTable(
   (t) => [
     uniqueIndex("applications_resumes_common_idx").on(t.userId, t.trackId).where(sql`${t.postingId} is null`),
     uniqueIndex("applications_resumes_tailored_idx").on(t.postingId).where(sql`${t.postingId} is not null`),
+  ],
+);
+
+// 경력기술서. 이력서 표와 같은 칸이고 내용의 모양(회사 → 항목)만 다르다
+export const careers = pgTable(
+  "applications_careers",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    trackId: text("track_id")
+      .notNull()
+      .references(() => tracks.id, { onDelete: "cascade" }),
+    postingId: text("posting_id").references(() => postings.id, { onDelete: "cascade" }),
+    version: integer("version").notNull().default(0), // 저장마다 1씩 오른다
+    selection: jsonb("selection").$type<CareerSelection>(), // 맞춤본만
+    content: jsonb("content").$type<CareerContent>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("applications_careers_common_idx").on(t.userId, t.trackId).where(sql`${t.postingId} is null`),
+    uniqueIndex("applications_careers_tailored_idx").on(t.postingId).where(sql`${t.postingId} is not null`),
   ],
 );
 
