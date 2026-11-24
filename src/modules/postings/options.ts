@@ -72,3 +72,6 @@ export const YEARS_GAP = 2;
 export const LOCATION_BY_RANK = [1, 0.85, 0.7, 0.55, 0.4];
 export const FIELD_SCORES = { same_job: 1, same_field: 0.5, other: 0 } as const;
 export const MATCH_SCORES = { full: 1, partial: 0.5, none: 0 } as const;
+
+// 회사 조사(5-6): 소식 개수, 글자 수, 오래된 조사로 보는 날 수, 조사 중으로 보는 분 수
+export const RESEARCH_LIMITS = { news: 8, summary: 300, talent: 500, staleDays: 90, runningMinutes: 5 };
