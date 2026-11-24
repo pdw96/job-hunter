@@ -90,14 +90,14 @@ describe("careerEditorData", () => {
     expect(data.companies[1].items[0].check.unavailable).toBe(true);
   });
 
-  it("missing에 회사 이름을 붙인다", () => {
+  it("missing에 회사 id와 회사 이름을 붙인다(회사째 빠진 것은 id가 회사 id와 같다)", () => {
     const sources = [companySource("j1", [itemSource("p1"), itemSource("p2")]), companySource("j2", [itemSource("p3")])];
     const content: CareerContent = { companies: [company("j1", [item("p1")])], commonVersion: null };
     const data = careerEditorData(career(content), sources, null, new Map())!;
     expect(data.missing).toEqual([
-      { id: "p2", name: "항목 p2", companyName: "j1사" },
-      { id: "j2", name: "j2사", companyName: "j2사" },
-      { id: "p3", name: "항목 p3", companyName: "j2사" },
+      { id: "p2", name: "항목 p2", companyId: "j1", companyName: "j1사" },
+      { id: "j2", name: "j2사", companyId: "j2", companyName: "j2사" },
+      { id: "p3", name: "항목 p3", companyId: "j2", companyName: "j2사" },
     ]);
   });
 
