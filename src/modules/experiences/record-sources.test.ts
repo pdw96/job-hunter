@@ -448,7 +448,7 @@ test("경력 바로 아래 확인된 사례는 scene 항목이고 역할은 직�
     notDone: null,
     bannedPhrases: expect.arrayContaining(["혼자 구축", "주도"]),
     metrics: [{ text: "월 장애 5건에서 1건", basis: "장애 보고서" }],
-    contentVersion: writing.get(dated)!.contentVersion,
+    contentVersion: expect.any(Number),
     tools: [],
     scope: "use",
   });
@@ -596,6 +596,61 @@ test("프로젝트 아래 사례를 고치면 프로젝트 항목의 contentVers
   await setSceneTrackScope(db, "u1", sceneId, t1, "summary");
   const [summarized] = (await careers())[0].items;
   expect(summarized.contentVersion).not.toBe(after.contentVersion);
+});
+
+// 경력과 그 아래 사례·프로젝트 하나씩을 만들고, 경력을 고친 뒤 버전을 비교한다
+async function careerVersionsAfterJobEdit(edit: Partial<JobInput>) {
+  const jobId = await fact("job", job);
+  const sceneId = await addScene(scene({ kind: "job", id: jobId }));
+  const projectId = await fact("project", { ...project, parent: { kind: "job", id: jobId } });
+  await addScene(scene({ kind: "project", id: projectId }, { title: "정산 배치 개선" }));
+  const versions = async () => {
+    const [career] = await careers();
+    const byId = new Map(career.items.map((item) => [item.id, item.contentVersion]));
+    return { company: career.contentVersion, scene: byId.get(sceneId), project: byId.get(projectId) };
+  };
+  const before = await versions();
+  await updateFact(db, "u1", "job", jobId, { ...job, ...edit });
+  await confirmFact(db, "u1", "job", jobId);
+  return { before, after: await versions() };
+}
+
+test("경력의 담당 업무를 고쳐도 항목의 contentVersion은 그대로", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ duties: ["결제 서버 운영", "장애 대응", "정산 배치 운영"], bannedPhrases: ["주도", "전담"] });
+  expect(after.company).not.toBe(before.company);
+  expect(after.scene).toBe(before.scene);
+  expect(after.project).toBe(before.project);
+});
+
+test("경력의 직급을 고치면 사례 항목의 contentVersion이 바뀐다", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ title: "선임" });
+  expect(after.scene).not.toBe(before.scene);
+  expect(after.project).toBe(before.project);
+});
+
+test("경력의 부서를 고치면 사례 항목의 contentVersion이 바뀐다", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ department: "플랫폼팀" });
+  expect(after.scene).not.toBe(before.scene);
+  expect(after.project).toBe(before.project);
+});
+
+test("회사 이름을 고치면 프로젝트 항목의 contentVersion이 바뀐다", async () => {
+  const { before, after } = await careerVersionsAfterJobEdit({ company: "라마바 주식회사" });
+  expect(after.project).not.toBe(before.project);
+  expect(after.scene).not.toBe(before.scene);
+});
+
+test("기간이 빈 사례 항목은 경력 기간을 고치면 contentVersion이 바뀌고, 기간이 있는 사례는 그대로", async () => {
+  const jobId = await fact("job", job);
+  const dated = await addScene(scene({ kind: "job", id: jobId }));
+  const undated = await addScene(scene({ kind: "job", id: jobId }, { title: "온보딩 문서", startMonth: null, endMonth: null }));
+  const versions = async () => new Map((await careers())[0].items.map((item) => [item.id, item.contentVersion]));
+  const before = await versions();
+  await updateFact(db, "u1", "job", jobId, { ...job, endMonth: "2024-10" });
+  await confirmFact(db, "u1", "job", jobId);
+  const after = await versions();
+  expect(after.get(undated)).not.toBe(before.get(undated));
+  expect(after.get(dated)).toBe(before.get(dated));
 });
 
 test("금지 표현은 항목과 경력의 합", async () => {
