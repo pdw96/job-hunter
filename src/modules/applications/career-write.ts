@@ -53,6 +53,7 @@ export async function writeCareerItems(
   userId: string,
   input: { requests: CareerRequest[]; posting: ResumePostingContext | null },
   now: Date = new Date(),
+  onRaw?: (raw: unknown) => void,
 ): Promise<{ ok: true; value: Record<string, CareerLines>; answered: Set<string> } | { ok: false; reason: "over_limit" | AiFailure }> {
   const { requests } = input;
   if (requests.length === 0) return { ok: true, value: {}, answered: new Set() };
@@ -72,6 +73,7 @@ export async function writeCareerItems(
     now,
   );
   if (!result.ok) return { ok: false, reason: result.reason };
+  onRaw?.(result.value); // 프롬프트 점검이 AI가 보낸 원래 답을 보이려고 쓴다
 
   // 요청에 없는 별명은 버리고, 같은 별명은 처음 것만 쓴다. 빠뜨린 항목은 빈 줄이다
   const named = requests.map((request) => ({ name: request.item.name, request }));
