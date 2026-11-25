@@ -51,11 +51,19 @@ test("남의 학교·교육 과정이나 없는 id는 못 읽는다", async () =
   expect(await loadHead(db, "u1", { kind: "course", id: "없는-id" })).toBeFalsy();
 });
 
-test("기간 규칙: 학교는 재학·휴학만 진행 중, 교육 과정은 시작만 있고 끝이 없을 때", () => {
-  for (const [status, on] of [["enrolled", true], ["leave", true], ["graduated", false], ["expected", false], ["completed", false], ["dropped", false]] as const) {
+test("기간 규칙: 학교는 재학·휴학(졸업 예정은 끝 월이 없을 때만) 진행 중, 교육 과정은 시작만 있고 끝이 없을 때", () => {
+  for (const [status, on] of [["enrolled", true], ["leave", true], ["graduated", false], ["expected", true], ["completed", false], ["dropped", false]] as const) {
     expect(educationPeriod({ ...school, status }).isOngoing).toBe(on);
   }
   expect(coursePeriod({ ...course, endMonth: "2024-06" }).isOngoing).toBe(false);
   expect(coursePeriod({ ...course, startMonth: null }).isOngoing).toBe(false);
   expect(coursePeriod(course)).toEqual({ startMonth: "2024-01", endMonth: null, isOngoing: true });
+});
+
+test("졸업 예정이고 끝 월이 없는 학교는 진행 중", () => {
+  expect(educationPeriod({ ...school, status: "expected", endMonth: null }).isOngoing).toBe(true);
+});
+
+test("졸업 예정이라도 끝 월이 있으면 진행 중이 아니다", () => {
+  expect(educationPeriod({ ...school, status: "expected", endMonth: "2026-02" }).isOngoing).toBe(false);
 });

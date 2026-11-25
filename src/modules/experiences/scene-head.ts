@@ -46,11 +46,11 @@ export async function lockHead(tx: Tx, userId: string, ref: HeadRef): Promise<bo
 }
 
 // 학교·교육 과정 표에는 isOngoing 칸이 없어 머리 기간을 규칙으로 만든다.
-// 학교: 재학·휴학이면 진행 중(카드 표시와 같은 규칙). 교육 과정: 시작 월이 있고 끝 월이 없으면 진행 중(공백과 같은 규칙)
+// 학교: 재학·휴학이면 진행 중, 졸업 예정이면서 끝 월이 없어도 진행 중. 교육 과정: 시작 월이 있고 끝 월이 없으면 진행 중(공백과 같은 규칙)
 export const educationPeriod = (v: EducationInput): HeadPeriod => ({
   startMonth: v.startMonth,
   endMonth: v.endMonth,
-  isOngoing: v.status === "enrolled" || v.status === "leave",
+  isOngoing: v.status === "enrolled" || v.status === "leave" || (v.status === "expected" && v.endMonth === null),
 });
 export const coursePeriod = (v: CourseInput): HeadPeriod => ({
   startMonth: v.startMonth,

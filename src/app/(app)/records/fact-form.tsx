@@ -189,7 +189,8 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
   const banned = Array.isArray(initial?.bannedPhrases) ? (initial.bannedPhrases as string[]) : [];
 
   // 이력 탭의 그 대분류 자리로 돌아간다. 프로젝트는 지금 고른 소속의 대분류
-  const backToRecords = () => router.push(`/records#sec-${sectionOf(kind, parseParent(values.parent ?? ""))}`);
+  // 지운 뒤에는 저장돼 있던 소속(initial)의 자리로 돌아간다
+  const backToRecords = (parent: string = values.parent ?? "") => router.push(`/records#sec-${sectionOf(kind, parseParent(parent))}`);
 
   function save() {
     setMessage(null);
@@ -212,7 +213,7 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
         setMessage(result.message);
         return;
       }
-      backToRecords();
+      backToRecords(toValues(kind, initial).parent ?? "");
     });
   }
 

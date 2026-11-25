@@ -4,7 +4,9 @@ import { db } from "@/db";
 import { requireUser } from "@/lib/session";
 import { type Fact, listFacts } from "@/modules/experiences/facts-repo";
 import { countOpenRecordClaims } from "@/modules/experiences/record-claims-repo";
+import type { CourseInput, EducationInput } from "@/modules/experiences/record-input";
 import type { HeadKind } from "@/modules/experiences/record-options";
+import { coursePeriod, educationPeriod } from "@/modules/experiences/scene-head";
 import { listScenes, type SceneSummary } from "@/modules/experiences/scenes-repo";
 import { newRecordsOn } from "@/modules/experiences/switch";
 import { ConfirmBadge } from "../confirm-badge";
@@ -22,11 +24,16 @@ const SCENE_SECTIONS = SECTIONS.filter((s) => s.id !== "credential");
 
 type HeadFact = Fact<HeadKind>;
 
-// 머리 줄의 기간. 학교는 재학·휴학이면 진행 중(카드 표시와 같은 규칙)
+// 머리 줄의 기간. 학교·교육 과정은 머리 읽기와 같은 규칙(scene-head), 나머지는 isOngoing 칸
 function headPeriod(fact: HeadFact): string | null {
-  const v = fact.value as { startMonth?: string | null; endMonth?: string | null; isOngoing?: boolean; status?: string };
-  const ongoing = fact.kind === "education" ? v.status === "enrolled" || v.status === "leave" : Boolean(v.isOngoing);
-  return periodText(v.startMonth ?? null, v.endMonth ?? null, ongoing);
+  const v = fact.value as { startMonth?: string | null; endMonth?: string | null; isOngoing?: boolean };
+  const p =
+    fact.kind === "education"
+      ? educationPeriod(fact.value as EducationInput)
+      : fact.kind === "course"
+        ? coursePeriod(fact.value as CourseInput)
+        : { startMonth: v.startMonth ?? null, endMonth: v.endMonth ?? null, isOngoing: Boolean(v.isOngoing) };
+  return periodText(p.startMonth, p.endMonth, p.isOngoing);
 }
 
 // 머리 하나의 묶음: 머리 줄·확인 표시·미확인이면 맞음(경력은 이력 탭에서)·사례 목록·`+ 사례 추가`.
