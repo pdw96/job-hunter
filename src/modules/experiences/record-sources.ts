@@ -8,7 +8,7 @@ import type { Kind, Scope } from "./options";
 import type { CourseInput, CredentialInput, EducationInput, GapInput, ProjectInput } from "./record-input";
 import { CREDENTIAL_TYPE_LABELS, DEGREE_LABELS, type HeadKind, SCHOOL_STATUS_LABELS } from "./record-options";
 import { statuses } from "./rubric-store";
-import { headOfRow } from "./scene-head";
+import { coursePeriod, educationPeriod, headOfRow } from "./scene-head";
 import { narrowerScope, sceneState, sceneUsable, versionHash } from "./scene-rules";
 import { scenes } from "./schema";
 import type { VerificationState } from "./verification";
@@ -25,9 +25,10 @@ import type { ResumeSource, WritingSource } from "./writing";
 type Period = { startMonth: string | null; endMonth: string | null; isOngoing: boolean };
 type SceneRow = typeof scenes.$inferSelect;
 
-// 머리(경력·프로젝트·활동)를 원천에 쓰기 좋게 편 모양
+// 머리(경력·프로젝트·활동·학교·교육 과정)를 원천에 쓰기 좋게 편 모양
 type Head = Period & {
   id: string;
+  headKind: HeadKind;
   kind: Kind;
   name: string;
   organization: string | null; // 이력서 머리의 소속: 경력은 부서, 프로젝트는 소속 조직 이름, 활동은 기관
@@ -42,6 +43,7 @@ type Head = Period & {
 };
 
 const HEAD_RESUME_KIND: Record<HeadKind, Kind> = { job: "job", project: "project", activity: "other", education: "other", course: "training" };
+const RESUME_HEAD_KINDS: HeadKind[] = ["job", "project", "activity"];
 const GAP_NAME = "공백 기간";
 const unique = (list: string[]) => [...new Set(list)];
 
@@ -98,6 +100,7 @@ function headsOf(facts: FactsByKind): Map<string, Head> {
     const v = fact.value;
     heads.set(fact.id, {
       ...base(fact, v),
+      headKind: "job",
       kind: HEAD_RESUME_KIND.job,
       name: v.company,
       organization: v.department,
@@ -108,8 +111,8 @@ function headsOf(facts: FactsByKind): Map<string, Head> {
       duties: v.duties,
     });
   }
-  // 프로젝트의 소속 조직(경력·학교·교육 과정)
-  const parents = new Map<string, Fact>([...facts.job, ...facts.education, ...facts.course].map((fact) => [fact.id, fact]));
+  // 프로젝트의 소속 조직(경력·학교·교육 과정·활동)
+  const parents = new Map<string, Fact>([...facts.job, ...facts.education, ...facts.course, ...facts.activity].map((fact) => [fact.id, fact]));
   for (const fact of facts.project) {
     const v: ProjectInput = fact.value;
     // 소속 조직은 확인된 것만 쓴다. 미확인이면(고쳐서 확인이 풀림, 가져와 주장이 남음) 개인 프로젝트처럼 다룬다
@@ -118,6 +121,7 @@ function headsOf(facts: FactsByKind): Map<string, Head> {
     const parentName = parent ? factName(parent) : null;
     heads.set(fact.id, {
       ...base(fact, v),
+      headKind: "project",
       kind: HEAD_RESUME_KIND.project,
       name: v.name,
       organization: parentName,
@@ -133,11 +137,41 @@ function headsOf(facts: FactsByKind): Map<string, Head> {
     const v = fact.value;
     heads.set(fact.id, {
       ...base(fact, v),
+      headKind: "activity",
       kind: HEAD_RESUME_KIND.activity,
       name: v.name,
       organization: v.organization,
       sceneOrganization: v.name,
       role: v.role,
+      versionParts: [fact.id, fact.contentVersion],
+      bannedPhrases: [],
+    });
+  }
+  // 학교·교육 과정은 사례가 달리는 머리일 뿐, 이력서 머리 항목은 만들지 않는다(listRecordResumeSources가 거른다)
+  for (const fact of facts.education) {
+    const v = fact.value;
+    heads.set(fact.id, {
+      ...base(fact, educationPeriod(v)),
+      headKind: "education",
+      kind: HEAD_RESUME_KIND.education,
+      name: v.schoolName,
+      organization: null,
+      sceneOrganization: joined([v.schoolName, v.major], " · ") ?? v.schoolName,
+      role: null,
+      versionParts: [fact.id, fact.contentVersion],
+      bannedPhrases: [],
+    });
+  }
+  for (const fact of facts.course) {
+    const v = fact.value;
+    heads.set(fact.id, {
+      ...base(fact, coursePeriod(v)),
+      headKind: "course",
+      kind: HEAD_RESUME_KIND.course,
+      name: v.name,
+      organization: null,
+      sceneOrganization: joined([v.name, v.institution], " · ") ?? v.name,
+      role: null,
       versionParts: [fact.id, fact.contentVersion],
       bannedPhrases: [],
     });
@@ -293,7 +327,7 @@ export async function listRecordResumeSources(db: Db, userId: string, trackId: s
   const items: { item: ResumeSource; start: string | null; createdAt: Date }[] = [];
   for (const head of heads.values()) {
     const scope = scopeIn(head.trackScopes, trackId);
-    if (!head.isConfirmed || scope === "exclude") continue;
+    if (!head.isConfirmed || scope === "exclude" || !RESUME_HEAD_KINDS.includes(head.headKind)) continue;
     const bundle = bundleScenes(scenesByHead.get(head.id) ?? []);
     const source: ResumeSource = {
       id: head.id,
