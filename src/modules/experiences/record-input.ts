@@ -363,7 +363,7 @@ export function validateScene(input: unknown): Result<SceneInput> {
   const h = asRaw(raw.head);
   const headKind = pick(HEAD_KINDS, h.kind);
   const headId = text(h.id);
-  if (headKind === null || headId === null) errors.head = "장면이 속할 경력·프로젝트·활동을 골라 주세요";
+  if (headKind === null || headId === null) errors.head = "사례가 속할 경력·학교·교육 과정·활동·프로젝트를 골라 주세요";
 
   const title = shortText(errors, "title", raw.title, "제목", true) ?? "";
   const isOngoing = raw.isOngoing === true;

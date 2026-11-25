@@ -350,3 +350,15 @@ test("setProjectParentIfUnset: 남의 프로젝트나 남의 조직이면 not_fo
   expect((await getFact(db, "u1", "project", mine))?.value.parent).toBeNull();
   expect((await getFact(db, "u2", "project", theirs))?.value.parent).toBeNull();
 });
+
+test("사례가 달린 학교·교육 과정은 지우지 않는다", async () => {
+  for (const kind of ["education", "course"] as const) {
+    const id = await make("u1", kind);
+    const r = await createScene(db, "u1", { ...sceneOf(id), head: { kind, id } });
+    if (!r.ok) throw new Error("scene");
+    expect(await deleteFact(db, "u1", kind, id)).toEqual({ ok: false, reason: "has_scenes", count: 1 });
+    expect(await getFact(db, "u1", kind, id)).not.toBeNull();
+    await deleteScene(db, "u1", r.id);
+    expect(await deleteFact(db, "u1", kind, id)).toEqual({ ok: true });
+  }
+});

@@ -14,7 +14,7 @@ import { scenePeriodStatus, sceneState } from "./scene-rules";
 import { scenes, type StoredRubric } from "./schema";
 import { canClose, initialRubric, type VerificationState } from "./verification";
 
-// 장면(경력·프로젝트·활동에 딸린 서술형 기록)의 저장과 확인. repo.ts와 같은 규칙을 experiences_scenes에 한다.
+// 장면(경력·학교·교육 과정·활동·프로젝트에 딸린 서술형 기록)의 저장과 확인. repo.ts와 같은 규칙을 experiences_scenes에 한다.
 // 장면은 옛 "project" 구분의 검증 규칙(기간·본인 역할·수준 필수, 수치·증빙은 닫을 수 있음)을 쓴다.
 
 export { sceneContentResetFields } from "./rubric-store";
@@ -46,6 +46,8 @@ const headColumns = (head: HeadRef) => ({
   jobId: head.kind === "job" ? head.id : null,
   projectId: head.kind === "project" ? head.id : null,
   activityId: head.kind === "activity" ? head.id : null,
+  educationId: head.kind === "education" ? head.id : null,
+  courseId: head.kind === "course" ? head.id : null,
 });
 const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 

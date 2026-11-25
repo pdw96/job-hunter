@@ -7,7 +7,7 @@ import { createTrack } from "@/modules/tracks/repo";
 import type { SurveyInput } from "@/modules/tracks/survey";
 import { findClaims, subjectOfScene } from "./claims";
 import { createFact, getFact } from "./facts-repo";
-import type { JobInput, SceneInput } from "./record-input";
+import type { CourseInput, EducationInput, JobInput, SceneInput } from "./record-input";
 import { insertRecordClaims, listRecordClaims } from "./record-claims-repo";
 import {
   closeSceneRubricItem,
@@ -261,4 +261,61 @@ test("증빙 메모만 고치면 증빙 판정이 처음으로 돌아가지만 �
   found = await getScene(db, "u1", id);
   expect(found?.rubric.evidence.status).toBe("closed");
   expect(found?.judgedAt).toBeNull();
+});
+
+const school: EducationInput = {
+  schoolName: "가나대",
+  location: null,
+  degree: "bachelor",
+  major: "컴퓨터공학",
+  startMonth: "2022-03",
+  endMonth: null,
+  status: "enrolled",
+  gpa: null,
+  gpaScale: null,
+};
+const course: CourseInput = { name: "백엔드 부트캠프", institution: "다라캠프", startMonth: "2024-01", endMonth: null, hours: null, learned: null };
+
+test("학교에 사례를 붙여 저장하고 읽는다", async () => {
+  const f = await createFact(db, "u1", "education", school);
+  if (!f.ok) throw new Error("education");
+  const head = { kind: "education", id: f.id } as const;
+  const r = await createScene(db, "u1", scene(head));
+  if (!r.ok) throw new Error(r.reason);
+  expect((await getScene(db, "u1", r.id))?.head).toEqual(head);
+  expect((await listScenes(db, "u1")).map((s) => s.head)).toEqual([head]);
+});
+
+test("교육 과정에 사례를 붙여 저장하고 읽는다", async () => {
+  const f = await createFact(db, "u1", "course", course);
+  if (!f.ok) throw new Error("course");
+  const head = { kind: "course", id: f.id } as const;
+  const r = await createScene(db, "u1", scene(head));
+  if (!r.ok) throw new Error(r.reason);
+  expect((await getScene(db, "u1", r.id))?.head).toEqual(head);
+  // 머리를 학교로 옮겨도 읽힌다
+  const e = await createFact(db, "u1", "education", school);
+  if (!e.ok) throw new Error("education");
+  expect(await updateScene(db, "u1", r.id, scene({ kind: "education", id: e.id }))).toMatchObject({ ok: true });
+  expect((await getScene(db, "u1", r.id))?.head).toEqual({ kind: "education", id: e.id });
+});
+
+test("남의 학교·교육 과정에는 사례를 붙일 수 없다", async () => {
+  const e = await createFact(db, "u2", "education", school);
+  const c = await createFact(db, "u2", "course", course);
+  if (!e.ok || !c.ok) throw new Error("fact");
+  const notFound = { ok: false, reason: "not_found" };
+  expect(await createScene(db, "u1", scene({ kind: "education", id: e.id }))).toEqual(notFound);
+  expect(await createScene(db, "u1", scene({ kind: "course", id: c.id }))).toEqual(notFound);
+  const id = await make();
+  expect(await updateScene(db, "u1", id, scene({ kind: "education", id: e.id }))).toEqual(notFound);
+  expect((await getScene(db, "u1", id))?.head).toEqual({ kind: "job", id: jobId });
+});
+
+test("재학 중인 학교에 붙인 기간 없는 사례는 기간이 충족이다", async () => {
+  const f = await createFact(db, "u1", "education", school);
+  if (!f.ok) throw new Error("education");
+  const r = await createScene(db, "u1", scene({ kind: "education", id: f.id }, { startMonth: null }));
+  if (!r.ok) throw new Error(r.reason);
+  expect((await getScene(db, "u1", r.id))?.rubric.period.status).toBe("met");
 });

@@ -301,9 +301,9 @@ test("사례 인터뷰: 머리 고르기, 답, 정리", async () => {
   const j = await createFact(db, "u1", "job", job);
   if (!j.ok) throw new Error();
   const none = createFakeAi([]);
-  expect(await startSceneInterviewCommand(db, none, "u1", {})).toEqual({ ok: false, message: "사례를 붙일 회사·프로젝트·활동을 골라 주세요" });
+  expect(await startSceneInterviewCommand(db, none, "u1", {})).toEqual({ ok: false, message: "사례를 붙일 경력·학교·교육 과정·활동·프로젝트를 골라 주세요" });
   expect(await startSceneInterviewCommand(db, none, "u2", { head: `job:${j.id}` })).toEqual({ ok: false, message: "기록을 찾을 수 없습니다" });
-  expect(await startSceneInterviewCommand(db, none, "u1", { head: "school:1" })).toEqual({ ok: false, message: "사례를 붙일 회사·프로젝트·활동을 골라 주세요" });
+  expect(await startSceneInterviewCommand(db, none, "u1", { head: "school:1" })).toEqual({ ok: false, message: "사례를 붙일 경력·학교·교육 과정·활동·프로젝트를 골라 주세요" });
   expect(none.requests).toHaveLength(0);
 
   const started = await startSceneInterviewCommand(db, createFakeAi([q("어떤 일이었나요?")]), "u1", { head: `job:${j.id}` });

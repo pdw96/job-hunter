@@ -247,7 +247,7 @@ export async function startSceneInterviewCommand(
   if (!newRecordsOn()) return { ok: false, message: OFF };
   const head = parseHead(options?.head);
   const sceneId = typeof options?.sceneId === "string" && options.sceneId !== "" ? options.sceneId : undefined;
-  if (!head && !sceneId) return { ok: false, message: "사례를 붙일 회사·프로젝트·활동을 골라 주세요" };
+  if (!head && !sceneId) return { ok: false, message: "사례를 붙일 경력·학교·교육 과정·활동·프로젝트를 골라 주세요" };
   const trackId = typeof options?.trackId === "string" ? options.trackId : undefined;
   const result = await startSceneInterview(db, ai, userId, { head: head ?? undefined, sceneId, trackId });
   return result.ok ? { ok: true, id: result.id } : { ok: false, message: aiMessage(result.reason) };
