@@ -406,7 +406,7 @@ const MIGRATED_TABLES = [...HEAD_TABLES, scenes] as const;
 const none = (ids: string[]) => (ids.length > 0 ? ids : [""]);
 
 // 지금 다시 하기가 막히는 까닭(막히지 않으면 null). 읽기만 한다. resetMoves는 트랜잭션 안에서 같은 검사를 한다
-// - in_use: 직접 넣은 사례·프로젝트가 옮긴 머리에 딸려 있거나, 옮긴 머리·사례의 인터뷰가 진행 중이다
+// - in_use: 직접 넣은 사례·프로젝트가 옮긴 머리(활동·경력·학교·과정 등)에 딸려 있거나, 옮긴 머리·사례의 인터뷰가 진행 중이다
 // - edited: 옮긴 뒤 옮긴 행을 고쳤거나(content_version > 0) 확인했거나(이어받은 확인은 옛 기록의 이른 시각이라 걸리지 않는다),
 //   옮긴 머리·사례의 주장에 옮긴 뒤 답했다
 export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | null> {
@@ -420,7 +420,7 @@ export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | n
     migratedIds(courses),
     migratedIds(scenes),
   ]);
-  // 직접 넣은 사례가 옮긴 머리에 딸려 있다 / 직접 만든 프로젝트의 소속이 옮긴 경력·학교·과정이다
+  // 직접 넣은 사례가 옮긴 머리(프로젝트·활동·경력·학교·과정)에 딸려 있다 / 직접 만든 프로젝트의 소속이 옮긴 경력·활동·학교·과정이다
   const [scene] = await db
     .select({ id: scenes.id })
     .from(scenes)
@@ -428,7 +428,13 @@ export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | n
       and(
         eq(scenes.userId, userId),
         isNull(scenes.movedFrom),
-        or(inArray(scenes.projectId, none(project)), inArray(scenes.activityId, none(activity)), inArray(scenes.jobId, none(job))),
+        or(
+          inArray(scenes.projectId, none(project)),
+          inArray(scenes.activityId, none(activity)),
+          inArray(scenes.jobId, none(job)),
+          inArray(scenes.educationId, none(school)),
+          inArray(scenes.courseId, none(course)),
+        ),
       ),
     )
     .limit(1);
@@ -439,7 +445,12 @@ export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | n
       and(
         eq(projects.userId, userId),
         isNull(projects.movedFrom),
-        or(inArray(projects.jobId, none(job)), inArray(projects.educationId, none(school)), inArray(projects.courseId, none(course))),
+        or(
+          inArray(projects.jobId, none(job)),
+          inArray(projects.activityId, none(activity)),
+          inArray(projects.educationId, none(school)),
+          inArray(projects.courseId, none(course)),
+        ),
       ),
     )
     .limit(1);
@@ -450,7 +461,7 @@ export async function resetBlock(db: Db, userId: string): Promise<ResetBlock | n
       and(
         eq(interviews.userId, userId),
         eq(interviews.status, "active"),
-        or(inArray(interviews.sceneId, none(sceneIds)), inArray(interviews.headId, none([...project, ...activity, ...job]))),
+        or(inArray(interviews.sceneId, none(sceneIds)), inArray(interviews.headId, none([...project, ...activity, ...job, ...school, ...course]))),
       ),
     )
     .limit(1);
