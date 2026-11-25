@@ -279,6 +279,32 @@ test("경력의 시작 월을 지우면 기간이 빈 장면의 기간 판정이
   expect((await getScene(db, "u1", noPeriod.id))?.rubric.period.status).toBe("met");
 });
 
+test("재학 중인 학교의 시작 월을 고쳐도 기간이 빈 사례는 충족이고, 상태만 바꿔도 다시 판정한다", async () => {
+  const enrolled = { ...INPUTS.education, endMonth: null, status: "enrolled" as const };
+  const eduId = await make("u1", "education", enrolled);
+  const scene = await createScene(db, "u1", sceneOf(eduId, { head: { kind: "education", id: eduId } }));
+  if (!scene.ok) throw new Error("scene");
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+
+  await updateFact(db, "u1", "education", eduId, { ...enrolled, startMonth: "2016-03" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+
+  // 상태만 졸업으로 바꾸면 끝 월이 없어 미충족, 다시 재학으로 바꾸면 충족
+  await updateFact(db, "u1", "education", eduId, { ...enrolled, startMonth: "2016-03", status: "graduated" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("unmet");
+  await updateFact(db, "u1", "education", eduId, { ...enrolled, startMonth: "2016-03" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+});
+
+test("끝 월이 없는 교육 과정의 시작 월을 고쳐도 기간이 빈 사례는 충족이다", async () => {
+  const ongoing = { ...INPUTS.course, endMonth: null };
+  const courseId = await make("u1", "course", ongoing);
+  const scene = await createScene(db, "u1", sceneOf(courseId, { head: { kind: "course", id: courseId } }));
+  if (!scene.ok) throw new Error("scene");
+  await updateFact(db, "u1", "course", courseId, { ...ongoing, startMonth: "2020-02" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+});
+
 test("장면이 달린 머리는 지울 수 없고(has_scenes) 장면이 없으면 지워진다", async () => {
   for (const kind of ["job", "project", "activity"] as const) {
     const id = await make("u1", kind);
