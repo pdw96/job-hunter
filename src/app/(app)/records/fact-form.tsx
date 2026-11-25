@@ -14,11 +14,13 @@ import {
   FACT_KIND_LABELS,
   type FactKind,
   GPA_SCALES,
+  type ParentKind,
+  type ProjectParent,
   RECORD_LIMITS,
   SCHOOL_STATUS_LABELS,
   SCHOOL_STATUSES,
 } from "@/modules/experiences/record-options";
-import { TAB_OF_KIND } from "./fact-summary";
+import { sectionOf } from "./record-tree";
 
 // 값은 모두 문자열로 들고 있다가 저장할 때 서버가 읽는 모양으로 바꾼다. 서버가 한 번 더 검사한다.
 type Values = Record<string, string>;
@@ -120,15 +122,20 @@ export function toValues(kind: FactKind, value: Record<string, unknown> | undefi
   return out;
 }
 
+// "job:<id>" 모양의 소속 칸 값을 { kind, id }로. 빈 값은 개인(null)
+function parseParent(raw: string): ProjectParent {
+  if (raw === "") return null;
+  const [kind, ...rest] = raw.split(":");
+  return { kind: kind as ParentKind, id: rest.join(":") };
+}
+
 // 입력 칸 문자열을 서버가 읽는 모양으로. 서버가 고치지 않는 칸(쓰면 안 되는 표현)은 처음 값을 그대로 보낸다
 function toInput(kind: FactKind, v: Values, ongoing: boolean, initial: Record<string, unknown> | undefined) {
   const input: Record<string, unknown> = {};
   for (const spec of SPECS[kind]) {
     const raw = v[spec.key] ?? "";
-    if (spec.type === "parent") {
-      const [parentKind, ...rest] = raw.split(":");
-      input[spec.key] = raw === "" ? null : { kind: parentKind, id: rest.join(":") };
-    } else if (spec.key === "duties") input[spec.key] = raw.split("\n");
+    if (spec.type === "parent") input[spec.key] = parseParent(raw);
+    else if (spec.key === "duties") input[spec.key] = raw.split("\n");
     else if (spec.key === "tools") input[spec.key] = raw.split(",");
     else input[spec.key] = raw;
   }
@@ -159,11 +166,15 @@ type Props = {
   initialScopes?: Record<string, Scope>;
   tracks: { id: string; name: string }[];
   parentOptions?: Option[]; // 프로젝트의 소속 후보
+  initialParent?: string; // 새 프로젝트의 소속 기본값("job:<id>" 모양). 이력 탭의 기관 아래 `+ 프로젝트`에서 온다
 };
 
-export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptions = [] }: Props) {
+export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptions = [], initialParent }: Props) {
   const router = useRouter();
-  const [values, setValues] = useState<Values>(() => toValues(kind, initial));
+  const [values, setValues] = useState<Values>(() => {
+    const start = toValues(kind, initial);
+    return !id && initialParent && "parent" in start ? { ...start, parent: initialParent } : start;
+  });
   const [ongoing, setOngoing] = useState(initial?.isOngoing === true);
   const [scopes, setScopes] = useState<Record<string, Scope>>(
     initialScopes ?? Object.fromEntries(tracks.map((track) => [track.id, "use" as Scope])),
@@ -177,6 +188,9 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
   const noEnd = ongoing || (kind === "education" && (values.status === "enrolled" || values.status === "leave"));
   const banned = Array.isArray(initial?.bannedPhrases) ? (initial.bannedPhrases as string[]) : [];
 
+  // 이력 탭의 그 대분류 자리로 돌아간다. 프로젝트는 지금 고른 소속의 대분류
+  const backToRecords = () => router.push(`/records#sec-${sectionOf(kind, parseParent(values.parent ?? ""))}`);
+
   function save() {
     setMessage(null);
     startTransition(async () => {
@@ -186,8 +200,7 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
         setMessage(result.message ?? "입력한 내용을 다시 확인해 주세요");
         return;
       }
-      const tab = TAB_OF_KIND[kind];
-      router.push(tab ? `/records?tab=${tab}` : "/records/scenes");
+      backToRecords();
     });
   }
 
@@ -199,8 +212,7 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
         setMessage(result.message);
         return;
       }
-      const tab = TAB_OF_KIND[kind];
-      router.push(tab ? `/records?tab=${tab}` : "/records/scenes");
+      backToRecords();
     });
   }
 
@@ -256,7 +268,7 @@ export function FactForm({ kind, id, initial, initialScopes, tracks, parentOptio
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-foreground/60">내 경력·학교·교육 과정 중 하나를 고르거나 개인으로 둡니다</p>
+                  <p className="text-xs text-foreground/60">내 경력·학교·교육 과정·대내외활동 중 하나를 고르거나 개인으로 둡니다</p>
                   {error && (
                     <p role="alert" className="text-sm text-red-600">
                       {error}

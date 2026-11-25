@@ -98,14 +98,3 @@ export function cardOf(fact: Fact, parentLabel?: string | null): CardData {
 }
 
 export const kindLabel = (kind: FactKind) => FACT_KIND_LABELS[kind];
-
-// 추가·고친 뒤 돌아갈 탭
-export const TAB_OF_KIND: Record<FactKind, string | null> = {
-  education: "school",
-  course: "school",
-  job: "job",
-  gap: "job",
-  credential: "credential",
-  project: null,
-  activity: null,
-};
