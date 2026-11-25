@@ -68,7 +68,7 @@ const INPUT_KEYS: { [K in FactKind]: readonly (keyof FactInputs[K])[] } = {
   activity: FACT_CONTENT_FIELDS.activity,
 };
 
-const PARENT_KIND_TABLE = { job: jobs, education, course: courses } as const;
+const PARENT_KIND_TABLE = { job: jobs, education, course: courses, activity: activities } as const;
 
 const mine = (kind: FactKind, userId: string, id: string) => {
   const t = tableOf(kind);
@@ -84,6 +84,7 @@ function toValues(kind: FactKind, input: FactInputs[FactKind]): Record<string, u
     values.jobId = parent?.kind === "job" ? parent.id : null;
     values.educationId = parent?.kind === "education" ? parent.id : null;
     values.courseId = parent?.kind === "course" ? parent.id : null;
+    values.activityId = parent?.kind === "activity" ? parent.id : null;
   }
   return values;
 }
@@ -98,7 +99,9 @@ function toValue(kind: FactKind, row: Row): FactInputs[FactKind] {
         ? { kind: "education", id: row.educationId }
         : row.courseId
           ? { kind: "course", id: row.courseId }
-          : null;
+          : row.activityId
+            ? { kind: "activity", id: row.activityId }
+            : null;
   }
   return value as unknown as FactInputs[FactKind];
 }
@@ -135,7 +138,13 @@ const claimOwnerOf = (kind: FactKind, id: string): ClaimOwner | null => (kind ==
 
 const isHeadKind = (kind: FactKind): kind is HeadKind => (HEAD_KINDS as readonly string[]).includes(kind);
 // 장면 표에서 그 머리를 가리키는 칸
-const sceneHeadColumn = (kind: HeadKind) => ({ job: scenes.jobId, project: scenes.projectId, activity: scenes.activityId })[kind];
+const sceneHeadColumn = (kind: HeadKind) => ({
+  job: scenes.jobId,
+  project: scenes.projectId,
+  activity: scenes.activityId,
+  education: scenes.educationId,
+  course: scenes.courseId,
+})[kind];
 
 const parentOf = (kind: FactKind, input: FactInputs[FactKind]): ProjectParent =>
   kind === "project" ? (input as ProjectInput).parent : null;
@@ -247,7 +256,7 @@ export async function setProjectParentIfUnset(
   parent: NonNullable<ProjectParent>,
 ): Promise<{ ok: true; changed: boolean } | NotFound> {
   if (!(await ownsParent(db, userId, parent))) return { ok: false, reason: "not_found" };
-  const column = { job: "jobId", education: "educationId", course: "courseId" }[parent.kind];
+  const column = { job: "jobId", education: "educationId", course: "courseId", activity: "activityId" }[parent.kind];
   const updated = await db
     .update(projects)
     .set({ [column]: parent.id }) // 소속 잇기는 사용자가 고친 것이 아니라 updated_at을 건드리지 않는다(다시 옮기기 검사가 본다)
@@ -258,6 +267,7 @@ export async function setProjectParentIfUnset(
         isNull(projects.jobId),
         isNull(projects.educationId),
         isNull(projects.courseId),
+        isNull(projects.activityId),
       ),
     )
     .returning({ id: projects.id });

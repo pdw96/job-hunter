@@ -13,11 +13,11 @@ export const FACT_KIND_LABELS: Record<FactKind, string> = {
 };
 
 // 장면이 딸리는 머리
-export const HEAD_KINDS = ["job", "project", "activity"] as const satisfies readonly FactKind[];
+export const HEAD_KINDS = ["job", "project", "activity", "education", "course"] as const satisfies readonly FactKind[];
 export type HeadKind = (typeof HEAD_KINDS)[number];
 export type HeadRef = { kind: HeadKind; id: string };
 // 머리의 이름 낱말. 화면과 안내 문구에 쓴다
-export const HEAD_NOUNS: Record<HeadKind, string> = { job: "회사", project: "프로젝트", activity: "활동" };
+export const HEAD_NOUNS: Record<HeadKind, string> = { job: "회사", project: "프로젝트", activity: "활동", education: "학교", course: "교육 과정" };
 
 export const DEGREES = ["high", "associate", "bachelor", "master", "doctor"] as const;
 export type Degree = (typeof DEGREES)[number];
@@ -62,8 +62,10 @@ export const CREDENTIAL_TYPE_LABELS: Record<CredentialType, string> = {
 };
 
 // 프로젝트가 딸릴 수 있는 조직
-export const PARENT_KINDS = ["job", "education", "course"] as const satisfies readonly FactKind[];
+export const PARENT_KINDS = ["job", "education", "course", "activity"] as const satisfies readonly FactKind[];
 export type ParentKind = (typeof PARENT_KINDS)[number];
+// 옛 옮기기·가져오기가 AI 답으로 받는 소속 종류(활동은 AI가 고르지 않는다)
+export type LegacyParentKind = Exclude<ParentKind, "activity">;
 export type ProjectParent = { kind: ParentKind; id: string } | null; // null = 개인
 
 export const RECORD_LIMITS = { duties: 8, dutyLength: 100, tools: 10, summary: 200 };

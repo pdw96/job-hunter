@@ -8,7 +8,7 @@ import type { SceneInput } from "./record-input";
 import { loadHead, type SceneHead } from "./scene-head";
 import { getScene } from "./scenes-repo";
 import type { HeadRef } from "./record-options";
-import { activities, jobs, projects, scenes } from "./schema";
+import { activities, courses, education, jobs, projects, scenes } from "./schema";
 
 // 장면의 AI 루브릭 판정과 금지 표현 후보. judge.ts와 같은 규칙이다:
 // AI는 구체적인지만 판정하고 confirmedAt은 건드리지 않으며, 읽었을 때의 contentVersion 그대로일 때만 반영한다.
@@ -16,7 +16,7 @@ import { activities, jobs, projects, scenes } from "./schema";
 // 기간은 코드가 판정하므로 AI에게 묻지 않는다
 const JUDGED_ITEMS = ["role", "level", "metrics", "evidence"] as const satisfies readonly RubricItem[];
 
-const HEAD_TABLES = { job: jobs, project: projects, activity: activities } as const;
+const HEAD_TABLES = { job: jobs, project: projects, activity: activities, education, course: courses } as const;
 
 function headUnchanged(userId: string, ref: HeadRef, version: number) {
   const t = HEAD_TABLES[ref.kind];

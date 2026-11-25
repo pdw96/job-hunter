@@ -177,6 +177,26 @@ test("남의 경력·학교·교육 과정을 parent로 주면 만들기도 고�
   expect((await getFact(db, "u1", "project", pid))?.value.parent).toBeNull();
 });
 
+test("프로젝트를 대내외활동에 딸리게 저장하고 읽는다", async () => {
+  const activityId = await make("u1", "activity");
+  const pid = await make("u1", "project", { ...INPUTS.project, parent: { kind: "activity", id: activityId } });
+  expect((await getFact(db, "u1", "project", pid))?.value.parent).toEqual({ kind: "activity", id: activityId });
+});
+
+test("남의 활동에는 딸리게 할 수 없다", async () => {
+  const theirs = await make("u2", "activity");
+  const parent = { kind: "activity", id: theirs } as const;
+  expect(await createFact(db, "u1", "project", { ...INPUTS.project, parent })).toEqual({ ok: false, reason: "not_found" });
+  expect((await listFacts(db, "u1")).project).toHaveLength(0);
+});
+
+test("활동을 지우면 프로젝트는 개인이 된다", async () => {
+  const activityId = await make("u1", "activity");
+  const pid = await make("u1", "project", { ...INPUTS.project, parent: { kind: "activity", id: activityId } });
+  expect(await deleteFact(db, "u1", "activity", activityId)).toEqual({ ok: true });
+  expect((await getFact(db, "u1", "project", pid))?.value.parent).toBeNull();
+});
+
 test("장면이 없는 경력은 지워진다", async () => {
   const id = await make("u1", "job");
   expect(await deleteFact(db, "u1", "job", id)).toEqual({ ok: true });

@@ -39,7 +39,7 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
     listFacts(db, user.id),
     listTracks(db, user.id),
     listRecordClaims(db, user.id, { kind: "scene", id }),
-    head.kind === "activity" ? Promise.resolve([]) : listRecordClaims(db, user.id, { kind: head.kind, id: head.id }),
+    head.kind === "activity" || head.kind === "education" || head.kind === "course" ? Promise.resolve([]) : listRecordClaims(db, user.id, { kind: head.kind, id: head.id }),
   ]);
   if (!headFact) notFound();
   const card = cardOf(headFact);

@@ -36,8 +36,7 @@ import {
   EMPLOYMENTS,
   type FactKind,
   type HeadRef,
-  PARENT_KINDS,
-  type ParentKind,
+  type LegacyParentKind,
   RECORD_LIMITS,
   SCHOOL_STATUSES,
 } from "./record-options";
@@ -92,7 +91,7 @@ const importSchema = z.object({
     z.object({
       name: z.string(),
       // 같은 답의 jobs·education·courses 배열에서의 순서. null이면 개인
-      parentIndex: z.object({ kind: z.enum(PARENT_KINDS), index: z.number().int() }).nullable(),
+      parentIndex: z.object({ kind: z.enum(["job", "education", "course"]), index: z.number().int() }).nullable(),
       startMonth: z.string(),
       endMonth: z.string(),
       isOngoing: z.boolean(),
@@ -127,7 +126,7 @@ export type ImportPlan = {
   credentials: CredentialInput[];
   gaps: GapInput[];
   jobs: { input: JobInput; claims: PreparedClaims; scenes: PreparedScene[] }[];
-  projects: { input: ProjectInput; claims: PreparedClaims; parentIndex: { kind: ParentKind; index: number } | null; scenes: PreparedScene[] }[];
+  projects: { input: ProjectInput; claims: PreparedClaims; parentIndex: { kind: LegacyParentKind; index: number } | null; scenes: PreparedScene[] }[];
   activities: { input: ActivityInput; scenes: PreparedScene[] }[];
 };
 
@@ -282,7 +281,7 @@ export async function requestRecordImport(
     return prepared;
   };
   // AI의 배열 순서 → 계획의 순서. 빠진 것은 null(그것을 가리키던 프로젝트는 개인으로 둔다)
-  const indexMap: Record<ParentKind, (number | null)[]> = { job: [], education: [], course: [] };
+  const indexMap: Record<LegacyParentKind, (number | null)[]> = { job: [], education: [], course: [] };
 
   // 이름 칸에 지어낸 숫자가 있으면 값을 null로 넘겨 건너뛴다(머리면 장면도 버린다)
   const unless = <T>(name: string | null, build: (name: string) => T) => (name === null ? null : build(name));
@@ -432,7 +431,7 @@ export async function saveImportPlan(
       }
     }
 
-    const ids: Record<ParentKind, string[]> = { job: [], education: [], course: [] };
+    const ids: Record<LegacyParentKind, string[]> = { job: [], education: [], course: [] };
     for (const input of plan.education) ids.education.push(await fact("education", input, input.schoolName));
     for (const input of plan.courses) ids.course.push(await fact("course", input, input.name));
     for (const input of plan.credentials) await fact("credential", input, input.name);

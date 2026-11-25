@@ -41,7 +41,7 @@ type Head = Period & {
   createdAt: Date;
 };
 
-const HEAD_RESUME_KIND: Record<HeadKind, Kind> = { job: "job", project: "project", activity: "other" };
+const HEAD_RESUME_KIND: Record<HeadKind, Kind> = { job: "job", project: "project", activity: "other", education: "other", course: "training" };
 const GAP_NAME = "공백 기간";
 const unique = (list: string[]) => [...new Set(list)];
 
