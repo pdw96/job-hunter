@@ -12,7 +12,7 @@ import { AFFILIATE_SYSTEM, describeExperience, MOVE_CLAIMS_SYSTEM } from "./prom
 import { insertRecordClaims } from "./record-claims-repo";
 import { type ImportPlan, requestRecordImport, saveImportPlan } from "./record-import";
 import { type ActivityInput, type ProjectInput, type SceneInput, validateFact, validateScene } from "./record-input";
-import type { HeadKind, ParentKind } from "./record-options";
+import type { HeadKind, LegacyParentKind } from "./record-options";
 import { type Experience, getExperience, getTrackScopes } from "./repo";
 import { statuses, withStatuses } from "./rubric-store";
 import { scenePeriodStatus } from "./scene-rules";
@@ -351,9 +351,9 @@ export type AffiliationInput = {
   courses: { name: string; institution: string | null; span: Span }[];
 };
 // project는 input.projects의 순서, parent.index는 그 종류 배열의 순서
-export type AffiliationLink = { project: number; parent: { kind: ParentKind; index: number } };
+export type AffiliationLink = { project: number; parent: { kind: LegacyParentKind; index: number } };
 
-const ALIAS_KINDS: Record<string, ParentKind> = { J: "job", S: "education", C: "course" };
+const ALIAS_KINDS: Record<string, LegacyParentKind> = { J: "job", S: "education", C: "course" };
 
 // AI에게 프로젝트와 조직의 짝을 묻는다. 별명이 맞고 기간이 맞는 짝만, 프로젝트마다 첫 하나를 돌려준다
 export async function requestAffiliation(
@@ -391,7 +391,7 @@ export async function requestAffiliation(
   );
   if (!answer.ok) return { ok: false, reason: answer.reason };
 
-  const spans: Record<ParentKind, Span[]> = {
+  const spans: Record<LegacyParentKind, Span[]> = {
     job: input.jobs.map((j) => j.span),
     education: input.schools.map((s) => s.span),
     course: input.courses.map((c) => c.span),
@@ -436,7 +436,7 @@ export async function affiliateProjects(db: Db, ai: AiClient, userId: string, no
   if (!result.ok) return { ok: false, error: errorOf(result.reason) };
   if (result.links.length === 0) return { ok: true };
 
-  const parentIds: Record<ParentKind, string[]> = {
+  const parentIds: Record<LegacyParentKind, string[]> = {
     job: facts.job.map((f) => f.id),
     education: facts.education.map((f) => f.id),
     course: facts.course.map((f) => f.id),

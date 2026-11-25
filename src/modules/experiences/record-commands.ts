@@ -116,7 +116,7 @@ export async function answerClaimCommand(db: Db, userId: string, claimId: string
 
 export type SaveSceneResult = { ok: true; id: string } | { ok: false; errors: Record<string, string>; message?: string };
 
-const HEAD_NOT_FOUND = "회사·프로젝트·활동을 찾을 수 없습니다";
+const HEAD_NOT_FOUND = "경력·학교·교육 과정·활동·프로젝트를 찾을 수 없습니다";
 const AI_MESSAGES: Record<string, string> = {
   not_found: NOT_FOUND,
   over_limit: "이번 달 AI 사용 한도에 닿았습니다. 다음 달에 다시 쓸 수 있습니다",
@@ -131,7 +131,7 @@ const AI_MESSAGES: Record<string, string> = {
   busy: "앞의 답을 처리하는 중입니다. 잠시 뒤 다시 보내 주세요",
   empty: "아직 답한 내용이 없습니다",
   nothing_found: "기록으로 나눌 만한 내용을 찾지 못했습니다",
-  no_head: "사례가 속한 회사·프로젝트·활동을 찾을 수 없습니다",
+  no_head: "사례가 속한 경력·학교·교육 과정·활동·프로젝트를 찾을 수 없습니다",
 };
 const aiMessage = (reason: string) => AI_MESSAGES[reason] ?? "문제가 생겼습니다. 다시 시도해 주세요";
 
@@ -247,7 +247,7 @@ export async function startSceneInterviewCommand(
   if (!newRecordsOn()) return { ok: false, message: OFF };
   const head = parseHead(options?.head);
   const sceneId = typeof options?.sceneId === "string" && options.sceneId !== "" ? options.sceneId : undefined;
-  if (!head && !sceneId) return { ok: false, message: "사례를 붙일 회사·프로젝트·활동을 골라 주세요" };
+  if (!head && !sceneId) return { ok: false, message: "사례를 붙일 경력·학교·교육 과정·활동·프로젝트를 골라 주세요" };
   const trackId = typeof options?.trackId === "string" ? options.trackId : undefined;
   const result = await startSceneInterview(db, ai, userId, { head: head ?? undefined, sceneId, trackId });
   return result.ok ? { ok: true, id: result.id } : { ok: false, message: aiMessage(result.reason) };

@@ -238,6 +238,54 @@ test("장면 범위를 사용과 요약만 사이에서 바꾸면 이력서 머�
 
 // 이력서 원천
 
+test("확인된 학교 아래 확인된 사례는 자소서 원천에 소속과 함께 오른다", async () => {
+  const schoolId = await fact("education", { ...school, schoolName: "가나대", major: "컴퓨터공학" });
+  const id = await addScene(scene({ kind: "education", id: schoolId }));
+  const [source] = await listSceneWritingSources(db, "u1", t1);
+  expect(source).toMatchObject({ id, organization: "가나대 · 컴퓨터공학", kind: "other", role: null, bannedPhrases: ["혼자 구축"] });
+});
+
+test("교육 과정 아래 사례의 소속은 과정 · 기관", async () => {
+  const courseId = await fact("course", { name: "백엔드 부트캠프", institution: "다라캠프", startMonth: "2021-03", endMonth: "2021-08", hours: null, learned: null });
+  await addScene(scene({ kind: "course", id: courseId }));
+  const [source] = await listSceneWritingSources(db, "u1", t1);
+  expect(source).toMatchObject({ organization: "백엔드 부트캠프 · 다라캠프", kind: "training" });
+});
+
+test("소속 학교가 미확인이면 자소서 원천에 없고 채점 근거에는 있다", async () => {
+  const schoolId = await fact("education", school, false);
+  const id = await addScene(scene({ kind: "education", id: schoolId }));
+  expect(await listSceneWritingSources(db, "u1", t1)).toEqual([]);
+  expect((await listRecordEvidence(db, "u1", t1)).map((c) => c.id)).toContain(id);
+});
+
+test("학교를 그 트랙에서 제외하면 그 아래 사례도 자소서 원천에서 빠진다", async () => {
+  const schoolId = await fact("education", school);
+  await addScene(scene({ kind: "education", id: schoolId }));
+  await setFactTrackScope(db, "u1", "education", schoolId, t1, "exclude");
+  expect(await listSceneWritingSources(db, "u1", t1)).toEqual([]);
+});
+
+test("학교·교육 과정 머리는 이력서 머리 항목을 만들지 않는다", async () => {
+  const schoolId = await fact("education", school);
+  await addScene(scene({ kind: "education", id: schoolId }));
+  const sources = (await listRecordResumeSources(db, "u1", t1)).filter((s) => s.id === schoolId);
+  expect(sources).toHaveLength(1);
+  expect(sources[0].codeLines).toBeDefined();
+  expect(sources[0].actions).toBeNull();
+});
+
+test("대내외활동 소속 프로젝트의 이력서 소속은 활동 이름, 활동이 미확인이면 null", async () => {
+  const activity = { name: "□□ 동아리", organization: null, startMonth: "2020-03", endMonth: "2020-12", isOngoing: false, role: null };
+  const confirmed = await fact("activity", activity);
+  const unconfirmed = await fact("activity", { ...activity, name: "미확인 모임" }, false);
+  const a = await fact("project", { ...project, name: "동아리 프로젝트", parent: { kind: "activity", id: confirmed } });
+  const b = await fact("project", { ...project, name: "모임 프로젝트", parent: { kind: "activity", id: unconfirmed } });
+  const byId = new Map((await listRecordResumeSources(db, "u1", t1)).map((s) => [s.id, s]));
+  expect(byId.get(a)?.organization).toBe("□□ 동아리");
+  expect(byId.get(b)?.organization).toBeNull();
+});
+
 test("확인된 경력과 장면 2개(하나는 요약만)는 원천 하나로 모인다", async () => {
   const jobId = await fact("job", job);
   const a = await addScene(scene({ kind: "job", id: jobId }));

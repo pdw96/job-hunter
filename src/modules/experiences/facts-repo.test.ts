@@ -177,6 +177,26 @@ test("남의 경력·학교·교육 과정을 parent로 주면 만들기도 고�
   expect((await getFact(db, "u1", "project", pid))?.value.parent).toBeNull();
 });
 
+test("프로젝트를 대내외활동에 딸리게 저장하고 읽는다", async () => {
+  const activityId = await make("u1", "activity");
+  const pid = await make("u1", "project", { ...INPUTS.project, parent: { kind: "activity", id: activityId } });
+  expect((await getFact(db, "u1", "project", pid))?.value.parent).toEqual({ kind: "activity", id: activityId });
+});
+
+test("남의 활동에는 딸리게 할 수 없다", async () => {
+  const theirs = await make("u2", "activity");
+  const parent = { kind: "activity", id: theirs } as const;
+  expect(await createFact(db, "u1", "project", { ...INPUTS.project, parent })).toEqual({ ok: false, reason: "not_found" });
+  expect((await listFacts(db, "u1")).project).toHaveLength(0);
+});
+
+test("활동을 지우면 프로젝트는 개인이 된다", async () => {
+  const activityId = await make("u1", "activity");
+  const pid = await make("u1", "project", { ...INPUTS.project, parent: { kind: "activity", id: activityId } });
+  expect(await deleteFact(db, "u1", "activity", activityId)).toEqual({ ok: true });
+  expect((await getFact(db, "u1", "project", pid))?.value.parent).toBeNull();
+});
+
 test("장면이 없는 경력은 지워진다", async () => {
   const id = await make("u1", "job");
   expect(await deleteFact(db, "u1", "job", id)).toEqual({ ok: true });
@@ -259,6 +279,32 @@ test("경력의 시작 월을 지우면 기간이 빈 장면의 기간 판정이
   expect((await getScene(db, "u1", noPeriod.id))?.rubric.period.status).toBe("met");
 });
 
+test("재학 중인 학교의 시작 월을 고쳐도 기간이 빈 사례는 충족이고, 상태만 바꿔도 다시 판정한다", async () => {
+  const enrolled = { ...INPUTS.education, endMonth: null, status: "enrolled" as const };
+  const eduId = await make("u1", "education", enrolled);
+  const scene = await createScene(db, "u1", sceneOf(eduId, { head: { kind: "education", id: eduId } }));
+  if (!scene.ok) throw new Error("scene");
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+
+  await updateFact(db, "u1", "education", eduId, { ...enrolled, startMonth: "2016-03" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+
+  // 상태만 졸업으로 바꾸면 끝 월이 없어 미충족, 다시 재학으로 바꾸면 충족
+  await updateFact(db, "u1", "education", eduId, { ...enrolled, startMonth: "2016-03", status: "graduated" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("unmet");
+  await updateFact(db, "u1", "education", eduId, { ...enrolled, startMonth: "2016-03" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+});
+
+test("끝 월이 없는 교육 과정의 시작 월을 고쳐도 기간이 빈 사례는 충족이다", async () => {
+  const ongoing = { ...INPUTS.course, endMonth: null };
+  const courseId = await make("u1", "course", ongoing);
+  const scene = await createScene(db, "u1", sceneOf(courseId, { head: { kind: "course", id: courseId } }));
+  if (!scene.ok) throw new Error("scene");
+  await updateFact(db, "u1", "course", courseId, { ...ongoing, startMonth: "2020-02" });
+  expect((await getScene(db, "u1", scene.id))?.rubric.period.status).toBe("met");
+});
+
 test("장면이 달린 머리는 지울 수 없고(has_scenes) 장면이 없으면 지워진다", async () => {
   for (const kind of ["job", "project", "activity"] as const) {
     const id = await make("u1", kind);
@@ -329,4 +375,16 @@ test("setProjectParentIfUnset: 남의 프로젝트나 남의 조직이면 not_fo
   expect(await setProjectParentIfUnset(db, "u1", theirs, { kind: "job", id: myJob })).toEqual({ ok: false, reason: "not_found" });
   expect((await getFact(db, "u1", "project", mine))?.value.parent).toBeNull();
   expect((await getFact(db, "u2", "project", theirs))?.value.parent).toBeNull();
+});
+
+test("사례가 달린 학교·교육 과정은 지우지 않는다", async () => {
+  for (const kind of ["education", "course"] as const) {
+    const id = await make("u1", kind);
+    const r = await createScene(db, "u1", { ...sceneOf(id), head: { kind, id } });
+    if (!r.ok) throw new Error("scene");
+    expect(await deleteFact(db, "u1", kind, id)).toEqual({ ok: false, reason: "has_scenes", count: 1 });
+    expect(await getFact(db, "u1", kind, id)).not.toBeNull();
+    await deleteScene(db, "u1", r.id);
+    expect(await deleteFact(db, "u1", kind, id)).toEqual({ ok: true });
+  }
 });

@@ -19,6 +19,7 @@ import { listTracks } from "@/modules/tracks/repo";
 import { ClaimsPanel } from "../../_shared/claims-panel";
 import { RubricPanel } from "../../_shared/rubric-panel";
 import { StateBadge } from "../../_shared/state-badge";
+import { ConfirmBadge } from "../../confirm-badge";
 import { cardOf } from "../../fact-summary";
 import { HEAD_NOUN, headOptionsOf } from "../heads";
 import { ConfirmScene } from "../confirm-scene";
@@ -39,7 +40,8 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
     listFacts(db, user.id),
     listTracks(db, user.id),
     listRecordClaims(db, user.id, { kind: "scene", id }),
-    head.kind === "activity" ? Promise.resolve([]) : listRecordClaims(db, user.id, { kind: head.kind, id: head.id }),
+    // 머리 주장은 경력·프로젝트에만 있다
+    head.kind === "job" || head.kind === "project" ? listRecordClaims(db, user.id, { kind: head.kind, id: head.id }) : Promise.resolve([]),
   ]);
   if (!headFact) notFound();
   const card = cardOf(headFact);
@@ -60,13 +62,7 @@ export default async function ScenePage({ params }: { params: Promise<{ id: stri
         </div>
         <Link href={headHref} className="flex flex-wrap items-center gap-2 text-sm text-foreground/70">
           <span>{card.title}</span>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-xs ${
-              headFact.isConfirmed ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400" : "border-amber-600/50 text-amber-700 dark:text-amber-400"
-            }`}
-          >
-            {headFact.isConfirmed ? "확인됨" : `${noun} 정보 미확인`}
-          </span>
+          <ConfirmBadge confirmed={headFact.isConfirmed} pendingLabel={`${noun} 정보 미확인`} />
         </Link>
       </div>
 

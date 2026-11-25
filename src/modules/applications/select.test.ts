@@ -223,6 +223,16 @@ test("학력·자격 경험은 자소서 고르기 후보로 AI에 보내지 않
   expect(sent).not.toContain("E2");
 });
 
+test("학교 사례 원천(kind: other)은 자소서 고르기 후보에서 걸러지지 않는다", async () => {
+  await addExperience({ name: "졸업 프로젝트 사례", kind: "other", organization: "가나대 · 컴퓨터공학" });
+  const questionId = await addQuestion(await addPosting());
+  const ai = createFakeAi([reply()]);
+
+  await selectForQuestion(db, ai, "u1", questionId, now);
+
+  expect(ai.requests[0].messages[0].text).toContain("졸업 프로젝트 사례");
+});
+
 test("학력·자격만 확인돼 있으면 AI를 부르지 않고 noMatch", async () => {
   await addExperience({ name: "가나다대학교 컴퓨터공학 학사", kind: "school", startMonth: "2015-03", endMonth: "2021-02" });
   const questionId = await addQuestion(await addPosting());

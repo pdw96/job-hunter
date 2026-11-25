@@ -176,6 +176,13 @@
       "when": 1795542217900,
       "tag": "0024_sleepy_lorna_dane",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795606560575,
+      "tag": "0025_light_yellowjacket",
+      "breakpoints": true
     }
   ]
 }

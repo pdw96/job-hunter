@@ -808,3 +808,47 @@ test("다시 하기는 옮긴 사용자 주장 행도 잠가 막는 사이 답�
   await db.update(recordClaims).set({ updatedAt: new Date() });
   expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "edited" });
 });
+
+test("직접 쓴 사례가 옮겨 온 학교에 딸리면 다시 하기가 막힌다", async () => {
+  await seedMigrated("u1");
+  await db.insert(education).values({ id: "edu-m", userId: "u1", schoolName: "학교", degree: "bachelor", status: "graduated", movedFrom: "e-old" } as typeof education.$inferInsert);
+  okId(await createScene(db, "u1", sceneInput({ kind: "education", id: "edu-m" }, "학교 사례")));
+  expect(await resetBlock(db, "u1")).toBe("in_use");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  expect(await db.select().from(education).where(eq(education.id, "edu-m"))).toHaveLength(1);
+  expect(await db.select().from(scenes).where(eq(scenes.title, "학교 사례"))).toHaveLength(1);
+  await unchanged("u1");
+});
+
+test("직접 쓴 사례가 옮겨 온 교육 과정에 딸리면 다시 하기가 막힌다", async () => {
+  await seedMigrated("u1");
+  const { courses } = await import("./schema");
+  await db.insert(courses).values({ id: "crs-m", userId: "u1", name: "과정", movedFrom: "c-old" } as typeof courses.$inferInsert);
+  okId(await createScene(db, "u1", sceneInput({ kind: "course", id: "crs-m" }, "과정 사례")));
+  expect(await resetBlock(db, "u1")).toBe("in_use");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  expect(await db.select().from(courses).where(eq(courses.id, "crs-m"))).toHaveLength(1);
+  expect(await db.select().from(scenes).where(eq(scenes.title, "과정 사례"))).toHaveLength(1);
+  await unchanged("u1");
+});
+
+test("직접 만든 프로젝트가 옮겨 온 활동에 딸리면 다시 하기가 막힌다", async () => {
+  await seedMigrated("u1");
+  const { activities } = await import("./schema");
+  await db.insert(activities).values({ id: "act-m", userId: "u1", name: "활동", movedFrom: "a-old" } as typeof activities.$inferInsert);
+  okId(await createFact(db, "u1", "project", projectInput("활동 프로젝트", { kind: "activity", id: "act-m" })));
+  expect(await resetBlock(db, "u1")).toBe("in_use");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  expect(await db.select().from(activities).where(eq(activities.id, "act-m"))).toHaveLength(1);
+  expect(await db.select().from(projects).where(eq(projects.name, "활동 프로젝트"))).toHaveLength(1);
+  await unchanged("u1");
+});
+
+test("옮겨 온 학교의 사례 인터뷰가 진행 중이면 막힌다", async () => {
+  await seedMigrated("u1");
+  await db.insert(education).values({ id: "edu-m", userId: "u1", schoolName: "학교", degree: "bachelor", status: "graduated", movedFrom: "e-old" } as typeof education.$inferInsert);
+  await addInterview("u1", { headKind: "education", headId: "edu-m" });
+  expect(await resetBlock(db, "u1")).toBe("in_use");
+  expect(await resetMoves(db, "u1")).toEqual({ ok: false, reason: "in_use" });
+  await unchanged("u1");
+});

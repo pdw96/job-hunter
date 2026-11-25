@@ -200,7 +200,7 @@ export const credentials = pgTable(
   (t) => [index("experiences_credentials_user_idx").on(t.userId)],
 );
 
-// 딸린 조직은 job_id·education_id·course_id 중 하나까지. 모두 비면 개인 프로젝트
+// 딸린 조직은 job_id·education_id·course_id·activity_id 중 하나까지. 모두 비면 개인 프로젝트
 export const projects = pgTable(
   "experiences_projects",
   {
@@ -209,6 +209,7 @@ export const projects = pgTable(
     jobId: text("job_id").references(() => jobs.id, { onDelete: "set null" }),
     educationId: text("education_id").references(() => education.id, { onDelete: "set null" }),
     courseId: text("course_id").references(() => courses.id, { onDelete: "set null" }),
+    activityId: text("activity_id").references(() => activities.id, { onDelete: "set null" }),
     startMonth: text("start_month"),
     endMonth: text("end_month"),
     isOngoing: boolean("is_ongoing").notNull().default(false),
@@ -219,7 +220,7 @@ export const projects = pgTable(
   },
   (t) => [
     index("experiences_projects_user_idx").on(t.userId),
-    check("experiences_projects_one_parent", sql`num_nonnulls(${t.jobId}, ${t.educationId}, ${t.courseId}) <= 1`),
+    check("experiences_projects_one_parent", sql`num_nonnulls(${t.jobId}, ${t.educationId}, ${t.courseId}, ${t.activityId}) <= 1`),
   ],
 );
 
@@ -237,7 +238,7 @@ export const activities = pgTable(
   (t) => [index("experiences_activities_user_idx").on(t.userId)],
 );
 
-// 장면: 경력·프로젝트·활동 중 하나(머리)에 딸린 서술형 기록
+// 장면: 경력·프로젝트·활동·학교·교육 과정 중 하나(머리)에 딸린 서술형 기록
 export const scenes = pgTable(
   "experiences_scenes",
   {
@@ -245,6 +246,8 @@ export const scenes = pgTable(
     jobId: text("job_id").references(() => jobs.id),
     projectId: text("project_id").references(() => projects.id),
     activityId: text("activity_id").references(() => activities.id),
+    educationId: text("education_id").references(() => education.id),
+    courseId: text("course_id").references(() => courses.id),
     title: text("title").notNull(),
     startMonth: text("start_month"),
     endMonth: text("end_month"),
@@ -266,7 +269,7 @@ export const scenes = pgTable(
   },
   (t) => [
     index("experiences_scenes_user_idx").on(t.userId),
-    check("experiences_scenes_one_head", sql`num_nonnulls(${t.jobId}, ${t.projectId}, ${t.activityId}) = 1`),
+    check("experiences_scenes_one_head", sql`num_nonnulls(${t.jobId}, ${t.projectId}, ${t.activityId}, ${t.educationId}, ${t.courseId}) = 1`),
   ],
 );
 

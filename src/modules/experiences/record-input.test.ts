@@ -66,12 +66,14 @@ describe("validateFact", () => {
     expect(e.name).toBeTruthy();
   });
 
-  it("프로젝트: 딸린 곳은 job·education·course만, null은 개인", () => {
-    expect(err(validateFact("project", { name: "p", parent: { kind: "activity", id: "x" } })).parent).toBeTruthy();
+  it("프로젝트: 딸린 곳은 job·education·course·activity만, null은 개인", () => {
+    expect(err(validateFact("project", { name: "p", parent: { kind: "gap", id: "x" } })).parent).toBeTruthy();
     expect(err(validateFact("project", { name: "p", parent: { kind: "job", id: " " } })).parent).toBeTruthy();
     expect(validateFact("project", { name: "p", parent: null }).ok).toBe(true);
     const r = validateFact("project", { name: "p", parent: { kind: "course", id: "c1" } });
     expect(r.ok && r.value.parent).toEqual({ kind: "course", id: "c1" });
+    const a = validateFact("project", { name: "p", parent: { kind: "activity", id: "a1" } });
+    expect(a.ok && a.value.parent).toEqual({ kind: "activity", id: "a1" });
   });
 
   it("활동: 이름이 필수", () => {
@@ -88,8 +90,8 @@ describe("validateScene", () => {
     expect(validateScene(ok).ok).toBe(true);
   });
 
-  it("머리 종류는 job·project·activity만", () => {
-    expect(err(validateScene({ ...ok, head: { kind: "education", id: "e" } })).head).toBeTruthy();
+  it("머리 종류는 job·project·activity·education·course만", () => {
+    expect(err(validateScene({ ...ok, head: { kind: "gap", id: "e" } })).head).toBeTruthy();
   });
 
   it("긴 칸은 4000자, 수치는 10개까지", () => {
