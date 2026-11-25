@@ -20,8 +20,11 @@ export default async function NewScenePage({ searchParams }: { searchParams: Pro
       <h1 className="text-2xl font-bold">사례 추가</h1>
       {heads.length === 0 ? (
         <p className="text-sm text-foreground/70">
-          사례는 경력, 프로젝트, 활동에 붙입니다. 먼저 <Link href="/records?tab=job" className="underline">경력</Link>이나{" "}
-          <Link href="/records/facts/project/new" className="underline">프로젝트</Link>를 만들어 주세요.
+          사례는 경력, 학교, 교육 과정, 활동, 프로젝트에 붙입니다. 먼저{" "}
+          <Link href="/records" className="underline">
+            이력
+          </Link>
+          에서 만들어 주세요
         </p>
       ) : (
         <SceneForm

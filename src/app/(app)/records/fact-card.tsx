@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { Claim } from "@/modules/experiences/claims";
 import { setFactConfirmedAction } from "@/modules/experiences/record-actions";
+import { ConfirmBadge } from "./confirm-badge";
 import type { CardData } from "./fact-summary";
 import { HeadClaims } from "./head-claims";
 
@@ -39,15 +40,7 @@ export function FactCard({
             {card.title}
             {sceneCount > 0 && <span className="ml-2 text-xs font-normal text-foreground/60">사례 {sceneCount}개</span>}
           </p>
-          <span
-            className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${
-              card.confirmed
-                ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400"
-                : "border-amber-600/50 text-amber-700 dark:text-amber-400"
-            }`}
-          >
-            {card.confirmed ? "확인됨" : "미확인"}
-          </span>
+          <ConfirmBadge confirmed={card.confirmed} />
         </div>
         {card.lines.length > 0 && <p className="break-words text-sm text-foreground/70">{card.lines.join(" · ")}</p>}
         {card.duties.length > 0 && (

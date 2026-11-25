@@ -2,26 +2,114 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { requireUser } from "@/lib/session";
-import { listFacts } from "@/modules/experiences/facts-repo";
+import { type Fact, listFacts } from "@/modules/experiences/facts-repo";
 import { countOpenRecordClaims } from "@/modules/experiences/record-claims-repo";
-import { FACT_KIND_LABELS, type HeadKind } from "@/modules/experiences/record-options";
-import { listScenes } from "@/modules/experiences/scenes-repo";
+import type { HeadKind } from "@/modules/experiences/record-options";
+import { listScenes, type SceneSummary } from "@/modules/experiences/scenes-repo";
 import { newRecordsOn } from "@/modules/experiences/switch";
+import { ConfirmBadge } from "../confirm-badge";
+import { cardOf, periodText } from "../fact-summary";
 import { HeadConfirm } from "../head-confirm";
+import { RecordTabs } from "../record-tabs";
+import { buildRecordTree, type OrgNode, SECTIONS } from "../record-tree";
+import { SectionNav } from "../section-nav";
 import { StateBadge } from "../_shared/state-badge";
-import { periodText } from "../fact-summary";
 import { HEAD_NOUN } from "./heads";
 import { StartSceneInterview } from "./start-scene-interview";
 
-const addLink = "block rounded-lg border border-dashed border-foreground/30 px-4 py-3 text-center text-sm text-foreground/70";
+// 경험 사례 탭에는 자격·어학·수상이 없다(사례가 딸리지 않는다)
+const SCENE_SECTIONS = SECTIONS.filter((s) => s.id !== "credential");
 
-type Group = {
-  kind: HeadKind;
-  id: string;
-  name: string;
-  period: string | null;
-  confirmed: boolean;
-};
+type HeadFact = Fact<HeadKind>;
+
+// 머리 줄의 기간. 학교는 재학·휴학이면 진행 중(카드 표시와 같은 규칙)
+function headPeriod(fact: HeadFact): string | null {
+  const v = fact.value as { startMonth?: string | null; endMonth?: string | null; isOngoing?: boolean; status?: string };
+  const ongoing = fact.kind === "education" ? v.status === "enrolled" || v.status === "leave" : Boolean(v.isOngoing);
+  return periodText(v.startMonth ?? null, v.endMonth ?? null, ongoing);
+}
+
+// 머리 하나의 묶음: 머리 줄·확인 표시·미확인이면 맞음(경력은 이력 탭에서)·사례 목록·`+ 사례 추가`.
+// nested: 기관 상자 안에 들여 쓴 프로젝트 묶음
+function HeadGroup({
+  fact,
+  scenes,
+  openClaims,
+  nested = false,
+}: {
+  fact: HeadFact;
+  scenes: SceneSummary[];
+  openClaims: Record<string, number>;
+  nested?: boolean;
+}) {
+  const noun = HEAD_NOUN[fact.kind];
+  const head = `${fact.kind}:${fact.id}`;
+  const pad = nested ? "px-3" : "px-4";
+  return (
+    <div>
+      <div className={`space-y-2 py-3 ${pad} ${nested ? "" : "bg-foreground/5"}`}>
+        <Link href={`/records/facts/${fact.kind}/${fact.id}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {nested && <span className="text-xs text-foreground/50">프로젝트</span>}
+          <span className={`min-w-0 break-words ${nested ? "text-sm font-medium" : "font-semibold"}`}>{cardOf(fact).title}</span>
+          <span className="text-xs text-foreground/60">{[headPeriod(fact), `사례 ${scenes.length}개`].filter(Boolean).join(" · ")}</span>
+          <span className="ml-auto">
+            <ConfirmBadge confirmed={fact.isConfirmed} pendingLabel={`${noun} 정보 미확인`} />
+          </span>
+        </Link>
+        {!fact.isConfirmed && fact.kind !== "job" && <HeadConfirm kind={fact.kind} id={fact.id} openClaims={openClaims[fact.id] ?? 0} />}
+      </div>
+      {scenes.length > 0 && (
+        <ul className="divide-y divide-foreground/10 border-t border-foreground/10">
+          {scenes.map((scene) => {
+            const open = openClaims[scene.id] ?? 0;
+            return (
+              <li key={scene.id}>
+                <Link href={`/records/scenes/${scene.id}`} className={`flex items-start gap-2 py-3 ${pad}`}>
+                  <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/40" />
+                  <span className="min-w-0 flex-1 space-y-0.5">
+                    <span className="block break-words font-medium">{scene.title}</span>
+                    <span className="block text-xs text-foreground/60">
+                      {periodText(scene.startMonth, scene.endMonth, scene.isOngoing) ?? `기간은 ${noun} 기간을 씀`}
+                      {open > 0 && ` · 주장 ${open}개 남음`}
+                    </span>
+                  </span>
+                  <StateBadge state={scene.state} />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className={`flex flex-wrap items-center gap-2 border-t border-foreground/10 py-3 ${pad}`}>
+        <span className="mr-auto text-sm text-foreground/70">+ 사례 추가</span>
+        <StartSceneInterview head={head} />
+        <Link href={`/records/scenes/new?head=${head}`} className="rounded-lg border border-foreground/20 px-3 py-1.5 text-sm font-medium">
+          직접 쓰기
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// 기관 상자: 기관 묶음, 그 아래 프로젝트마다 들여 쓴 묶음
+function OrgBox({ org, openClaims }: { org: OrgNode & { fact: HeadFact }; openClaims: Record<string, number> }) {
+  return (
+    <li className="overflow-hidden rounded-lg border border-foreground/15">
+      <HeadGroup fact={org.fact} scenes={org.scenes} openClaims={openClaims} />
+      {org.projects.length > 0 && (
+        <ul className="space-y-3 border-t border-foreground/10 py-3 pr-3 pl-4">
+          {org.projects.map((project) => (
+            <li key={project.fact.id} className="ml-1 rounded-lg border border-foreground/10 border-l-2 border-l-foreground/20">
+              <HeadGroup fact={project.fact} scenes={project.scenes} openClaims={openClaims} nested />
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+const isHeadOrg = (org: OrgNode): org is OrgNode & { fact: HeadFact } => org.fact.kind !== "gap";
 
 export default async function ScenesPage() {
   if (!newRecordsOn()) notFound();
@@ -31,102 +119,53 @@ export default async function ScenesPage() {
     listScenes(db, user.id),
     countOpenRecordClaims(db, user.id),
   ]);
-
-  const groups: Group[] = [
-    ...facts.job.map((f) => ({ kind: "job" as const, id: f.id, name: f.value.company, period: periodText(f.value.startMonth, f.value.endMonth, f.value.isOngoing), confirmed: f.isConfirmed })),
-    ...facts.project.map((f) => ({ kind: "project" as const, id: f.id, name: f.value.name, period: periodText(f.value.startMonth, f.value.endMonth, f.value.isOngoing), confirmed: f.isConfirmed })),
-    ...facts.activity.map((f) => ({ kind: "activity" as const, id: f.id, name: f.value.name, period: periodText(f.value.startMonth, f.value.endMonth, f.value.isOngoing), confirmed: f.isConfirmed })),
-  ];
+  const tree = buildRecordTree(facts, scenes).filter((section) => section.id !== "credential");
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">경험 사례</h1>
-      <nav aria-label="기록 메뉴" className="-mx-4 flex gap-1 overflow-x-auto border-b border-foreground/10 px-4 text-sm">
-        {[
-          ["basic", "기본정보"],
-          ["school", "학력"],
-          ["job", "경력"],
-          ["credential", "자격·어학·수상"],
-        ].map(([id, label]) => (
-          <Link key={id} href={`/records?tab=${id}`} className="shrink-0 border-b-2 border-transparent px-3 py-2 text-foreground/60">
-            {label}
-          </Link>
-        ))}
-        <span aria-current="page" className="shrink-0 border-b-2 border-foreground px-3 py-2 font-semibold">
-          경험 사례
-        </span>
-      </nav>
+      <RecordTabs current="scenes" />
 
-      <p className="text-sm text-foreground/70">회사·프로젝트·활동마다 겪은 일을 사례로 적습니다. 사례까지 확인돼야 자소서에 쓰입니다.</p>
-
-      {groups.length === 0 && <p className="text-sm text-foreground/60">아직 경력, 프로젝트, 활동이 없습니다. 경력은 경력 탭에서 만들 수 있습니다.</p>}
-
-      <div className="space-y-5">
-        {groups.map((group) => {
-          const mine = scenes.filter((s) => s.head.kind === group.kind && s.head.id === group.id);
-          const noun = HEAD_NOUN[group.kind];
-          return (
-            <section key={`${group.kind}:${group.id}`} className="overflow-hidden rounded-lg border border-foreground/15">
-              <div className="space-y-2 bg-foreground/5 px-4 py-3">
-                <Link href={`/records/facts/${group.kind}/${group.id}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="min-w-0 truncate font-semibold">{group.name}</span>
-                  <span className="text-xs text-foreground/60">
-                    {[FACT_KIND_LABELS[group.kind], group.period, `사례 ${mine.length}개`].filter(Boolean).join(" · ")}
-                  </span>
-                  <span
-                    className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-xs ${
-                      group.confirmed ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400" : "border-amber-600/50 text-amber-700 dark:text-amber-400"
-                    }`}
-                  >
-                    {group.confirmed ? "확인됨" : `${noun} 정보 미확인`}
-                  </span>
-                </Link>
-                {!group.confirmed && group.kind !== "job" && (
-                  <HeadConfirm kind={group.kind} id={group.id} openClaims={openClaims[group.id] ?? 0} />
+      <div className="relative">
+        <SectionNav sections={SCENE_SECTIONS} />
+        <div className="space-y-10 pt-6 xl:pt-0">
+          <p className="text-sm text-foreground/70">회사·학교·과정·활동·프로젝트마다 겪은 일을 사례로 적습니다. 사례까지 확인돼야 자소서에 쓰입니다.</p>
+          {tree.map((section) => {
+            // 공백에는 사례가 딸리지 않아 상자를 만들지 않는다
+            const orgs = section.orgs.filter(isHeadOrg);
+            const empty = orgs.length === 0 && section.projects.length === 0;
+            return (
+              <section key={section.id} id={`sec-${section.id}`} className="scroll-mt-16 space-y-3 xl:scroll-mt-8">
+                <h2 className="text-lg font-semibold">{section.label}</h2>
+                {empty && (
+                  <p className="text-sm text-foreground/60">
+                    아직 없습니다.{" "}
+                    <Link href={`/records#sec-${section.id}`} className="underline">
+                      이력
+                    </Link>
+                    에서 만들어 주세요
+                  </p>
                 )}
-              </div>
-              <ul className="divide-y divide-foreground/10">
-                {mine.map((scene) => {
-                  const open = openClaims[scene.id] ?? 0;
-                  return (
-                    <li key={scene.id}>
-                      <Link href={`/records/scenes/${scene.id}`} className="flex items-start gap-2 px-4 py-3">
-                        <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/40" />
-                        <span className="min-w-0 flex-1 space-y-0.5">
-                          <span className="block font-medium">{scene.title}</span>
-                          <span className="block text-xs text-foreground/60">
-                            {periodText(scene.startMonth, scene.endMonth, scene.isOngoing) ?? `기간은 ${noun} 기간을 씀`}
-                            {open > 0 && ` · 주장 ${open}개 남음`}
-                          </span>
-                        </span>
-                        <StateBadge state={scene.state} />
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="flex flex-wrap items-center gap-2 border-t border-foreground/10 px-4 py-3">
-                <span className="mr-auto text-sm text-foreground/70">+ 사례 추가</span>
-                <StartSceneInterview head={`${group.kind}:${group.id}`} />
-                <Link
-                  href={`/records/scenes/new?head=${group.kind}:${group.id}`}
-                  className="rounded-lg border border-foreground/20 px-3 py-1.5 text-sm font-medium"
-                >
-                  직접 쓰기
-                </Link>
-              </div>
-            </section>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Link href="/records/facts/project/new" className={addLink}>
-          + 프로젝트
-        </Link>
-        <Link href="/records/facts/activity/new" className={addLink}>
-          + 활동
-        </Link>
+                {orgs.length > 0 && (
+                  <ul className="space-y-4">
+                    {orgs.map((org) => (
+                      <OrgBox key={org.fact.id} org={org} openClaims={openClaims} />
+                    ))}
+                  </ul>
+                )}
+                {section.projects.length > 0 && (
+                  <ul className="space-y-4">
+                    {section.projects.map((project) => (
+                      <li key={project.fact.id} className="overflow-hidden rounded-lg border border-foreground/15">
+                        <HeadGroup fact={project.fact} scenes={project.scenes} openClaims={openClaims} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

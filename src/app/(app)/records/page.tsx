@@ -10,6 +10,7 @@ import type { FactKind } from "@/modules/experiences/record-options";
 import { listScenes } from "@/modules/experiences/scenes-repo";
 import { newRecordsOn } from "@/modules/experiences/switch";
 import { FactCard } from "./fact-card";
+import { ConfirmBadge } from "./confirm-badge";
 import { cardOf, periodText } from "./fact-summary";
 import { RecordTabs } from "./record-tabs";
 import { buildRecordTree, type OrgNode, type ProjectNode, SECTIONS, type SectionId } from "./record-tree";
@@ -33,18 +34,6 @@ const ADD_BUTTONS: Record<SectionId, { kind: FactKind; label: string }[]> = {
 };
 
 const addLink = "block rounded-lg border border-dashed border-foreground/30 px-4 py-3 text-center text-sm text-foreground/70";
-
-function ConfirmBadge({ confirmed }: { confirmed: boolean }) {
-  return (
-    <span
-      className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${
-        confirmed ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400" : "border-amber-600/50 text-amber-700 dark:text-amber-400"
-      }`}
-    >
-      {confirmed ? "확인됨" : "미확인"}
-    </span>
-  );
-}
 
 // 프로젝트 한 줄: 이름·기간·사례 수·확인 표시. 누르면 프로젝트 화면
 function ProjectRow({ node }: { node: ProjectNode }) {
