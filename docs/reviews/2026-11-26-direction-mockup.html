@@ -1,0 +1,525 @@
+<title>Job Hunter 시안</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* 레이아웃: 위에 세 탭, 아래에 탭 하나씩. 흐름은 세로 줄기, 화면 시안은 앱 틀 안에 */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --ink: #1b2230;
+  --muted: #5d6677;
+  --line: #dde1e8;
+  --accent: #2f4f86;
+  --accent-soft: #e7edf7;
+  --gate: #a35a00;
+  --gate-soft: #fbefdc;
+  --ok: #2c7a4b;
+  --ok-soft: #e2f2e8;
+  --part: #8a6d00;
+  --part-soft: #f6f0d6;
+  --none: #8b93a3;
+  --none-soft: #eceef2;
+  --warn: #b03a2e;
+  --warn-soft: #f8e4e1;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --surface: #1b2029; --ink: #e6e9ef; --muted: #9aa3b4; --line: #2d3442;
+    --accent: #8fb0e8; --accent-soft: #233149; --gate: #f0b35e; --gate-soft: #3a2c17;
+    --ok: #7fcf9d; --ok-soft: #1c3226; --part: #e3c65a; --part-soft: #352f15;
+    --none: #7d8597; --none-soft: #252a34; --warn: #f08b80; --warn-soft: #3d201d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --surface: #1b2029; --ink: #e6e9ef; --muted: #9aa3b4; --line: #2d3442;
+  --accent: #8fb0e8; --accent-soft: #233149; --gate: #f0b35e; --gate-soft: #3a2c17;
+  --ok: #7fcf9d; --ok-soft: #1c3226; --part: #e3c65a; --part-soft: #352f15;
+  --none: #7d8597; --none-soft: #252a34; --warn: #f08b80; --warn-soft: #3d201d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+.wrap { max-width: 980px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 56px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; text-wrap: balance; }
+h2 { font-size: 1.15rem; margin: 0 0 4px; text-wrap: balance; }
+h3 { font-size: 1rem; margin: 0; }
+p { margin: 0; }
+.lede { color: var(--muted); margin-bottom: 20px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+.tabs a { padding: 10px 14px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+.tabs a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tabs a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note { font-size: 0.85rem; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.c-ai { background: var(--accent-soft); color: var(--accent); }
+.c-me { background: var(--gate-soft); color: var(--gate); }
+.c-ok { background: var(--ok-soft); color: var(--ok); }
+.c-part { background: var(--part-soft); color: var(--part); }
+.c-none { background: var(--none-soft); color: var(--none); }
+.c-warn { background: var(--warn-soft); color: var(--warn); }
+
+/* ① 흐름 */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 20px; font-size: 0.85rem; color: var(--muted); align-items: center; }
+.flow { position: relative; display: grid; gap: 10px; padding-left: 28px; }
+.flow::before { content: ""; position: absolute; left: 11px; top: 8px; bottom: 8px; width: 2px; background: var(--line); }
+.step { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; }
+.step::before { content: attr(data-n); position: absolute; left: -28px; top: 12px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 2px solid var(--line); font: 600 0.75rem/20px var(--font-data); text-align: center; color: var(--muted); }
+.step.gate { border-color: var(--gate); }
+.step.gate::before { border-color: var(--gate); color: var(--gate); }
+.step.base { border: 2px solid var(--accent); }
+.step.base::before { content: "★"; border-color: var(--accent); color: var(--accent); }
+.step-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.step-head h3 { margin-right: auto; }
+.step p { color: var(--muted); font-size: 0.9rem; }
+.sub { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 0.88rem; }
+.base-parts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 6px; }
+.base-parts div { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 0.88rem; }
+.base-parts div.sug { border-style: dashed; }
+.loop { margin-left: 28px; margin-top: 10px; padding: 10px 14px; border: 2px dashed var(--accent); border-radius: 10px; color: var(--accent); font-weight: 600; font-size: 0.9rem; }
+.summary { margin-top: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 6px; font-size: 0.9rem; }
+
+/* 앱 틀 */
+.app { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.app-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); flex-wrap: wrap; }
+.app-bar b { color: var(--ink); }
+.app-body { padding: 16px; display: grid; gap: 16px; }
+.example-tag { margin-left: auto; }
+
+/* ② 기준점 */
+.base-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; align-items: start; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 0.88rem; }
+select, input[type="number"], input[type="text"] { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+.section { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; }
+.section-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.section-head h3 { margin-right: auto; }
+.section.sug { border-top-style: dashed; }
+.add { font-size: 0.82rem; color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; cursor: pointer; font-family: inherit; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
+.item-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: baseline; }
+.item-head strong { margin-right: auto; }
+.meta { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.children { display: grid; gap: 6px; margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+.scene { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.88rem; }
+.scene span.t { margin-right: auto; }
+.scope { font-size: 0.72rem; font-weight: 600; border-radius: 4px; padding: 1px 6px; border: 1px solid currentColor; }
+.scope[data-v="use"] { color: var(--ok); }
+.scope[data-v="summary"] { color: var(--part); }
+.scope[data-v="off"] { color: var(--none); text-decoration: line-through; }
+.item.off, .scene.off { opacity: 0.5; }
+.duties { display: grid; gap: 10px; margin-top: 6px; }
+.duty { display: grid; gap: 4px; padding-left: 12px; border-left: 2px solid var(--line); }
+.duty.project { border-left-color: var(--accent); }
+.duty-name { font-weight: 600; font-size: 0.9rem; }
+.duty .add { justify-self: start; }
+.perf .t::before { content: "· "; color: var(--muted); }
+.story { font-size: 0.85rem; color: var(--muted); }
+.story summary { cursor: pointer; color: var(--accent); width: fit-content; }
+.story dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 6px 0 0; padding: 8px 10px; background: var(--bg); border-radius: 6px; }
+.story dt { font-weight: 600; color: var(--ink); }
+.story dd { margin: 0; }
+.confirm { font-size: 0.75rem; font-family: inherit; border: 1px solid var(--warn); color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 1px 8px; cursor: pointer; }
+.side { position: sticky; top: 12px; display: grid; gap: 10px; }
+.meter { display: grid; gap: 6px; font-size: 0.85rem; }
+.meter-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+.bar { grid-column: 1 / -1; height: 6px; background: var(--none-soft); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.box { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; display: grid; gap: 4px; }
+.box.warnbox { border-color: var(--warn); }
+
+/* ③ 자유양식 */
+.posting { display: grid; gap: 2px; }
+.rec { border: 1px solid var(--accent); border-radius: 10px; padding: 12px; display: grid; gap: 10px; background: var(--accent-soft); }
+.rec-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rec-head h3 { margin-right: auto; color: var(--accent); }
+.q { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; }
+.q input[type="checkbox"] { margin-top: 5px; width: 16px; height: 16px; }
+.q-title { font-weight: 600; }
+.q-why { grid-column: 2 / 4; color: var(--muted); font-size: 0.86rem; }
+.q-src { grid-column: 2 / 4; display: flex; flex-wrap: wrap; gap: 6px; }
+.q-len { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+.q-len input { width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
+.q.unchecked { opacity: 0.55; }
+.others { display: grid; gap: 6px; }
+.others-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.others-list label { display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 0.86rem; cursor: pointer; background: var(--surface); }
+.custom { display: flex; gap: 8px; flex-wrap: wrap; }
+.custom input { flex: 1 1 200px; min-width: 0; }
+.total { display: grid; gap: 6px; }
+.total-row { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.total .bar { height: 8px; }
+.total.over .bar i { background: var(--warn); }
+.total.over .total-row b { color: var(--warn); }
+.go { justify-self: start; font: 600 0.95rem var(--font-body); background: var(--accent); color: var(--surface); border: 0; border-radius: 8px; padding: 10px 18px; cursor: pointer; }
+.toast { font-size: 0.85rem; color: var(--ok); }
+
+@media (max-width: 720px) {
+  .base-grid { grid-template-columns: minmax(0, 1fr); }
+  .side { position: static; order: -1; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <h1>Job Hunter 시안</h1>
+  <p class="lede">대화에서 정리한 방향을 세 장으로 그렸습니다. 이력과 공고는 모두 지어낸 예시입니다.</p>
+
+  <nav class="tabs" aria-label="시안">
+    <a href="#flow" data-tab="flow">① 전체 흐름</a>
+    <a href="#base" data-tab="base">② 기준점 화면</a>
+    <a href="#freeform" data-tab="freeform">③ 자유양식 추천</a>
+  </nav>
+
+  <!-- ① 전체 흐름 -->
+  <section id="view-flow" data-view="flow">
+    <h2>기준점 하나에서 회사별 서류까지</h2>
+    <p class="note" style="margin-bottom:12px">누가 하는지와 지금 앱에 있는지를 함께 표시했습니다.</p>
+    <div class="legend">
+      <span class="chip c-ai">AI</span><span class="chip c-me">내가 결정</span>
+      <span>지금 앱:</span><span class="chip c-ok">있음</span><span class="chip c-part">일부</span><span class="chip c-none">없음</span>
+    </div>
+
+    <div class="flow">
+      <div class="step" data-n="0">
+        <div class="step-head"><h3>기준점 채우기</h3><span class="chip c-me">직접 입력</span><span class="chip c-ai">가져오기·인터뷰</span><span class="chip c-part">일부</span></div>
+        <p>직접 적은 것은 저장하는 순간 확인된 것으로 봅니다. 노션에서 가져온 것만 확인이 필요합니다.</p>
+      </div>
+      <div class="step base">
+        <div class="step-head"><h3>기준점 (DB)</h3><span class="chip c-part">일부</span></div>
+        <div class="base-parts">
+          <div><b>기준 이력서</b><br>사람인식 섹션·칸</div>
+          <div><b>경험 사례</b><br>이력 항목에 붙는 장면</div>
+          <div class="sug"><b>자기소개 재료</b> <span class="chip c-none">제안</span><br>전환 이유·가치관·목표</div>
+          <div class="sug"><b>내가 원하는 조건</b> <span class="chip c-none">제안</span><br>지역·연봉·규모·제외</div>
+        </div>
+      </div>
+      <div class="step" data-n="1">
+        <div class="step-head"><h3>방향·스킬 추천</h3><span class="chip c-ai">AI</span><span class="chip c-none">없음</span></div>
+        <p>결과물은 검색 조건입니다(직무, 키워드, 연차).</p>
+      </div>
+      <div class="step" data-n="2">
+        <div class="step-head"><h3>공고 모으기</h3><span class="chip c-ai">AI·매일</span><span class="chip c-none">없음</span></div>
+        <p>여러 사이트에서 모으고, 같은 회사·같은 공고는 하나로 합쳐 플랫폼 이름을 여러 개 붙입니다.</p>
+        <p><span class="chip c-warn">위험</span> 사이트별 공식 API·약관을 먼저 확인해야 합니다.</p>
+      </div>
+      <div class="step gate" data-n="3">
+        <div class="step-head"><h3>공고 고르기</h3><span class="chip c-ai">AI 점수</span><span class="chip c-me">내가 지원·보류·제외</span><span class="chip c-ok">있음</span></div>
+        <p>공고 원문과 가벼운 회사 정보로 판단합니다.</p>
+      </div>
+      <div class="step" data-n="4">
+        <div class="step-head"><h3>회사 조사</h3><span class="chip c-ai">AI</span><span class="chip c-ok">있음</span></div>
+        <p>[지원]을 누른 공고만 합니다. 웹 검색 비용이 들기 때문입니다.</p>
+      </div>
+      <div class="step gate" data-n="5">
+        <div class="step-head"><h3>서류 작성</h3><span class="chip c-ai">AI가 씀</span><span class="chip c-me">내가 검토·수정</span><span class="chip c-ok">있음</span></div>
+        <ul class="sub">
+          <li>문항이 있는 공고: 공고에서 읽은 문항</li>
+          <li>자유양식: AI 추천 문항 + 내가 고르기 (③ 시안)</li>
+          <li>문항이 요구하는데 기준점에 재료가 없으면, 그때 후보를 보여 주고 고르게 함</li>
+        </ul>
+      </div>
+      <div class="step" data-n="6">
+        <div class="step-head"><h3>제출·지원 현황</h3><span class="chip c-me">내가 제출</span><span class="chip c-part">일부</span></div>
+        <p>제출본 얼리기는 있습니다. 마감일과 결과(서류 합격·탈락·면접) 기록은 없습니다.</p>
+      </div>
+      <div class="step" data-n="7">
+        <div class="step-head"><h3>결과로 되돌아보기</h3><span class="chip c-ai">AI 정리</span><span class="chip c-me">내가 반영</span><span class="chip c-none">없음</span></div>
+        <p>어떤 경험·방향이 통했는지 보고, 기준점과 추천을 고칩니다.</p>
+      </div>
+    </div>
+    <div class="loop">↺ 7의 결과가 기준점과 1(추천)로 돌아갑니다</div>
+
+    <div class="summary">
+      <b>지금 앱과 맞대면</b>
+      <span>가운데(3·4·5)는 두껍고, 앞(0·1·2)과 끝(6·7)이 비어 있습니다.</span>
+      <span>트랙별 공통본(중간층)은 없애고, 트랙은 기준점에 거는 필터(사용·요약만·제외)로만 둡니다.</span>
+    </div>
+  </section>
+
+  <!-- ② 기준점 -->
+  <section id="view-base" data-view="base" hidden>
+    <h2>기준점: 사람인식 기준 이력서 + 경험 사례</h2>
+    <p class="note" style="margin-bottom:12px">한 페이지에서 위아래로 보며 고칩니다. 트랙을 바꾸면 어떤 항목이 쓰이는지만 달라집니다.<br>규칙: 한 일(업무·프로젝트·교육 과정·활동)은 성과 한 줄 + 접힌 이야기, 증명만 하면 되는 것(학력·자격·어학·수상·공백)은 한 줄.</p>
+
+    <div class="app">
+      <div class="app-bar"><b>경험 기록</b><span>/ 기준점</span><span class="chip c-none example-tag">예시 데이터</span></div>
+      <div class="app-body">
+        <div class="base-grid">
+          <div style="display:grid;gap:14px;min-width:0">
+            <div class="toolbar">
+              <label for="track">트랙으로 보기</label>
+              <select id="track">
+                <option value="all">전체 (필터 없음)</option>
+                <option value="cloud">클라우드 엔지니어</option>
+                <option value="prod">생산관리</option>
+              </select>
+              <span class="note">트랙 필터: 사용 · 요약만 · 제외</span>
+            </div>
+
+            <div class="section">
+              <div class="section-head"><h3>기본정보</h3><span class="chip c-none">AI에 보내지 않음</span></div>
+              <div class="meta">이름 · 연락처 · 주소 · 생년월일은 따로 저장합니다.</div>
+            </div>
+
+            <div class="section">
+              <div class="section-head"><h3>학력</h3><button class="add" type="button">+ 추가</button></div>
+              <div class="item">
+                <div class="item-head"><strong>한국대학교 · 기계공학과</strong><span class="meta">2014.03 – 2020.02 · 졸업 · 3.6 / 4.5</span></div>
+                <button class="add" type="button" style="justify-self:start">+ 졸업 작품·팀 프로젝트 붙이기</button>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head"><h3>경력</h3><button class="add" type="button">+ 추가</button></div>
+              <div class="item" data-cloud="summary" data-prod="use">
+                <div class="item-head"><strong>○○전자 · 생산관리팀 · 사원</strong><span class="meta">2020.03 – 2023.06 · 3년 4개월</span><span class="scope"></span></div>
+                <div class="duties">
+                  <div class="duty">
+                    <div class="duty-name">담당 업무 · 원자재 재고 관리</div>
+                    <div class="scene perf" data-cloud="off" data-prod="use"><span class="t">원재료 로스 원인을 찾아 월말 재고 오차를 줄임</span><span class="scope"></span></div>
+                    <details class="story"><summary>이야기 보기 (자소서 재료)</summary><dl><dt>상황</dt><dd>월말 실사 때마다 장부와 실재고가 맞지 않았다</dd><dt>행동</dt><dd>투입·불량·반품 기록을 대조해 로스가 생기는 공정을 찾았다</dd><dt>결과</dt><dd>재고 오차가 줄었다</dd></dl></details>
+                  </div>
+                  <div class="duty">
+                    <div class="duty-name">담당 업무 · 생산계획 수립</div>
+                    <div class="scene perf" data-cloud="off" data-prod="use"><span class="t">안전재고 기준을 바꿔 납기 지연을 줄임</span><button class="confirm" type="button">가져옴 · 맞음 누르기</button><span class="scope"></span></div>
+                    <details class="story"><summary>이야기 보기 (자소서 재료)</summary><dl><dt>상황</dt><dd>원자재 입고가 늦어 납기를 못 맞추는 달이 있었다</dd><dt>행동</dt><dd>품목별 소요량을 보고 안전재고 기준을 다시 잡았다</dd><dt>결과</dt><dd>납기 지연이 줄었다</dd></dl></details>
+                  </div>
+                  <div class="duty">
+                    <div class="duty-name">담당 업무 · ERP 운영</div>
+                    <button class="add" type="button">+ 성과 한 줄 추가</button>
+                  </div>
+                  <div class="duty project">
+                    <div class="duty-name scene" data-cloud="use" data-prod="use"><span class="t">프로젝트 · ERP 구축 TF · 현업 담당 <span class="meta">2021.09 – 2022.03</span></span><span class="scope"></span></div>
+                    <div class="scene perf" data-cloud="use" data-prod="use"><span class="t">품목 마스터 이관 오류를 검증 시트로 잡아냄</span><span class="scope"></span></div>
+                    <details class="story"><summary>이야기 보기 (자소서 재료)</summary><dl><dt>상황</dt><dd>옛 시스템의 품목 코드가 새 ERP로 옮겨지며 어긋났다</dd><dt>행동</dt><dd>현업 쪽 검증 시트를 만들어 이관 전후를 대조했다</dd><dt>결과</dt><dd>오픈 전에 오류를 바로잡았다</dd></dl></details>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head"><h3>교육</h3><button class="add" type="button">+ 추가</button></div>
+              <div class="item" data-cloud="use" data-prod="summary">
+                <div class="item-head"><strong>클라우드 DevOps 과정 · △△아카데미</strong><span class="meta">2023.08 – 2024.01 · 900시간</span><span class="scope"></span></div>
+                <div class="duties">
+                  <div class="duty">
+                    <div class="duty-name">배운 내용</div>
+                    <div class="scene perf" data-cloud="use" data-prod="off"><span class="t">AWS·Azure 인프라를 Terraform으로 구성</span><span class="scope"></span></div>
+                    <div class="scene perf" data-cloud="use" data-prod="off"><span class="t">Kubernetes 배포와 모니터링(Prometheus·Grafana)</span><span class="scope"></span></div>
+                  </div>
+                  <div class="duty project">
+                    <div class="duty-name scene" data-cloud="use" data-prod="off"><span class="t">프로젝트 · 장애 대응 자동화 · 팀 4명 중 알림 담당 <span class="meta">2023.11 – 2024.01</span></span><span class="scope"></span></div>
+                    <div class="scene perf" data-cloud="use" data-prod="off"><span class="t">중복 알림을 묶어 담당자에게 한 번만 가게 함</span><span class="scope"></span></div>
+                    <details class="story"><summary>이야기 보기 (자소서 재료)</summary><dl><dt>상황</dt><dd>장애 하나에 알림이 수십 개씩 와서 원인을 놓쳤다</dd><dt>행동</dt><dd>알림을 서비스·원인별로 묶는 규칙을 만들었다</dd><dt>결과</dt><dd>발표 때 시연에서 알림이 한 건으로 묶였다</dd></dl></details>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head"><h3>개인 프로젝트</h3><button class="add" type="button">+ 추가</button></div>
+              <div class="item" data-cloud="use" data-prod="off">
+                <div class="item-head"><strong>가격 비교 서비스</strong><span class="meta">2024.02 – 2024.05</span><span class="scope"></span></div>
+                <div class="meta">역할: 혼자 설계·개발 · 기술: Python, PostgreSQL, AWS Lambda</div>
+                <div class="duties">
+                  <div class="duty project">
+                    <div class="scene perf" data-cloud="use" data-prod="off"><span class="t">크롤링 실패를 재시도 큐로 바꿔 빠진 상품을 없앰음</span><span class="scope"></span></div>
+                    <details class="story"><summary>이야기 보기 (자소서 재료)</summary><dl><dt>상황</dt><dd>사이트가 가끔 응답을 막아 상품이 비었다</dd><dt>행동</dt><dd>실패한 요청을 큐에 넣고 간격을 두어 다시 시도했다</dd><dt>결과</dt><dd>빈 상품이 없어졌다</dd></dl></details>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head"><h3>자격 · 어학 · 수상</h3><button class="add" type="button">+ 추가</button></div>
+              <div class="item" data-cloud="use" data-prod="summary"><div class="item-head"><strong>정보처리기사</strong><span class="meta">2023.11</span><span class="scope"></span></div></div>
+              <div class="item" data-cloud="use" data-prod="off"><div class="item-head"><strong>리눅스마스터 2급</strong><span class="meta">2023.06</span><span class="scope"></span></div></div>
+              <div class="item"><div class="item-head"><strong>TOEIC 850</strong><span class="meta">2024.03</span></div></div>
+              <div class="item" data-cloud="use" data-prod="off"><div class="item-head"><strong>교육 과정 최종 발표 우수상</strong><span class="meta">2024.01 · △△아카데미</span><span class="scope"></span></div><div class="meta">연결: 프로젝트 · 장애 대응 자동화</div></div>
+            </div>
+
+            <div class="section">
+              <div class="section-head"><h3>공백</h3><button class="add" type="button">+ 추가</button></div>
+              <div class="item"><div class="item-head"><strong>이직 준비</strong><span class="meta">2023.07 · 1개월</span></div><div class="meta">한 일: 클라우드 과정 지원·자격증 공부 (면접 대비용)</div></div>
+            </div>
+
+            <div class="section sug">
+              <div class="section-head"><h3>자기소개 재료</h3><span class="chip c-none">제안</span><button class="add" type="button">+ 추가</button></div>
+              <div class="item"><div class="item-head"><strong>커리어 전환 이유</strong></div><div class="meta">생산관리에서 ERP를 다루며 시스템 쪽 일을 하고 싶어졌다</div></div>
+              <div class="item"><div class="item-head"><strong>가치관</strong></div><div class="meta">맡은 일은 끝까지 확인한다</div></div>
+            </div>
+
+            <div class="section sug">
+              <div class="section-head"><h3>내가 원하는 조건</h3><span class="chip c-none">제안</span></div>
+              <div class="meta">지역: 서울·경기 · 연봉: 3,600만 원 이상 · 정규직 · 제외: 교대 근무</div>
+            </div>
+          </div>
+
+          <aside class="side">
+            <div class="box">
+              <b>기준점 채움</b>
+              <div class="meter">
+                <div class="meter-row"><span>기준 이력서</span><span class="meta">5 / 6 섹션</span><div class="bar"><i style="width:83%"></i></div></div>
+                <div class="meter-row"><span>확인된 사례</span><span class="meta">4 / 5</span><div class="bar"><i style="width:80%"></i></div></div>
+                <div class="meter-row"><span>사례 없는 경력·프로젝트</span><span class="meta">0</span><div class="bar"><i style="width:100%"></i></div></div>
+              </div>
+            </div>
+            <div class="box warnbox">
+              <b>확인이 필요한 것 1개</b>
+              <span class="meta">노션에서 가져온 사례 "납기 지연 줄이기"</span>
+            </div>
+            <div class="box">
+              <b>이 화면에서 달라진 점</b>
+              <span class="meta">직접 적은 것은 바로 확인됨. 확인 단계는 가져온 것에만.</span>
+              <span class="meta">트랙별 공통본 없음. 트랙은 필터.</span>
+              <span class="meta">경력은 업무 → 성과 한 줄. 이야기는 접어 둠.</span>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ③ 자유양식 -->
+  <section id="view-freeform" data-view="freeform" hidden>
+    <h2>자유양식: AI 추천 문항 + 내가 고르기</h2>
+    <p class="note" style="margin-bottom:12px">공고와 내 기준점을 보고 AI가 항목·순서·글자 수를 추천합니다. 체크와 글자 수를 바꾸면 합계가 바로 바뀝니다.</p>
+
+    <div class="app">
+      <div class="app-bar"><b>지원 공고</b><span>/ 자기소개서</span><span class="chip c-none example-tag">예시 데이터</span></div>
+      <div class="app-body">
+        <div class="posting">
+          <h3>□□테크 · 클라우드 엔지니어 (신입·경력 3년 이하)</h3>
+          <span class="meta">제출 서류: 이력서, 자기소개서(자유양식, 1,500자 이내) · 마감 2026.12.10</span>
+        </div>
+
+        <div class="rec">
+          <div class="rec-head"><h3>AI 추천 항목</h3><button class="add" type="button" id="reroll">추천 다시 받기</button></div>
+
+          <div class="q" data-q>
+            <input type="checkbox" id="q1" checked>
+            <label class="q-title" for="q1">1. 제조 현장의 문제를 시스템으로 푼 경험</label>
+            <span class="q-len"><input type="number" id="q1-len" value="550" min="100" step="50" aria-label="글자 수">자</span>
+            <span class="q-why">공고의 "현업 부서와 협업해 운영 문제 해결"과, 경력의 ERP 구축 TF가 맞닿습니다.</span>
+            <span class="q-src"><span class="chip c-ok">사례: 품목 마스터 이관 오류 줄이기</span></span>
+          </div>
+          <div class="q" data-q>
+            <input type="checkbox" id="q2" checked>
+            <label class="q-title" for="q2">2. 장애 대응을 자동화한 경험</label>
+            <span class="q-len"><input type="number" id="q2-len" value="450" min="100" step="50" aria-label="글자 수">자</span>
+            <span class="q-why">우대 사항 "모니터링·알림 체계 구축 경험"과 맞습니다.</span>
+            <span class="q-src"><span class="chip c-ok">사례: 알림 중복을 묶어 대응 시간 줄이기</span></span>
+          </div>
+          <div class="q" data-q>
+            <input type="checkbox" id="q3" checked>
+            <label class="q-title" for="q3">3. 생산관리에서 클라우드로 옮긴 이유</label>
+            <span class="q-len"><input type="number" id="q3-len" value="300" min="100" step="50" aria-label="글자 수">자</span>
+            <span class="q-why">경력 전환자라 성장과정 대신 전환 이유가 더 설득력 있습니다.</span>
+            <span class="q-src"><span class="chip c-ai">자기소개 재료: 커리어 전환 이유</span></span>
+          </div>
+          <div class="q" data-q>
+            <input type="checkbox" id="q4" checked>
+            <label class="q-title" for="q4">4. 지원동기</label>
+            <span class="q-len"><input type="number" id="q4-len" value="200" min="100" step="50" aria-label="글자 수">자</span>
+            <span class="q-why">자유양식이어도 대부분 기대하는 항목입니다.</span>
+            <span class="q-src"><span class="chip c-warn">재료 없음: 쓸 때 연결 후보를 보여 주고 고르게 합니다</span></span>
+          </div>
+        </div>
+
+        <div class="others">
+          <b>다른 항목</b>
+          <div class="others-list">
+            <label><input type="checkbox" data-extra="250">성장과정</label>
+            <label><input type="checkbox" data-extra="250">성격의 장단점</label>
+            <label><input type="checkbox" data-extra="250">입사 후 포부</label>
+            <label><input type="checkbox" data-extra="250">협업 경험</label>
+            <label><input type="checkbox" data-extra="250">가치관</label>
+          </div>
+          <div class="custom">
+            <input type="text" id="custom" placeholder="직접 추가 (예: 가장 자신 있는 기술)">
+            <button class="add" type="button" id="custom-add">추가</button>
+          </div>
+        </div>
+
+        <div class="total" id="total">
+          <div class="total-row"><span>글자 수 합계</span><b><span id="sum">1,500</span> / 1,500자</b></div>
+          <div class="bar"><i id="sum-bar" style="width:100%"></i></div>
+        </div>
+
+        <button class="go" type="button" id="go">이 항목으로 쓰기</button>
+        <span class="toast" id="toast" hidden>시안이라 실제로 쓰지는 않습니다.</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var views = ["flow", "base", "freeform"];
+  function show() {
+    var name = location.hash.replace("#", "");
+    if (views.indexOf(name) < 0) name = "flow";
+    document.querySelectorAll("[data-view]").forEach(function (el) { el.hidden = el.dataset.view !== name; });
+    document.querySelectorAll("[data-tab]").forEach(function (a) {
+      if (a.dataset.tab === name) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+  }
+  window.addEventListener("hashchange", show);
+  show();
+
+  // ② 트랙 필터
+  var LABEL = { use: "사용", summary: "요약만", off: "제외" };
+  var track = document.getElementById("track");
+  function applyTrack() {
+    var t = track.value;
+    document.querySelectorAll("[data-cloud]").forEach(function (el) {
+      var v = t === "all" ? null : el.dataset[t];
+      var badge = el.querySelector(":scope > .scope, :scope > .item-head > .scope");
+      if (badge) { badge.hidden = !v; if (v) { badge.dataset.v = v; badge.textContent = LABEL[v]; } }
+      el.classList.toggle("off", v === "off");
+    });
+  }
+  track.addEventListener("change", applyTrack);
+  applyTrack();
+  document.querySelectorAll(".confirm").forEach(function (b) {
+    b.addEventListener("click", function () { b.outerHTML = '<span class="chip c-ok">확인됨</span>'; });
+  });
+
+  // ③ 글자 수 합계
+  var LIMIT = 1500;
+  var fmt = function (n) { return n.toLocaleString("ko-KR"); };
+  function total() {
+    var sum = 0;
+    document.querySelectorAll("[data-q]").forEach(function (q) {
+      var on = q.querySelector("input[type=checkbox]").checked;
+      q.classList.toggle("unchecked", !on);
+      if (on) sum += Number(q.querySelector("input[type=number]").value) || 0;
+    });
+    document.querySelectorAll("[data-extra]").forEach(function (c) { if (c.checked) sum += Number(c.dataset.extra); });
+    document.getElementById("sum").textContent = fmt(sum);
+    document.getElementById("sum-bar").style.width = Math.min(100, sum / LIMIT * 100) + "%";
+    document.getElementById("total").classList.toggle("over", sum > LIMIT);
+  }
+  document.querySelectorAll("[data-q] input, [data-extra]").forEach(function (el) { el.addEventListener("input", total); el.addEventListener("change", total); });
+  document.getElementById("custom-add").addEventListener("click", function () {
+    var input = document.getElementById("custom");
+    var text = input.value.trim();
+    if (!text) return;
+    var label = document.createElement("label");
+    var box = document.createElement("input");
+    box.type = "checkbox"; box.checked = true; box.dataset.extra = "250";
+    box.addEventListener("change", total);
+    label.appendChild(box);
+    label.appendChild(document.createTextNode(text));
+    document.querySelector(".others-list").appendChild(label);
+    input.value = "";
+    total();
+  });
+  document.getElementById("reroll").addEventListener("click", function () { document.getElementById("toast").hidden = false; });
+  document.getElementById("go").addEventListener("click", function () { document.getElementById("toast").hidden = false; });
+  total();
+})();
+</script>
